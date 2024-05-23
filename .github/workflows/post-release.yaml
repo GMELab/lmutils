@@ -1,0 +1,23 @@
+name: post-release
+
+on:
+  push:
+    tags:
+    - "v*"
+
+jobs:
+  create-release:
+    permissions:
+      contents: write
+    name: create-release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.release.outputs.upload_url }}
+      release_version: ${{ steps.release.outputs.release_version }}
+    steps:
+    - name: Create release
+      id: release
+      uses: mrvillage/cargo-release-action/release@master
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+
