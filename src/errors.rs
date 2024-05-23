@@ -97,3 +97,39 @@ impl From<extendr_api::Error> for WriteMatrixError {
         WriteMatrixError::RError(err.to_string())
     }
 }
+
+impl From<FileParseError> for extendr_api::Error {
+    fn from(err: FileParseError) -> Self {
+        extendr_api::Error::Other(err.to_string())
+    }
+}
+
+impl From<MatParseError> for extendr_api::Error {
+    fn from(err: MatParseError) -> Self {
+        extendr_api::Error::Other(err.to_string())
+    }
+}
+
+impl From<ConvertFileError> for extendr_api::Error {
+    fn from(err: ConvertFileError) -> Self {
+        extendr_api::Error::Other(err.to_string())
+    }
+}
+
+impl From<CombineMatricesError> for extendr_api::Error {
+    fn from(err: CombineMatricesError) -> Self {
+        extendr_api::Error::Other(err.to_string())
+    }
+}
+
+impl From<ReadMatrixError> for extendr_api::Error {
+    fn from(err: ReadMatrixError) -> Self {
+        extendr_api::Error::Other(err.to_string())
+    }
+}
+
+impl From<WriteMatrixError> for extendr_api::Error {
+    fn from(err: WriteMatrixError) -> Self {
+        extendr_api::Error::Other(err.to_string())
+    }
+}
