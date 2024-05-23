@@ -38,6 +38,8 @@ pub enum ConvertFileError {
     FileParseError(#[from] FileParseError),
     #[error("read matrix error: {0}")]
     ReadMatrixError(#[from] ReadMatrixError),
+    #[error("write matrix error: {0}")]
+    WriteMatrixError(#[from] WriteMatrixError),
 }
 
 #[derive(Error, Debug)]

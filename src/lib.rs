@@ -22,7 +22,7 @@ pub fn convert_file(
     let from: File = from.parse()?;
     let to: File = to.parse()?;
     let mat = from.read_transitory(item_type)?;
-    to.write_transitory(&mat);
+    to.write_transitory(&mat)?;
     Ok(())
 }
 
