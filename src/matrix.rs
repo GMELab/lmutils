@@ -3,6 +3,7 @@ use std::{collections::HashSet, str::FromStr};
 use crate::{
     errors::{CombineMatricesError, FileParseError},
     file::File,
+    MatParseError, ReadMatrixError,
 };
 use extendr_api::{AsTypedSlice, FromRobj, MatrixConversions, RMatrix, Rinternals, Robj, Rstr};
 use faer::{reborrow::IntoConst, MatMut, MatRef};
@@ -19,16 +20,16 @@ pub enum Matrix<'a> {
 unsafe impl<'a> Send for Matrix<'a> {}
 
 impl<'a> Matrix<'a> {
-    pub fn as_ref(&mut self) -> Matrix<'_> {
-        Matrix::Ref(self.as_mat_mut())
+    pub fn as_ref(&mut self) -> Result<Matrix<'_>, ReadMatrixError> {
+        Ok(Matrix::Ref(self.as_mat_mut()?))
     }
 
-    pub fn as_mat_ref(&mut self) -> MatRef<'_, f64> {
-        self.as_mat_mut().into_const()
+    pub fn as_mat_ref(&mut self) -> Result<MatRef<'_, f64>, ReadMatrixError> {
+        Ok(self.as_mat_mut()?.into_const())
     }
 
-    pub fn as_mat_mut(&mut self) -> MatMut<'_, f64> {
-        match self {
+    pub fn as_mat_mut(&mut self) -> Result<MatMut<'_, f64>, ReadMatrixError> {
+        Ok(match self {
             Matrix::R(r) => unsafe {
                 let ptr = r.data().as_ptr() as *mut f64;
                 faer::mat::from_raw_parts_mut(ptr, r.nrows(), r.ncols(), 1, r.nrows() as isize)
@@ -39,23 +40,23 @@ impl<'a> Matrix<'a> {
                 faer::mat::from_column_major_slice_mut(m.data.as_mut(), rows, cols)
             },
             Matrix::File(f) => {
-                let m = f.read_matrix(true);
+                let m = f.read_matrix(true)?;
                 *self = Matrix::Owned(m);
-                self.as_mat_mut()
+                self.as_mat_mut()?
             },
             Matrix::Ref(r) => r.as_mut(),
-        }
+        })
     }
 
     pub fn combine(mut self, mut others: Vec<Matrix<'_>>) -> Result<Self, CombineMatricesError> {
         if others.is_empty() {
             return Ok(self);
         }
-        let self_ = self.as_mat_ref();
+        let self_ = self.as_mat_ref()?;
         let others = others
             .iter_mut()
             .map(|x| x.as_mat_ref())
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, _>>()?;
         if others.iter().any(|i| i.nrows() != self_.nrows()) {
             return Err(CombineMatricesError::MatrixDimensionsMismatch);
         }
@@ -65,7 +66,13 @@ impl<'a> Matrix<'a> {
         );
         for i in &others {
             for c in 0..i.ncols() {
-                unsafe { data.extend(i.get_unchecked(.., c).try_as_slice().unwrap()) };
+                unsafe {
+                    data.extend(
+                        i.get_unchecked(.., c)
+                            .try_as_slice()
+                            .expect("could not get slice"),
+                    )
+                };
             }
         }
         Ok(Self::Owned(OwnedMatrix::new(
@@ -75,8 +82,8 @@ impl<'a> Matrix<'a> {
         )))
     }
 
-    pub fn remove_rows(mut self, removing: &HashSet<usize>) -> Self {
-        let mat = self.as_mat_ref();
+    pub fn remove_rows(mut self, removing: &HashSet<usize>) -> Result<Self, ReadMatrixError> {
+        let mat = self.as_mat_ref()?;
         let nrows = mat.nrows();
         let ncols = mat.ncols();
         let data = mat
@@ -89,11 +96,11 @@ impl<'a> Matrix<'a> {
                     .map(move |j| unsafe { *r.get_unchecked(0, j) })
             })
             .collect();
-        Matrix::Owned(OwnedMatrix {
+        Ok(Matrix::Owned(OwnedMatrix {
             data,
             rows: nrows - removing.len(),
             cols: ncols,
-        })
+        }))
     }
 }
 
@@ -186,25 +193,30 @@ impl MatEmpty for String {
     }
 }
 
-pub trait MatParse<T> {
-    fn mat_parse(&self) -> T;
+pub trait MatParse<T, E>
+where
+    MatParseError: From<E>,
+{
+    fn mat_parse(&self) -> Result<T, MatParseError>;
 }
 
-impl<T: FromStr> MatParse<T> for Rstr
+impl<T, E> MatParse<T, E> for Rstr
 where
-    <T as FromStr>::Err: std::fmt::Debug,
+    T: FromStr<Err = E>,
+    MatParseError: From<E>,
 {
-    fn mat_parse(&self) -> T {
-        self.as_str().parse().unwrap()
+    fn mat_parse(&self) -> Result<T, MatParseError> {
+        Ok(self.as_str().parse()?)
     }
 }
 
-impl<T: FromStr> MatParse<T> for &str
+impl<T, E> MatParse<T, E> for &str
 where
-    <T as FromStr>::Err: std::fmt::Debug,
+    T: FromStr<Err = E>,
+    MatParseError: From<E>,
 {
-    fn mat_parse(&self) -> T {
-        self.parse().unwrap()
+    fn mat_parse(&self) -> Result<T, MatParseError> {
+        Ok(self.parse()?)
     }
 }
 

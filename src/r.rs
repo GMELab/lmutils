@@ -236,7 +236,10 @@ impl Rank for Vec<f64> {
         let len = self.len();
         (0..len).into_par_iter().map(move |i| {
             let val = &self[i];
-            let start = sorted.iter().position(|x| x == val).unwrap();
+            let start = sorted
+                .iter()
+                .position(|x| x == val)
+                .expect("value in unsorted list but not sorted");
             let mut end = start;
             while end < len && sorted[end] == *val {
                 end += 1;
@@ -253,7 +256,10 @@ impl<'a> Rank for &'a [f64] {
         let len = self.len();
         (0..len).into_par_iter().map(move |i| {
             let val = &self[i];
-            let start = sorted.iter().position(|x| x == val).unwrap();
+            let start = sorted
+                .iter()
+                .position(|x| x == val)
+                .expect("value in unsorted list but not sorted");
             let mut end = start;
             while end < len && sorted[end] == *val {
                 end += 1;
@@ -392,7 +398,11 @@ pub fn lm(xs: Mat<f64>, ys: &[f64]) -> Lm {
     let b = nalgebra::DVector::from_iterator(ys.len(), ys.iter().copied());
     let qr = a.clone().qr();
     let (q, r) = (qr.q(), qr.r());
-    let x = r.try_inverse().unwrap() * q.transpose() * b;
+    let x = r
+        .try_inverse()
+        .expect("could not find inverse or pseudo inverse of R")
+        * q.transpose()
+        * b;
     let intercept = x[ncols];
     let residuals = ys
         .iter()

@@ -10,6 +10,7 @@ use crate::{
     matrix::{
         FromRMatrix, MatEmpty, MatParse, OwnedMatrix, ToRMatrix, TransitoryMatrix, TransitoryType,
     },
+    MatParseError, ReadMatrixError, WriteMatrixError,
 };
 
 pub struct File {
@@ -42,14 +43,20 @@ impl File {
         self.gz
     }
 
-    pub fn read_transitory(&self, trans: TransitoryType) -> TransitoryMatrix {
-        match trans {
-            TransitoryType::Float => TransitoryMatrix::Float(self.read_matrix::<f64, _>(true)),
-            TransitoryType::Str => TransitoryMatrix::Str(self.read_matrix::<String, _>(true)),
-        }
+    pub fn read_transitory(
+        &self,
+        trans: TransitoryType,
+    ) -> Result<TransitoryMatrix, ReadMatrixError> {
+        Ok(match trans {
+            TransitoryType::Float => TransitoryMatrix::Float(self.read_matrix::<f64, _, _>(true)?),
+            TransitoryType::Str => TransitoryMatrix::Str(self.read_matrix::<String, _, _>(true)?),
+        })
     }
 
-    pub fn read_matrix<T, R>(&self, rkyv_validate: bool) -> OwnedMatrix<T>
+    pub fn read_matrix<T, R, E>(
+        &self,
+        rkyv_validate: bool,
+    ) -> Result<OwnedMatrix<T>, ReadMatrixError>
     where
         for<'a> T: MatEmpty + Clone + serde::Deserialize<'a> + ToVectorValue + rkyv::Archive,
         for<'a> Robj: AsTypedSlice<'a, R>,
@@ -57,11 +64,12 @@ impl File {
             rkyv::CheckBytes<rkyv::validation::validators::DefaultValidator<'a>>,
         [<T as rkyv::Archive>::Archived]:
             rkyv::DeserializeUnsized<[T], rkyv::de::deserializers::SharedDeserializeMap>,
-        for<'a> &'a str: MatParse<T>,
-        Rstr: MatParse<T>,
+        for<'a> &'a str: MatParse<T, E>,
+        Rstr: MatParse<T, E>,
+        MatParseError: From<E>,
         OwnedMatrix<T>: FromRMatrix<T, R>,
     {
-        let file = std::fs::File::open(&self.path).unwrap();
+        let file = std::fs::File::open(&self.path)?;
         if self.gz || self.file_type == FileType::Rdata {
             let decoder = flate2::read::GzDecoder::new(file);
             self.read_matrix_from_reader(std::io::BufReader::new(decoder), rkyv_validate)
@@ -70,11 +78,11 @@ impl File {
         }
     }
 
-    pub fn read_matrix_from_reader<T, R>(
+    pub fn read_matrix_from_reader<T, R, E>(
         &self,
         mut reader: impl std::io::Read,
         rkyv_validate: bool,
-    ) -> OwnedMatrix<T>
+    ) -> Result<OwnedMatrix<T>, ReadMatrixError>
     where
         for<'a> T: MatEmpty + Clone + serde::Deserialize<'a> + ToVectorValue + rkyv::Archive,
         for<'a> Robj: AsTypedSlice<'a, R>,
@@ -82,28 +90,29 @@ impl File {
             rkyv::CheckBytes<rkyv::validation::validators::DefaultValidator<'a>>,
         [<T as rkyv::Archive>::Archived]:
             rkyv::DeserializeUnsized<[T], rkyv::de::deserializers::SharedDeserializeMap>,
-        for<'a> &'a str: MatParse<T>,
-        Rstr: MatParse<T>,
+        for<'a> &'a str: MatParse<T, E>,
+        Rstr: MatParse<T, E>,
+        MatParseError: From<E>,
         OwnedMatrix<T>: FromRMatrix<T, R>,
     {
         let mut data = vec![];
-        match self.file_type {
+        Ok(match self.file_type {
             FileType::Csv => {
                 let mut reader = csv::Reader::from_reader(reader);
-                let headers = reader.headers().unwrap();
+                let headers = reader.headers()?;
                 // Check if headers are numeric.
                 for i in headers.iter() {
                     if i.parse::<f64>().is_err() {
                         break;
                     }
-                    data.push(i.mat_parse());
+                    data.push(i.mat_parse()?);
                 }
                 let cols = headers.len();
                 let _ = headers;
                 for result in reader.records() {
-                    let record = result.unwrap();
+                    let record = result?;
                     for field in record.iter() {
-                        data.push(field.mat_parse());
+                        data.push(field.mat_parse()?);
                     }
                 }
                 OwnedMatrix::new(data.len() / cols, cols, data).transpose()
@@ -112,88 +121,94 @@ impl File {
                 let mut reader = csv::ReaderBuilder::new()
                     .delimiter(b'\t')
                     .from_reader(reader);
-                let headers = reader.headers().unwrap();
+                let headers = reader.headers()?;
                 // Check if headers are numeric.
                 for i in headers.iter() {
                     if i.to_string().parse::<f64>().is_err() {
                         break;
                     }
-                    data.push(i.mat_parse());
+                    data.push(i.mat_parse()?);
                 }
                 let cols = headers.len();
                 let _ = headers;
                 for result in reader.records() {
-                    let record = result.unwrap();
+                    let record = result?;
                     for field in record.iter() {
-                        data.push(field.mat_parse());
+                        data.push(field.mat_parse()?);
                     }
                 }
                 OwnedMatrix::new(data.len() / cols, cols, data).transpose()
             },
-            FileType::Json => serde_json::from_reader(reader).unwrap(),
+            FileType::Json => serde_json::from_reader(reader)?,
             FileType::Txt => {
                 let mut reader = csv::ReaderBuilder::new()
                     .delimiter(b' ')
                     .from_reader(reader);
-                let headers = reader.headers().unwrap();
+                let headers = reader.headers()?;
                 // Check if headers are numeric.
                 for i in headers.iter() {
                     if i.to_string().parse::<f64>().is_err() {
                         break;
                     }
-                    data.push(i.mat_parse());
+                    data.push(i.mat_parse()?);
                 }
                 let cols = headers.len();
                 let _ = headers;
                 for result in reader.records() {
-                    let record = result.unwrap();
+                    let record = result?;
                     for field in record.iter() {
-                        data.push(field.mat_parse());
+                        data.push(field.mat_parse()?);
                     }
                 }
                 OwnedMatrix::new(data.len() / cols, cols, data).transpose()
             },
             FileType::Rdata => {
                 let mut buf = [0; 5];
-                reader.read_exact(&mut buf).unwrap();
+                reader.read_exact(&mut buf)?;
                 if buf != *b"RDX3\n" {
-                    panic!("Invalid RData file");
+                    return Err(ReadMatrixError::InvalidRdataFile);
                 }
-                let obj =
-                    Robj::from_reader(&mut reader, extendr_api::io::PstreamFormat::XdrFormat, None)
-                        .unwrap();
+                let obj = Robj::from_reader(
+                    &mut reader,
+                    extendr_api::io::PstreamFormat::XdrFormat,
+                    None,
+                )?;
                 let mat = obj
                     .as_pairlist()
-                    .unwrap()
+                    .ok_or(ReadMatrixError::InvalidRdataFile)?
                     .into_iter()
                     .next()
-                    .unwrap()
+                    .ok_or(ReadMatrixError::InvalidRdataFile)?
                     .1
                     .as_matrix()
-                    .unwrap();
+                    .ok_or(ReadMatrixError::InvalidRdataFile)?;
                 OwnedMatrix::from_rmatrix(mat)
             },
             FileType::Rkyv => {
                 let mut bytes = vec![];
-                reader.read_to_end(&mut bytes).unwrap();
+                reader.read_to_end(&mut bytes)?;
                 if rkyv_validate {
-                    rkyv::from_bytes(&bytes).unwrap()
+                    rkyv::from_bytes(&bytes)
+                        .map_err(|e| ReadMatrixError::RkyvError(e.to_string()))?
                 } else {
-                    unsafe { rkyv::from_bytes_unchecked(&bytes).unwrap() }
+                    unsafe {
+                        rkyv::from_bytes_unchecked(&bytes)
+                            .map_err(|e| ReadMatrixError::RkyvError(e.to_string()))?
+                    }
                 }
             },
-            FileType::Cbor => serde_cbor::from_reader(reader).unwrap(),
-        }
+            FileType::Cbor => serde_cbor::from_reader(reader)?,
+        })
     }
 
-    pub fn write_transitory(&self, mat: &TransitoryMatrix) {
+    pub fn write_transitory(&self, mat: &TransitoryMatrix) -> Result<(), WriteMatrixError> {
         match mat {
             TransitoryMatrix::Float(mat) => self.write_matrix(mat),
             TransitoryMatrix::Str(mat) => self.write_matrix(mat),
         }
     }
 
-    pub fn write_matrix<T, R>(&self, mat: &OwnedMatrix<T>)
+    pub fn write_matrix<T, R>(&self, mat: &OwnedMatrix<T>) -> Result<(), WriteMatrixError>
     where
         T: MatEmpty + Clone + Display + serde::Serialize + rkyv::Archive + ToVectorValue,
         for<'a> Robj: AsTypedSlice<'a, R>,
@@ -209,7 +224,7 @@ impl File {
         >,
         OwnedMatrix<T>: ToRMatrix<T, R>,
     {
-        let file = std::fs::File::create(&self.path).unwrap();
+        let file = std::fs::File::create(&self.path)?;
         if self.gz || self.file_type == FileType::Rdata {
             let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
             self.write_matrix_to_writer(std::io::BufWriter::new(encoder), mat)
@@ -222,7 +237,8 @@ impl File {
         &self,
         mut writer: impl std::io::Write,
         mat: &OwnedMatrix<T>,
-    ) where
+    ) -> Result<(), WriteMatrixError>
+    where
         T: MatEmpty + Clone + Display + serde::Serialize + rkyv::Archive + ToVectorValue,
         for<'a> Robj: AsTypedSlice<'a, R>,
         T: rkyv::Serialize<
@@ -241,17 +257,15 @@ impl File {
             FileType::Csv => {
                 let mut writer = csv::Writer::from_writer(writer);
                 for i in 0..mat.rows {
-                    writer
-                        .write_record(
-                            mat.data
-                                .iter()
-                                .skip(i)
-                                .step_by(mat.cols)
-                                .take(mat.cols)
-                                .map(|x| x.to_string())
-                                .collect::<Vec<String>>(),
-                        )
-                        .unwrap();
+                    writer.write_record(
+                        mat.data
+                            .iter()
+                            .skip(i)
+                            .step_by(mat.cols)
+                            .take(mat.cols)
+                            .map(|x| x.to_string())
+                            .collect::<Vec<String>>(),
+                    )?;
                 }
             },
             FileType::Tsv => {
@@ -259,56 +273,53 @@ impl File {
                     .delimiter(b'\t')
                     .from_writer(writer);
                 for i in 0..mat.rows {
-                    writer
-                        .write_record(
-                            mat.data
-                                .iter()
-                                .skip(i)
-                                .step_by(mat.cols)
-                                .take(mat.cols)
-                                .map(|x| x.to_string())
-                                .collect::<Vec<String>>(),
-                        )
-                        .unwrap();
+                    writer.write_record(
+                        mat.data
+                            .iter()
+                            .skip(i)
+                            .step_by(mat.cols)
+                            .take(mat.cols)
+                            .map(|x| x.to_string())
+                            .collect::<Vec<String>>(),
+                    )?;
                 }
             },
-            FileType::Json => serde_json::to_writer(writer, &mat).unwrap(),
+            FileType::Json => serde_json::to_writer(writer, &mat)?,
             FileType::Txt => {
                 let mut writer = csv::WriterBuilder::new()
                     .delimiter(b' ')
                     .from_writer(writer);
                 for i in 0..mat.rows {
-                    writer
-                        .write_record(
-                            mat.data
-                                .iter()
-                                .skip(i)
-                                .step_by(mat.cols)
-                                .take(mat.cols)
-                                .map(|x| x.to_string())
-                                .collect::<Vec<String>>(),
-                        )
-                        .unwrap();
+                    writer.write_record(
+                        mat.data
+                            .iter()
+                            .skip(i)
+                            .step_by(mat.cols)
+                            .take(mat.cols)
+                            .map(|x| x.to_string())
+                            .collect::<Vec<String>>(),
+                    )?;
                 }
             },
             FileType::Rdata => {
                 let mat = ToRMatrix::to_rmatrix(mat);
                 let pl = pairlist!(mat = mat);
-                writer.write_all(b"RDX3\n").unwrap();
+                writer.write_all(b"RDX3\n")?;
                 pl.to_writer(
                     &mut writer,
                     extendr_api::io::PstreamFormat::XdrFormat,
                     3,
                     None,
-                )
-                .unwrap();
+                )?;
             },
             FileType::Rkyv => {
-                let bytes = rkyv::to_bytes::<_, 256>(mat).unwrap();
-                writer.write_all(&bytes).unwrap();
+                let bytes = rkyv::to_bytes::<_, 256>(mat)
+                    .map_err(|e| WriteMatrixError::RkyvError(e.to_string()))?;
+                writer.write_all(&bytes)?;
             },
-            FileType::Cbor => serde_cbor::to_writer(writer, &mat).unwrap(),
+            FileType::Cbor => serde_cbor::to_writer(writer, &mat)?,
         }
+        Ok(())
     }
 }
 

@@ -21,7 +21,7 @@ pub fn convert_file(
 ) -> Result<(), ConvertFileError> {
     let from: File = from.parse()?;
     let to: File = to.parse()?;
-    let mat = from.read_transitory(item_type);
+    let mat = from.read_transitory(item_type)?;
     to.write_transitory(&mat);
     Ok(())
 }
@@ -41,31 +41,37 @@ pub fn convert_files(
 }
 
 /// Calculate R^2 and adjusted R^2 for a block and outcomes.
-pub fn calculate_r2<'a>(data: impl Transform<'a>, outcomes: impl Transform<'a>) -> Vec<R2> {
-    let mut data = data.transform();
-    let mut outcomes = outcomes.transform();
-    let data = data.as_mat_ref();
-    let outcomes = outcomes.as_mat_ref();
-    get_r2s(data, outcomes)
+pub fn calculate_r2<'a>(
+    data: impl Transform<'a>,
+    outcomes: impl Transform<'a>,
+) -> Result<Vec<R2>, ReadMatrixError> {
+    let mut data = data.transform()?;
+    let mut outcomes = outcomes.transform()?;
+    let data = data.as_mat_ref()?;
+    let outcomes = outcomes.as_mat_ref()?;
+    Ok(get_r2s(data, outcomes))
 }
 
 /// Calculate R^2 and adjusted R^2 for a list of data and outcomes.
 pub fn calculate_r2s<'a>(
     data: Vec<impl Transform<'a> + Send>,
     outcomes: impl Transform<'a>,
-) -> Vec<R2> {
-    let mut outcomes = outcomes.transform();
-    let outcomes = outcomes.as_mat_ref();
+) -> Result<Vec<R2>, ReadMatrixError> {
+    let mut outcomes = outcomes.transform()?;
+    let outcomes = outcomes.as_mat_ref()?;
     let data = data
         .into_iter()
         .map(|i| i.make_parallel_safe())
-        .collect::<Vec<_>>();
-    data.into_par_iter()
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(data
+        .into_par_iter()
         .map(|i| {
-            let mut i = i.transform();
-            let i = i.as_mat_ref();
-            get_r2s(i, outcomes)
+            let mut i = i.transform()?;
+            let i = i.as_mat_ref()?;
+            Ok(get_r2s(i, outcomes).into_iter())
         })
+        .collect::<Result<Vec<_>, ReadMatrixError>>()?
+        .into_iter()
         .flatten()
-        .collect()
+        .collect())
 }
