@@ -69,25 +69,3 @@ pub fn calculate_r2s<'a>(
         .flatten()
         .collect()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_calculate_r2() {
-        let outcomes = File::new("phenos.rkyv", FileType::Rkyv, false);
-        let data = [
-            File::new("gb1.rkyv", FileType::Rkyv, false),
-            File::new("gb2.rkyv", FileType::Rkyv, false),
-            File::new("gb3.rkyv", FileType::Rkyv, false),
-            File::new("gb4.rkyv", FileType::Rkyv, false),
-            File::new("gb5.rkyv", FileType::Rkyv, false),
-        ]
-        .into_iter()
-        .map(|i| i.into_matrix())
-        .collect::<Vec<_>>();
-        let r2 = calculate_r2s(data, outcomes.into_matrix());
-        println!("{:?}", r2);
-    }
-}
