@@ -26,20 +26,6 @@ pub fn convert_file(
     Ok(())
 }
 
-/// Convert files from one format to another.
-/// `files` is a list of tuples of file names to read and write.
-/// `item_type` is the type of data to read and write.
-/// Returns `Ok(())` if successful.
-pub fn convert_files(
-    files: &[(&str, &str)],
-    item_type: TransitoryType,
-) -> Result<(), ConvertFileError> {
-    for (from, to) in files {
-        convert_file(from, to, item_type)?;
-    }
-    Ok(())
-}
-
 /// Calculate R^2 and adjusted R^2 for a block and outcomes.
 pub fn calculate_r2<'a>(
     data: impl Transform<'a>,
