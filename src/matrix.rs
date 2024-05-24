@@ -250,6 +250,91 @@ where
             ..self
         }
     }
+
+    pub fn merge(self, other: &Self, by: &str) -> Self
+    where
+        T: PartialOrd,
+    {
+        if self.colnames().is_none() || other.colnames().is_none() {
+            return self;
+        }
+        let Self {
+            colnames: self_colnames,
+            ..
+        } = self;
+        let mut colnames = self_colnames.expect("colnames should be present");
+        let other_colnames = other.colnames().expect("colnames should be present");
+        let self_by_col_idx = colnames
+            .iter()
+            .position(|x| x == by)
+            .expect("column not found");
+        let mut self_by_col = self.data
+            [(self_by_col_idx * self.rows)..(self_by_col_idx * self.rows + self.rows)]
+            .iter()
+            .enumerate()
+            .collect::<Vec<_>>();
+        self_by_col.sort_by(|a, b| a.1.partial_cmp(b.1).expect("could not compare"));
+        let other_by_col_idx = other_colnames
+            .iter()
+            .position(|x| x == by)
+            .expect("column not found");
+        let mut other_by_col = other.data
+            [(other_by_col_idx * other.rows)..(other_by_col_idx * other.rows + other.rows)]
+            .iter()
+            .enumerate()
+            .collect::<Vec<_>>();
+        other_by_col.sort_by(|a, b| a.1.partial_cmp(b.1).expect("could not compare"));
+        // join the data from the first matrix with the data from the second matrix on the column
+        // `by`
+        // data is stored in column-major order
+        let mut self_by_col_iter = self_by_col.into_iter();
+        let mut other_by_col_iter = other_by_col.into_iter();
+        let mut matches = Vec::with_capacity(self.rows.min(other.rows));
+        while let (Some(self_by), Some(other_by)) =
+            (self_by_col_iter.next(), other_by_col_iter.next())
+        {
+            if self_by.1 == other_by.1 {
+                matches.push((self_by.0, other_by.0));
+            } else if self_by.1 < other_by.1 {
+                for self_by in self_by_col_iter.by_ref() {
+                    if self_by.1 == other_by.1 {
+                        matches.push((self_by.0, other_by.0));
+                        break;
+                    } else if self_by.1 > other_by.1 {
+                        break;
+                    }
+                }
+            } else {
+                for other_by in other_by_col_iter.by_ref() {
+                    if self_by.1 == other_by.1 {
+                        matches.push((self_by.0, other_by.0));
+                        break;
+                    } else if self_by.1 < other_by.1 {
+                        break;
+                    }
+                }
+            }
+        }
+        let mut data: Vec<T> = Vec::with_capacity(matches.len() * (self.cols + other.cols - 1));
+        for i in 0..self.cols {
+            let col = &self.data[(i * self.rows)..(i * self.rows + self.rows)];
+            data.extend(matches.iter().map(|(r, _)| col[*r].clone()));
+        }
+        for i in 0..other.cols {
+            if i == other_by_col_idx {
+                continue;
+            }
+            let col = &other.data[(i * other.rows)..(i * other.rows + other.rows)];
+            data.extend(matches.iter().map(|(_, r)| col[*r].clone()));
+        }
+        colnames.extend(other_colnames.iter().filter(|x| x != &by).cloned());
+        Self {
+            rows: matches.len(),
+            cols: self.cols + other.cols - 1,
+            data,
+            colnames: Some(colnames),
+        }
+    }
 }
 
 pub trait MatEmpty {
