@@ -5,8 +5,13 @@ use crate::{
     file::File,
     MatParseError, ReadMatrixError,
 };
-use extendr_api::{AsTypedSlice, FromRobj, MatrixConversions, RMatrix, Rinternals, Robj, Rstr};
-use faer::{reborrow::IntoConst, MatMut, MatRef};
+use extendr_api::{
+    AsTypedSlice, FromRobj, IntoRobj, MatrixConversions, RMatrix, Rinternals, Robj, Rstr,
+};
+use faer::{
+    reborrow::{IntoConst, Reborrow},
+    MatMut, MatRef,
+};
 use rayon::prelude::*;
 
 pub enum Matrix<'a> {
@@ -24,8 +29,12 @@ impl<'a> Matrix<'a> {
         Ok(Matrix::Ref(self.as_mat_mut()?))
     }
 
-    pub fn as_mat_ref(&mut self) -> Result<MatRef<'_, f64>, ReadMatrixError> {
-        Ok(self.as_mat_mut()?.into_const())
+    pub fn as_mat_ref(&self) -> Result<MatRef<'_, f64>, ReadMatrixError> {
+        Ok(unsafe {
+            (*(self as *const Self as *mut Self))
+                .as_mat_mut()?
+                .into_const()
+        })
     }
 
     pub fn as_mat_mut(&mut self) -> Result<MatMut<'_, f64>, ReadMatrixError> {
@@ -48,7 +57,7 @@ impl<'a> Matrix<'a> {
         })
     }
 
-    pub fn combine(mut self, mut others: Vec<Matrix<'_>>) -> Result<Self, CombineMatricesError> {
+    pub fn combine(self, mut others: Vec<Matrix<'_>>) -> Result<Self, CombineMatricesError> {
         if others.is_empty() {
             return Ok(self);
         }
@@ -82,7 +91,7 @@ impl<'a> Matrix<'a> {
         )))
     }
 
-    pub fn remove_rows(mut self, removing: &HashSet<usize>) -> Result<Self, ReadMatrixError> {
+    pub fn remove_rows(self, removing: &HashSet<usize>) -> Result<Self, ReadMatrixError> {
         let mat = self.as_mat_ref()?;
         let nrows = mat.nrows();
         let ncols = mat.ncols();
@@ -101,6 +110,37 @@ impl<'a> Matrix<'a> {
             rows: nrows - removing.len(),
             cols: ncols,
         }))
+    }
+
+    pub fn into_robj(self) -> Result<Robj, ReadMatrixError> {
+        Ok(match self {
+            Matrix::R(r) => r.into_robj(),
+            Matrix::Owned(m) => m.to_rmatrix().into_robj(),
+            Matrix::File(f) => f.read_matrix(true)?.into_matrix().into_robj()?,
+            Matrix::Ref(r) => r.to_rmatrix().into_robj(),
+        })
+    }
+
+    pub fn to_owned(self) -> Result<OwnedMatrix<f64>, ReadMatrixError> {
+        Ok(match self {
+            Matrix::R(r) => OwnedMatrix::from_rmatrix(r),
+            Matrix::Owned(m) => m,
+            Matrix::File(f) => f.read_matrix(true)?,
+            Matrix::Ref(r) => OwnedMatrix::new(
+                r.nrows(),
+                r.ncols(),
+                (0..r.ncols())
+                    .flat_map(|i| {
+                        r.rb()
+                            .get(.., i)
+                            .try_as_slice()
+                            .expect("matrix should have row stride 1")
+                            .iter()
+                            .copied()
+                    })
+                    .collect(),
+            ),
+        })
     }
 }
 
@@ -260,6 +300,23 @@ impl ToRMatrix<String, Rstr> for OwnedMatrix<String> {
     fn to_rmatrix(&self) -> RMatrix<Rstr> {
         todo!("Rstr does not implement ToVectorValue https://github.com/extendr/extendr/issues/770")
         // RMatrix::new_matrix(self.rows, self.cols, |r, c| (self.data[r * self.cols + c]))
+    }
+}
+
+impl<'a> ToRMatrix<f64, f64> for MatRef<'a, f64> {
+    fn to_rmatrix(&self) -> RMatrix<f64> {
+        RMatrix::new_matrix(self.nrows(), self.ncols(), |r, c| unsafe {
+            *self.get_unchecked(r, c)
+        })
+    }
+}
+
+impl<'a> ToRMatrix<f64, f64> for MatMut<'a, f64> {
+    fn to_rmatrix(&self) -> RMatrix<f64> {
+        let self_ = self.rb();
+        RMatrix::new_matrix(self.nrows(), self.ncols(), |r, c| unsafe {
+            *self_.get_unchecked(r, c)
+        })
     }
 }
 

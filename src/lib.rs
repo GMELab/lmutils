@@ -31,8 +31,8 @@ pub fn calculate_r2<'a>(
     data: impl Transform<'a>,
     outcomes: impl Transform<'a>,
 ) -> Result<Vec<R2>, ReadMatrixError> {
-    let mut data = data.transform()?;
-    let mut outcomes = outcomes.transform()?;
+    let data = data.transform()?;
+    let outcomes = outcomes.transform()?;
     let data = data.as_mat_ref()?;
     let outcomes = outcomes.as_mat_ref()?;
     Ok(get_r2s(data, outcomes))
@@ -43,7 +43,7 @@ pub fn calculate_r2s<'a>(
     data: Vec<impl Transform<'a> + Send>,
     outcomes: impl Transform<'a>,
 ) -> Result<Vec<R2>, ReadMatrixError> {
-    let mut outcomes = outcomes.transform()?;
+    let outcomes = outcomes.transform()?;
     let outcomes = outcomes.as_mat_ref()?;
     let data = data
         .into_iter()
@@ -52,7 +52,7 @@ pub fn calculate_r2s<'a>(
     Ok(data
         .into_par_iter()
         .map(|i| {
-            let mut i = i.transform()?;
+            let i = i.transform()?;
             let i = i.as_mat_ref()?;
             Ok(get_r2s(i, outcomes).into_iter())
         })

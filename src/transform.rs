@@ -150,7 +150,7 @@ where
     T: Transform<'a>,
 {
     fn transform(self) -> Result<Matrix<'a>, ReadMatrixError> {
-        let mut mat = self.parent.transform()?;
+        let mat = self.parent.transform()?;
         let rows = mat
             .as_mat_ref()?
             .par_row_chunks(1)
@@ -201,7 +201,7 @@ where
     T: Transform<'a>,
 {
     fn transform(self) -> Result<Matrix<'a>, ReadMatrixError> {
-        let mut mat = self.parent.transform()?;
+        let mat = self.parent.transform()?;
         let min_sum = self.min_sum;
         let cols = mat
             .as_mat_ref()?
