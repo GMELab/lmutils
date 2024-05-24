@@ -178,7 +178,15 @@ where
         mat.as_mat_mut()?.par_col_chunks_mut(1).for_each(|mut col| {
             let slice: &mut [f64] =
                 unsafe { std::mem::transmute(col.get_slice_unchecked((0, 0), col.nrows())) };
-            let mean = slice.iter().filter(|x| x.is_finite()).sum::<f64>() / slice.len() as f64;
+            let mut count = 0.0;
+            let mut sum = 0.0;
+            for i in slice.iter() {
+                if i.is_finite() {
+                    count += 1.0;
+                    sum += *i;
+                }
+            }
+            let mean = sum / count;
             for x in slice.iter_mut() {
                 if !x.is_finite() {
                     *x = mean;

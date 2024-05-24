@@ -335,6 +335,32 @@ where
             colnames: Some(colnames),
         }
     }
+
+    pub fn remove_column_by_name(&mut self, name: &str) {
+        if self.colnames.is_none() {
+            return;
+        }
+        let col_idx = self
+            .colnames
+            .as_ref()
+            .expect("colnames should be present")
+            .iter()
+            .position(|x| x == name)
+            .expect("column not found");
+        self.colnames
+            .as_mut()
+            .expect("colnames should be present")
+            .remove(col_idx);
+        self.data
+            .drain((col_idx * self.rows)..(col_idx * self.rows + self.rows));
+        self.cols -= 1;
+    }
+}
+
+impl OwnedMatrix<f64> {
+    pub fn as_mat_ref(&self) -> MatRef<'_, f64> {
+        faer::mat::from_column_major_slice(self.data.as_slice(), self.rows, self.cols)
+    }
 }
 
 pub trait MatEmpty {
