@@ -368,12 +368,15 @@ impl FromStr for File {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileType {
     /// Comma-separated values, row major.
+    /// Expects the first row to be the column names.
     Csv,
     /// Tab-separated values, row major.
+    /// Expects the first row to be the column names.
     Tsv,
     /// Serialized Matrix type.
     Json,
     /// Space-separated values, row major.
+    /// Expects the first row to be the column names.
     Txt,
     /// RData file.
     Rdata,
