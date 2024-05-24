@@ -10,7 +10,7 @@ use crate::{
     matrix::{
         FromRMatrix, MatEmpty, MatParse, OwnedMatrix, ToRMatrix, TransitoryMatrix, TransitoryType,
     },
-    MatParseError, ReadMatrixError, WriteMatrixError,
+    MatParseError, Matrix, ReadMatrixError, WriteMatrixError,
 };
 
 pub struct File {
@@ -321,13 +321,9 @@ impl File {
         }
         Ok(())
     }
-}
 
-impl FromStr for File {
-    type Err = FileParseError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let path = PathBuf::from(s);
+    pub fn from_path(path: impl Into<PathBuf>) -> Result<Self, FileParseError> {
+        let path = path.into();
         let extension = path
             .file_name()
             .ok_or(FileParseError::NoFileName)?
@@ -355,6 +351,14 @@ impl FromStr for File {
             file_type,
             gz,
         })
+    }
+}
+
+impl FromStr for File {
+    type Err = FileParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_path(s)
     }
 }
 
