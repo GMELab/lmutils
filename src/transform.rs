@@ -201,7 +201,7 @@ where
     T: Transform<'a>,
 {
     fn transform(self) -> Result<Matrix<'a>, ReadMatrixError> {
-        let mat = self.parent.transform()?;
+        let mut mat = self.parent.transform()?;
         let min_sum = self.min_sum;
         let cols = mat
             .as_mat_ref()?
@@ -210,10 +210,10 @@ where
             .filter(|(_, col)| col.sum() < min_sum)
             .map(|(i, _)| i)
             .collect::<HashSet<_>>();
-        let mat = mat.as_mat_ref()?;
-        let nrows = mat.nrows();
-        let ncols = mat.ncols();
-        let data = mat
+        let m = mat.as_mat_ref()?;
+        let nrows = m.nrows();
+        let ncols = m.ncols();
+        let data = m
             .par_col_chunks(1)
             .enumerate()
             .filter(|(i, _)| !cols.contains(i))
@@ -227,6 +227,13 @@ where
             data,
             rows: nrows,
             cols: ncols - cols.len(),
+            colnames: mat.colnames().map(|x| {
+                x.iter()
+                    .enumerate()
+                    .filter(|(i, _)| !cols.contains(i))
+                    .map(|(_, x)| x.to_string())
+                    .collect()
+            }),
         }))
     }
 

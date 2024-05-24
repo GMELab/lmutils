@@ -6,7 +6,8 @@ use crate::{
     MatParseError, ReadMatrixError,
 };
 use extendr_api::{
-    AsTypedSlice, FromRobj, IntoRobj, MatrixConversions, RMatrix, Rinternals, Robj, Rstr,
+    AsTypedSlice, Attributes, FromRobj, IntoRobj, MatrixConversions, RMatrix, Rinternals, Robj,
+    Rstr,
 };
 use faer::{
     reborrow::{IntoConst, Reborrow},
@@ -57,10 +58,25 @@ impl<'a> Matrix<'a> {
         })
     }
 
-    pub fn combine(self, mut others: Vec<Matrix<'_>>) -> Result<Self, CombineMatricesError> {
+    pub fn combine(mut self, mut others: Vec<Matrix<'_>>) -> Result<Self, CombineMatricesError> {
         if others.is_empty() {
             return Ok(self);
         }
+        let colnames =
+            if self.colnames().is_some() && others.iter_mut().all(|i| i.colnames().is_some()) {
+                let mut colnames = self
+                    .colnames()
+                    .unwrap()
+                    .into_iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>();
+                for i in &mut others {
+                    colnames.extend(i.colnames().unwrap().iter().map(|x| x.to_string()));
+                }
+                Some(colnames)
+            } else {
+                None
+            };
         let self_ = self.as_mat_ref()?;
         let others = others
             .iter_mut()
@@ -88,10 +104,11 @@ impl<'a> Matrix<'a> {
             self_.nrows(),
             self_.ncols() + others.iter().map(|i| i.ncols()).sum::<usize>(),
             data,
+            colnames,
         )))
     }
 
-    pub fn remove_rows(self, removing: &HashSet<usize>) -> Result<Self, ReadMatrixError> {
+    pub fn remove_rows(mut self, removing: &HashSet<usize>) -> Result<Self, ReadMatrixError> {
         let mat = self.as_mat_ref()?;
         let nrows = mat.nrows();
         let ncols = mat.ncols();
@@ -109,6 +126,9 @@ impl<'a> Matrix<'a> {
             data,
             rows: nrows - removing.len(),
             cols: ncols,
+            colnames: self
+                .colnames()
+                .map(|x| x.into_iter().map(|x| x.to_string()).collect()),
         }))
     }
 
@@ -139,8 +159,22 @@ impl<'a> Matrix<'a> {
                             .copied()
                     })
                     .collect(),
+                None,
             ),
         })
+    }
+
+    pub fn colnames(&mut self) -> Option<Vec<&str>> {
+        match self {
+            Matrix::R(r) => r.names().map(|x| x.collect()),
+            Matrix::Owned(m) => m.colnames().map(|x| x.iter().map(|x| x.as_str()).collect()),
+            Matrix::File(f) => {
+                let m = f.read_matrix(true).ok()?;
+                *self = Matrix::Owned(m);
+                self.colnames()
+            },
+            Matrix::Ref(_) => None,
+        }
     }
 }
 
@@ -154,6 +188,7 @@ where
 {
     pub(crate) rows: usize,
     pub(crate) cols: usize,
+    pub(crate) colnames: Option<Vec<String>>,
     pub(crate) data: Vec<T>,
 }
 
@@ -161,9 +196,14 @@ impl<T> OwnedMatrix<T>
 where
     T: MatEmpty + Clone,
 {
-    pub fn new(rows: usize, cols: usize, data: Vec<T>) -> Self {
+    pub fn new(rows: usize, cols: usize, data: Vec<T>, colnames: Option<Vec<String>>) -> Self {
         assert!(rows * cols == data.len());
-        Self { rows, cols, data }
+        Self {
+            rows,
+            cols,
+            data,
+            colnames,
+        }
     }
 
     pub fn transpose(self) -> Self {
@@ -174,11 +214,7 @@ where
             let i = col * self.rows + row;
             data[i] = x;
         });
-        Self {
-            data,
-            rows: self.cols,
-            cols: self.rows,
-        }
+        Self { data, ..self }
     }
 
     #[inline]
@@ -196,17 +232,22 @@ where
         &self.data
     }
 
+    #[inline]
+    pub fn colnames(&self) -> Option<&[String]> {
+        self.colnames.as_deref()
+    }
+
     pub fn remove_rows(self, removing: &HashSet<usize>) -> Self {
-        let Self { rows, cols, data } = self;
+        let Self { rows, data, .. } = self;
         Self {
             rows: rows - removing.len(),
-            cols,
             data: data
                 .into_iter()
                 .zip((0..self.rows).cycle().take(self.rows * self.cols))
                 .filter(|(_, i)| !removing.contains(i))
                 .map(|(i, _)| i)
                 .collect(),
+            ..self
         }
     }
 }
@@ -271,14 +312,20 @@ where
 impl FromRMatrix<f64, f64> for OwnedMatrix<f64> {
     fn from_rmatrix(r: RMatrix<f64>) -> OwnedMatrix<f64> {
         let data = r.data().to_vec();
-        OwnedMatrix::new(r.nrows(), r.ncols(), data)
+        let colnames = r
+            .names()
+            .map(|colnames| colnames.map(|x| x.to_string()).collect());
+        OwnedMatrix::new(r.nrows(), r.ncols(), data, colnames)
     }
 }
 
 impl FromRMatrix<String, Rstr> for OwnedMatrix<String> {
     fn from_rmatrix(r: RMatrix<Rstr>) -> OwnedMatrix<String> {
         let data = r.data().iter().map(|x| x.to_string()).collect::<Vec<_>>();
-        OwnedMatrix::new(r.nrows(), r.ncols(), data)
+        let colnames = r
+            .names()
+            .map(|colnames| colnames.map(|x| x.to_string()).collect());
+        OwnedMatrix::new(r.nrows(), r.ncols(), data, colnames)
     }
 }
 

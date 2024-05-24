@@ -10,7 +10,7 @@ use crate::{
     matrix::{
         FromRMatrix, MatEmpty, MatParse, OwnedMatrix, ToRMatrix, TransitoryMatrix, TransitoryType,
     },
-    MatParseError, Matrix, ReadMatrixError, WriteMatrixError,
+    MatParseError, ReadMatrixError, WriteMatrixError,
 };
 
 pub struct File {
@@ -101,6 +101,11 @@ impl File {
                 let mut reader = csv::Reader::from_reader(reader);
                 let headers = reader.headers()?;
                 // Check if headers are numeric.
+                let colnames = if headers.iter().next().unwrap().parse::<f64>().is_err() {
+                    Some(headers.iter().map(|x| x.to_string()).collect())
+                } else {
+                    None
+                };
                 for i in headers.iter() {
                     if i.parse::<f64>().is_err() {
                         break;
@@ -115,7 +120,7 @@ impl File {
                         data.push(field.mat_parse()?);
                     }
                 }
-                OwnedMatrix::new(data.len() / cols, cols, data).transpose()
+                OwnedMatrix::new(data.len() / cols, cols, data, colnames).transpose()
             },
             FileType::Tsv => {
                 let mut reader = csv::ReaderBuilder::new()
@@ -123,12 +128,11 @@ impl File {
                     .from_reader(reader);
                 let headers = reader.headers()?;
                 // Check if headers are numeric.
-                for i in headers.iter() {
-                    if i.to_string().parse::<f64>().is_err() {
-                        break;
-                    }
-                    data.push(i.mat_parse()?);
-                }
+                let colnames = if headers.iter().next().unwrap().parse::<f64>().is_err() {
+                    Some(headers.iter().map(|x| x.to_string()).collect())
+                } else {
+                    None
+                };
                 let cols = headers.len();
                 let _ = headers;
                 for result in reader.records() {
@@ -137,7 +141,7 @@ impl File {
                         data.push(field.mat_parse()?);
                     }
                 }
-                OwnedMatrix::new(data.len() / cols, cols, data).transpose()
+                OwnedMatrix::new(data.len() / cols, cols, data, colnames).transpose()
             },
             FileType::Json => serde_json::from_reader(reader)?,
             FileType::Txt => {
@@ -146,12 +150,11 @@ impl File {
                     .from_reader(reader);
                 let headers = reader.headers()?;
                 // Check if headers are numeric.
-                for i in headers.iter() {
-                    if i.to_string().parse::<f64>().is_err() {
-                        break;
-                    }
-                    data.push(i.mat_parse()?);
-                }
+                let colnames = if headers.iter().next().unwrap().parse::<f64>().is_err() {
+                    Some(headers.iter().map(|x| x.to_string()).collect())
+                } else {
+                    None
+                };
                 let cols = headers.len();
                 let _ = headers;
                 for result in reader.records() {
@@ -160,7 +163,7 @@ impl File {
                         data.push(field.mat_parse()?);
                     }
                 }
-                OwnedMatrix::new(data.len() / cols, cols, data).transpose()
+                OwnedMatrix::new(data.len() / cols, cols, data, colnames).transpose()
             },
             FileType::Rdata => {
                 let mut buf = [0; 5];
