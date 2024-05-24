@@ -89,6 +89,16 @@ impl<'a> Matrix<'a> {
             self_.nrows() * self_.ncols()
                 + (others.iter().map(|i| i.ncols() * i.nrows()).sum::<usize>()),
         );
+        for c in 0..self_.ncols() {
+            unsafe {
+                data.extend(
+                    self_
+                        .get_unchecked(.., c)
+                        .try_as_slice()
+                        .expect("could not get slice"),
+                )
+            };
+        }
         for i in &others {
             for c in 0..i.ncols() {
                 unsafe {
