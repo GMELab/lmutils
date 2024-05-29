@@ -321,21 +321,6 @@ pub fn variance(x: &[f64]) -> f64 {
     x.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (count - 1.0)
 }
 
-pub fn expected_r2(adj_r2: f64, n: f64, p: f64) -> f64 {
-    (1.0 - ((n - p - 1.0) / (n - 1.0))
-        * (1.0 - adj_r2)
-        * rgsl::hypergeometric::hyperg_2F1(1.0, 1.0, 0.5 * (n + 1.0), adj_r2))
-    .max(0.0)
-    .min(1.0)
-}
-
-pub fn variance_r2(adj_r2: f64, n: f64, p: f64) -> f64 {
-    (((n - p - 1.0) * (n - p + 1.0)) / (n.powi(2) - 1.0))
-        * ((1.0 - adj_r2).powi(2))
-        * (rgsl::hypergeometric::hyperg_2F1(2.0, 2.0, 0.5 * (n + 3.0), adj_r2))
-        - ((expected_r2(adj_r2, n, p) - 1.0).powi(2))
-}
-
 pub fn standardization(x: &mut [f64]) {
     let mean = mean(x);
     let sd = sd(x);

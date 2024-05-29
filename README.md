@@ -4,8 +4,6 @@ A collection of utilities for working with statistical models, particularly in t
 
 ## Installation
 
-Requires the [GNU Scientific Library](https://www.gnu.org/software/gsl/). Helpful installation instructions for GSL can be found [here](https://docs.rs/GSL/7.0.0/rgsl/#installation).
-
 ```bash
 cargo add lmutils
 ```
