@@ -2,7 +2,7 @@ mod calc;
 mod errors;
 mod file;
 mod matrix;
-mod r;
+pub mod r;
 mod transform;
 
 use rayon::prelude::*;

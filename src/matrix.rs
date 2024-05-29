@@ -30,6 +30,8 @@ impl<'a> Matrix<'a> {
         Ok(Matrix::Ref(self.as_mat_mut()?))
     }
 
+    /// Safety: This function is safe unless this function is being called in parallel and this
+    /// Matrix points to a file.
     pub fn as_mat_ref(&self) -> Result<MatRef<'_, f64>, ReadMatrixError> {
         Ok(unsafe {
             (*(self as *const Self as *mut Self))
@@ -186,6 +188,10 @@ impl<'a> Matrix<'a> {
             Matrix::Ref(_) => None,
         }
     }
+
+    pub fn from_slice(data: &'a mut [f64], rows: usize, cols: usize) -> Self {
+        Self::Ref(faer::mat::from_column_major_slice_mut(data, rows, cols))
+    }
 }
 
 #[derive(
@@ -240,6 +246,11 @@ where
     #[inline]
     pub fn data(&self) -> &[T] {
         &self.data
+    }
+
+    #[inline]
+    pub fn into_data(self) -> Vec<T> {
+        self.data
     }
 
     #[inline]
@@ -490,8 +501,8 @@ impl<'a> ToRMatrix<f64, f64> for MatMut<'a, f64> {
 
 #[derive(Copy, Clone, Debug)]
 pub enum TransitoryType {
-    Float,
-    Str,
+    Float = 0,
+    Str = 1,
 }
 
 impl<'a> FromRobj<'a> for TransitoryType {

@@ -1,5 +1,6 @@
 #![allow(dead_code)]
-use faer::Mat;
+#![allow(refining_impl_trait)]
+use faer::MatRef;
 use faer_ext::IntoNalgebra;
 use rayon::prelude::*;
 
@@ -343,10 +344,10 @@ pub fn standardization(x: &mut [f64]) {
     }
 }
 
-pub fn rm_stratification(
-    xs: Mat<f64>,
-    ep: &'_ [f64],
-) -> impl IndexedParallelIterator<Item = f64> + '_ {
+pub fn rm_stratification<'a>(
+    xs: MatRef<'a, f64>,
+    ep: &'a [f64],
+) -> impl IndexedParallelIterator<Item = f64> + 'a {
     let ep = ep.quant_norm().collect::<Vec<_>>();
     let Lm { residuals, .. } = lm(xs, &ep);
     residuals.quant_norm()
@@ -385,15 +386,16 @@ pub fn rm_heteroscedasticity(mut p: Vec<f64>, e: &[f64]) -> Vec<f64> {
     p
 }
 
+#[non_exhaustive]
 pub struct Lm {
-    residuals: Vec<f64>,
-    r2: f64,
-    adj_r2: f64,
+    pub residuals: Vec<f64>,
+    pub r2: f64,
+    pub adj_r2: f64,
 }
 
-pub fn lm(xs: Mat<f64>, ys: &[f64]) -> Lm {
+pub fn lm(xs: MatRef<'_, f64>, ys: &[f64]) -> Lm {
     let ncols = xs.ncols();
-    let a = xs.as_ref().into_nalgebra();
+    let a = xs.into_nalgebra();
     let a = a.insert_column(ncols, 1.0);
     let b = nalgebra::DVector::from_iterator(ys.len(), ys.iter().copied());
     let qr = a.clone().qr();
