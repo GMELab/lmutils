@@ -30,12 +30,14 @@ pub fn get_r2s(data: MatRef<f64>, outcomes: MatRef<f64>) -> Vec<R2> {
     let n = data.nrows();
     let m = data.ncols();
 
-    // could potentially use QR decomposition here, but in testing it seems to be slower
-    // if memory becomes a serious issue it could be a huge help
-    let c_all = data.transpose() * outcomes;
-    let c_matrix = data.transpose() * data;
-    let inv_matrix = c_matrix.partial_piv_lu().solve(Mat::<f64>::identity(m, m));
-    let betas = inv_matrix * c_all;
+    // let c_all = data.transpose() * outcomes;
+    // let c_matrix = data.transpose() * data;
+    // let inv_matrix = c_matrix.partial_piv_lu().solve(Mat::<f64>::identity(m, m));
+    // let betas = inv_matrix * c_all;
+    let qr = data.qr();
+    let q = qr.compute_thin_q();
+    let r = qr.compute_thin_r();
+    let betas = r.partial_piv_lu().solve(q.transpose() * outcomes);
     (0..outcomes.ncols())
         .into_par_iter()
         .map(|i| {
