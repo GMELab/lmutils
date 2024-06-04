@@ -315,6 +315,13 @@ pub fn sd(x: &[f64]) -> f64 {
     (x.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (count - 1.0)).sqrt()
 }
 
+pub fn mean_sd(x: &[f64]) -> (f64, f64) {
+    let mean = mean(x);
+    let count = x.len() as f64;
+    let sd = (x.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (count - 1.0)).sqrt();
+    (mean, sd)
+}
+
 pub fn variance(x: &[f64]) -> f64 {
     let mean = mean(x);
     let count = x.len() as f64;
@@ -322,8 +329,7 @@ pub fn variance(x: &[f64]) -> f64 {
 }
 
 pub fn standardization(x: &mut [f64]) {
-    let mean = mean(x);
-    let sd = sd(x);
+    let (mean, sd) = mean_sd(x);
     for x in x.iter_mut() {
         *x = (*x - mean) / sd;
     }
