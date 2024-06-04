@@ -6,8 +6,8 @@ use crate::{
     MatParseError, ReadMatrixError,
 };
 use extendr_api::{
-    AsTypedSlice, Attributes, FromRobj, IntoRobj, MatrixConversions, RMatrix, Rinternals, Robj,
-    Rstr,
+    AsTypedSlice, Attributes, Conversions, FromRobj, IntoRobj, MatrixConversions, RMatrix,
+    Rinternals, Robj, Rstr,
 };
 use faer::{
     reborrow::{IntoConst, Reborrow},
@@ -444,9 +444,14 @@ where
 impl FromRMatrix<f64, f64> for OwnedMatrix<f64> {
     fn from_rmatrix(r: RMatrix<f64>) -> OwnedMatrix<f64> {
         let data = r.data().to_vec();
-        let colnames = r
-            .names()
-            .map(|colnames| colnames.map(|x| x.to_string()).collect());
+        let colnames = r.dimnames().and_then(|mut colnames| {
+            colnames
+                .nth(1)?
+                .as_list()?
+                .into_iter()
+                .map(|(_, x)| x.as_str().map(|x| x.to_string()))
+                .collect::<Option<Vec<String>>>()
+        });
         OwnedMatrix::new(r.nrows(), r.ncols(), data, colnames)
     }
 }
@@ -454,9 +459,14 @@ impl FromRMatrix<f64, f64> for OwnedMatrix<f64> {
 impl FromRMatrix<String, Rstr> for OwnedMatrix<String> {
     fn from_rmatrix(r: RMatrix<Rstr>) -> OwnedMatrix<String> {
         let data = r.data().iter().map(|x| x.to_string()).collect::<Vec<_>>();
-        let colnames = r
-            .names()
-            .map(|colnames| colnames.map(|x| x.to_string()).collect());
+        let colnames = r.dimnames().and_then(|mut colnames| {
+            colnames
+                .nth(1)?
+                .as_list()?
+                .into_iter()
+                .map(|(_, x)| x.as_str().map(|x| x.to_string()))
+                .collect::<Option<Vec<String>>>()
+        });
         OwnedMatrix::new(r.nrows(), r.ncols(), data, colnames)
     }
 }
