@@ -13,6 +13,7 @@ use crate::{
     MatParseError, ReadMatrixError, WriteMatrixError,
 };
 
+#[derive(Debug)]
 pub struct File {
     path: PathBuf,
     file_type: FileType,

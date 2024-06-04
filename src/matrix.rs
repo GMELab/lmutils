@@ -6,7 +6,7 @@ use crate::{
     MatParseError, ReadMatrixError,
 };
 use extendr_api::{
-    AsTypedSlice, Attributes, Conversions, FromRobj, IntoRobj, MatrixConversions, RMatrix,
+    AsStrIter, AsTypedSlice, Attributes, FromRobj, IntoRobj, MatrixConversions, RMatrix,
     Rinternals, Robj, Rstr,
 };
 use faer::{
@@ -15,6 +15,7 @@ use faer::{
 };
 use rayon::prelude::*;
 
+#[derive(Debug)]
 pub enum Matrix<'a> {
     R(RMatrix<f64>),
     Owned(OwnedMatrix<f64>),
@@ -434,13 +435,13 @@ where
 }
 
 fn colnames<T>(r: &RMatrix<T>) -> Option<Vec<&str>> {
-    r.dimnames().and_then(|mut dimnames| {
+    r.dimnames().map(|mut dimnames| {
         dimnames
-            .nth(1)?
-            .as_list()?
-            .into_iter()
-            .map(|(_, x)| x.as_str())
-            .collect::<Option<Vec<_>>>()
+            .nth(1)
+            .unwrap()
+            .as_str_iter()
+            .unwrap()
+            .collect::<Vec<_>>()
     })
 }
 
