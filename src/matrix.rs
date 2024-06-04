@@ -178,7 +178,7 @@ impl<'a> Matrix<'a> {
 
     pub fn colnames(&mut self) -> Option<Vec<&str>> {
         match self {
-            Matrix::R(r) => r.names().map(|x| x.collect()),
+            Matrix::R(r) => colnames(r),
             Matrix::Owned(m) => m.colnames().map(|x| x.iter().map(|x| x.as_str()).collect()),
             Matrix::File(f) => {
                 let m = f.read_matrix(true).ok()?;
@@ -433,6 +433,17 @@ where
     }
 }
 
+fn colnames<T>(r: &RMatrix<T>) -> Option<Vec<&str>> {
+    r.dimnames().and_then(|mut dimnames| {
+        dimnames
+            .nth(1)?
+            .as_list()?
+            .into_iter()
+            .map(|(_, x)| x.as_str())
+            .collect::<Option<Vec<_>>>()
+    })
+}
+
 pub trait FromRMatrix<T, R>
 where
     for<'a> Robj: AsTypedSlice<'a, R>,
@@ -444,30 +455,24 @@ where
 impl FromRMatrix<f64, f64> for OwnedMatrix<f64> {
     fn from_rmatrix(r: RMatrix<f64>) -> OwnedMatrix<f64> {
         let data = r.data().to_vec();
-        let colnames = r.dimnames().and_then(|mut colnames| {
-            colnames
-                .nth(1)?
-                .as_list()?
-                .into_iter()
-                .map(|(_, x)| x.as_str().map(|x| x.to_string()))
-                .collect::<Option<Vec<String>>>()
-        });
-        OwnedMatrix::new(r.nrows(), r.ncols(), data, colnames)
+        OwnedMatrix::new(
+            r.nrows(),
+            r.ncols(),
+            data,
+            colnames(&r).map(|x| x.iter().map(|x| x.to_string()).collect()),
+        )
     }
 }
 
 impl FromRMatrix<String, Rstr> for OwnedMatrix<String> {
     fn from_rmatrix(r: RMatrix<Rstr>) -> OwnedMatrix<String> {
         let data = r.data().iter().map(|x| x.to_string()).collect::<Vec<_>>();
-        let colnames = r.dimnames().and_then(|mut colnames| {
-            colnames
-                .nth(1)?
-                .as_list()?
-                .into_iter()
-                .map(|(_, x)| x.as_str().map(|x| x.to_string()))
-                .collect::<Option<Vec<String>>>()
-        });
-        OwnedMatrix::new(r.nrows(), r.ncols(), data, colnames)
+        OwnedMatrix::new(
+            r.nrows(),
+            r.ncols(),
+            data,
+            colnames(&r).map(|x| x.iter().map(|x| x.to_string()).collect()),
+        )
     }
 }
 
