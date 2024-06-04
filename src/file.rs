@@ -81,7 +81,7 @@ impl File {
     pub fn read_matrix_from_reader<T, R, E>(
         &self,
         mut reader: impl std::io::Read,
-        rkyv_validate: bool,
+        _rkyv_validate: bool,
     ) -> Result<OwnedMatrix<T>, ReadMatrixError>
     where
         for<'a> T: MatEmpty + Clone + serde::Deserialize<'a> + ToVectorValue + rkyv::Archive,
@@ -190,15 +190,15 @@ impl File {
             FileType::Rkyv => {
                 let mut bytes = vec![];
                 reader.read_to_end(&mut bytes)?;
-                if rkyv_validate {
-                    rkyv::from_bytes(&bytes)
+                // if rkyv_validate {
+                //     rkyv::from_bytes(&bytes)
+                //         .map_err(|e| ReadMatrixError::RkyvError(e.to_string()))?
+                // } else {
+                unsafe {
+                    rkyv::from_bytes_unchecked(&bytes)
                         .map_err(|e| ReadMatrixError::RkyvError(e.to_string()))?
-                } else {
-                    unsafe {
-                        rkyv::from_bytes_unchecked(&bytes)
-                            .map_err(|e| ReadMatrixError::RkyvError(e.to_string()))?
-                    }
                 }
+                // }
             },
             FileType::Cbor => serde_cbor::from_reader(reader)?,
         })
