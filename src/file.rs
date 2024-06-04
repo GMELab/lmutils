@@ -48,7 +48,7 @@ impl File {
         trans: TransitoryType,
     ) -> Result<TransitoryMatrix, ReadMatrixError> {
         Ok(match trans {
-            TransitoryType::Float => TransitoryMatrix::Float(self.read_matrix::<f64, _, _>(true)?),
+            TransitoryType::Float => TransitoryMatrix::Float(self.read_matrix::<f64, _, _>(false)?),
             TransitoryType::Str => TransitoryMatrix::Str(self.read_matrix::<String, _, _>(true)?),
         })
     }
