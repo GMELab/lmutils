@@ -1,4 +1,4 @@
-use faer::{solvers::SpSolver, Mat, MatRef};
+use faer::{solvers::SpSolver, MatRef};
 use rayon::iter::IntoParallelIterator;
 use rayon::prelude::*;
 
