@@ -10,7 +10,7 @@ repository = "https://github.com/mrvillage/lmutils"
 csv = "1.3.0"
 extendr-api = { version = "0.6.0", features = ["either"] }
 faer = "0.19"
-faer-ext = { version = "0.1.0", features = ["nalgebra"] }
+faer-ext = { version = "0.1", features = ["nalgebra"] }
 flate2 = "1.0.30"
 log = "0.4.21"
 nalgebra = { version = "0.32.5", features = ["rayon"] }
