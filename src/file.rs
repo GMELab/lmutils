@@ -72,8 +72,8 @@ impl File {
     {
         let file = std::fs::File::open(&self.path)?;
         if self.gz || self.file_type == FileType::Rdata {
-            let decoder = flate2::read::GzDecoder::new(std::io::BufReader::with_capacity(
-                1024 * 1024 * 100,
+            let decoder = flate2::read::GzDecoder::new(std::io::BufReader::new(
+                // 1024 * 1024 * 100,
                 file,
             ));
             self.read_matrix_from_reader(decoder, rkyv_validate)
