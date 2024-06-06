@@ -242,7 +242,7 @@ where
             .filter(|(_, col)| col.sum() >= min_sum)
             .map(|(i, _)| i)
             .collect::<Vec<_>>();
-        if cols.len() == mat.cols() {
+        if cols.len() == mat.as_mat_ref()?.ncols() {
             return Ok(mat);
         }
         let m = mat.as_mat_ref()?;
