@@ -1,9 +1,4 @@
-use faer::{
-    get_global_parallelism,
-    linalg::zip::MatShape,
-    solvers::{SpSolver, SpSolverLstsq},
-    Mat, MatRef, Side,
-};
+use faer::{get_global_parallelism, solvers::SpSolver, Mat, MatRef, Side};
 use log::debug;
 use rayon::iter::IntoParallelIterator;
 use rayon::prelude::*;
@@ -42,7 +37,7 @@ pub fn get_r2s(data: MatRef<f64>, outcomes: MatRef<f64>) -> Vec<R2> {
     let mut c_matrix = Mat::zeros(data.ncols(), data.ncols());
     faer::linalg::matmul::triangular::matmul(
         c_matrix.as_mut(),
-        faer::linalg::matmul::triangular::BlockStructure::TriangularLower,
+        faer::linalg::matmul::triangular::BlockStructure::Rectangular,
         data.transpose(),
         faer::linalg::matmul::triangular::BlockStructure::Rectangular,
         data,
