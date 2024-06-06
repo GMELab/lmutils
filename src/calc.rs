@@ -37,7 +37,7 @@ pub fn get_r2s(data: MatRef<f64>, outcomes: MatRef<f64>) -> Vec<R2> {
     let mut c_matrix = Mat::zeros(data.ncols(), data.ncols());
     faer::linalg::matmul::triangular::matmul(
         c_matrix.as_mut(),
-        faer::linalg::matmul::triangular::BlockStructure::Rectangular,
+        faer::linalg::matmul::triangular::BlockStructure::TriangularLower,
         data.transpose(),
         faer::linalg::matmul::triangular::BlockStructure::Rectangular,
         data,
