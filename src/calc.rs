@@ -1,4 +1,5 @@
 use faer::{solvers::SpSolver, MatRef};
+use log::debug;
 use rayon::iter::IntoParallelIterator;
 use rayon::prelude::*;
 
@@ -27,6 +28,7 @@ impl R2 {
 }
 
 pub fn get_r2s(data: MatRef<f64>, outcomes: MatRef<f64>) -> Vec<R2> {
+    debug!("Calculating R2s");
     let n = data.nrows();
     let m = data.ncols();
 
@@ -36,6 +38,8 @@ pub fn get_r2s(data: MatRef<f64>, outcomes: MatRef<f64>) -> Vec<R2> {
     // let betas = inv_matrix * c_all;
     let betas = c_matrix.partial_piv_lu().solve(c_all);
 
+    debug!("Calculated betas");
+
     // having experimented with QR decomposition like below, it increased runtime by close to
     // an order of magnitude before i gave up and also more than 2xed memory usage
     // let qr = data.qr();
@@ -43,7 +47,7 @@ pub fn get_r2s(data: MatRef<f64>, outcomes: MatRef<f64>) -> Vec<R2> {
     // let r = qr.compute_thin_r();
     // let betas = r.partial_piv_lu().solve(q.transpose() * outcomes);
 
-    (0..outcomes.ncols())
+    let r2s = (0..outcomes.ncols())
         .into_par_iter()
         .map(|i| {
             let predicted = data * betas.get(.., i);
@@ -51,5 +55,7 @@ pub fn get_r2s(data: MatRef<f64>, outcomes: MatRef<f64>) -> Vec<R2> {
             let adj_r2 = 1.0 - (1.0 - r2) * (n as f64 - 1.0) / (n as f64 - m as f64 - 1.0);
             R2 { r2, adj_r2 }
         })
-        .collect()
+        .collect();
+    debug!("Calculated R2s");
+    r2s
 }

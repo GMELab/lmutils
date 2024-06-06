@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use crate::{file::FileType, matrix::OwnedMatrix, r::standardization, ReadMatrixError};
 use faer::linalg::zip::MaybeContiguous;
+use log::debug;
 use rayon::prelude::*;
 
 use crate::matrix::Matrix;
@@ -51,10 +52,12 @@ pub trait Transform<'a> {
 
 impl<'a> Transform<'a> for Matrix<'a> {
     fn transform(self) -> Result<Matrix<'a>, ReadMatrixError> {
-        Ok(match self {
+        let mat = match self {
             Matrix::File(f) => Matrix::Owned(f.read_matrix(true)?),
             _ => self,
-        })
+        };
+        debug!("Loaded matrix");
+        Ok(mat)
     }
 
     fn make_parallel_safe(self) -> Result<Matrix<'a>, ReadMatrixError>
@@ -134,6 +137,7 @@ where
                 unsafe { std::mem::transmute(col.get_slice_unchecked((0, 0), col.nrows())) };
             standardization(slice);
         });
+        debug!("Standardized matrix");
         Ok(mat)
     }
 
@@ -158,6 +162,7 @@ where
             .filter(|(_, row)| row.is_all_finite())
             .map(|(i, _)| i)
             .collect::<HashSet<_>>();
+        debug!("Removed {} rows with NaN values", rows.len());
         Matrix::remove_rows(mat, &rows)
     }
 
@@ -193,6 +198,7 @@ where
                 }
             }
         });
+        debug!("Replaced NaN values with mean");
         Ok(mat)
     }
 
@@ -231,7 +237,7 @@ where
                     .map(move |j| unsafe { *c.get_unchecked(j, 0) })
             })
             .collect();
-        Ok(Matrix::Owned(OwnedMatrix {
+        let mat = Matrix::Owned(OwnedMatrix {
             data,
             rows: nrows,
             cols: ncols - cols.len(),
@@ -242,7 +248,13 @@ where
                     .map(|(_, x)| x.to_string())
                     .collect()
             }),
-        }))
+        });
+        debug!(
+            "Removed {} columns with sum less than {}",
+            cols.len(),
+            min_sum
+        );
+        Ok(mat)
     }
 
     fn make_parallel_safe(self) -> Result<Self, ReadMatrixError> {
