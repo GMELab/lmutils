@@ -234,6 +234,7 @@ where
     fn transform(self) -> Result<Matrix<'a>, ReadMatrixError> {
         let mut mat = self.parent.transform()?;
         let min_sum = self.min_sum;
+        debug!("Computing column sums");
         let cols = mat
             .as_mat_ref()?
             .par_col_chunks(1)
@@ -247,6 +248,7 @@ where
         let m = mat.as_mat_ref()?;
         let nrows = m.nrows();
         let ncols = m.ncols();
+        debug!("Computing data");
         let data = m
             .col_iter()
             .enumerate()
