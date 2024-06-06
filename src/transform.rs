@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 
-use crate::{file::FileType, matrix::OwnedMatrix, r::standardization, ReadMatrixError};
-use faer::linalg::zip::MaybeContiguous;
+use crate::{file::FileType, matrix::OwnedMatrix, ReadMatrixError};
 use log::debug;
 use rayon::prelude::*;
 
@@ -242,18 +241,17 @@ where
             .filter(|(_, col)| col.sum() < min_sum)
             .map(|(i, _)| i)
             .collect::<HashSet<_>>();
+        // if cols.is_empty() {
+        //     return Ok(mat);
+        // }
         let m = mat.as_mat_ref()?;
         let nrows = m.nrows();
         let ncols = m.ncols();
         let data = m
-            .par_col_chunks(1)
+            .col_iter()
             .enumerate()
             .filter(|(i, _)| !cols.contains(i))
-            .flat_map(|(_, c)| {
-                (0..c.nrows())
-                    .into_par_iter()
-                    .map(move |j| unsafe { *c.get_unchecked(j, 0) })
-            })
+            .flat_map(|(_, c)| c.iter().copied())
             .collect();
         let mat = Matrix::Owned(OwnedMatrix {
             data,
