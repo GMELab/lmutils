@@ -76,7 +76,7 @@ impl File {
                 // 1024 * 1024 * 100,
                 file,
             ));
-            self.read_matrix_from_reader(decoder, rkyv_validate)
+            self.read_matrix_from_reader(std::io::BufReader::new(decoder), rkyv_validate)
         } else {
             self.read_matrix_from_reader(std::io::BufReader::new(file), rkyv_validate)
         }
