@@ -239,26 +239,24 @@ where
             .as_mat_ref()?
             .par_col_chunks(1)
             .enumerate()
-            .filter(|(_, col)| col.sum() < min_sum)
+            .filter(|(_, col)| col.sum() >= min_sum)
             .map(|(i, _)| i)
-            .collect::<HashSet<_>>();
+            .collect::<Vec<_>>();
         // if cols.is_empty() {
         //     return Ok(mat);
         // }
         let m = mat.as_mat_ref()?;
         let nrows = m.nrows();
-        let ncols = m.ncols();
+        let ncols = m.ncols() - cols.len();
         debug!("Computing data");
-        let data = m
-            .col_iter()
-            .enumerate()
-            .filter(|(i, _)| !cols.contains(i))
-            .flat_map(|(_, c)| c.iter().copied())
-            .collect();
+        let mut data = Vec::with_capacity(nrows * (ncols - cols.len()));
+        for i in &cols {
+            data.extend_from_slice(m.col(*i).try_as_slice().unwrap());
+        }
         let mat = Matrix::Owned(OwnedMatrix {
             data,
             rows: nrows,
-            cols: ncols - cols.len(),
+            cols: ncols,
             colnames: mat.colnames().map(|x| {
                 x.iter()
                     .enumerate()
