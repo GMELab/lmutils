@@ -338,8 +338,8 @@ impl File {
         if extension.len() < 2 {
             return Err(FileParseError::NoFileExtension);
         }
-        let gz = extension.len() > 2 && extension[2] == "gz";
-        let extension = extension[1];
+        let gz = extension[extension.len() - 1] == "gz";
+        let extension = extension[extension.len() - if gz { 2 } else { 1 }];
         let file_type = match extension {
             "csv" => FileType::Csv,
             "tsv" => FileType::Tsv,
