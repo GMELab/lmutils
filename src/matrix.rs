@@ -358,6 +358,27 @@ where
         }
     }
 
+    pub fn remove_column_by_name_if_exists(&mut self, name: &str) {
+        if self.colnames().is_none() {
+            return;
+        }
+        let col_idx = self
+            .colnames
+            .as_ref()
+            .expect("colnames should be present")
+            .iter()
+            .position(|x| x == name);
+        if let Some(col_idx) = col_idx {
+            self.colnames
+                .as_mut()
+                .expect("colnames should be present")
+                .remove(col_idx);
+            self.data
+                .drain((col_idx * self.rows)..(col_idx * self.rows + self.rows));
+            self.cols -= 1;
+        }
+    }
+
     pub fn remove_column_by_name(&mut self, name: &str) {
         if self.colnames.is_none() {
             return;
