@@ -132,10 +132,24 @@ where
 {
     fn transform(self) -> Result<Matrix<'a>, ReadMatrixError> {
         let mut mat = self.parent.transform()?;
-        mat.as_mat_mut()?.par_col_chunks_mut(1).for_each(|mut col| {
-            let slice: &mut [f64] =
-                unsafe { std::mem::transmute(col.get_slice_unchecked((0, 0), col.nrows())) };
-            standardization(slice);
+        mat.as_mat_mut()?.par_col_chunks_mut(1).for_each(|col| {
+            let mut mean = 0.0;
+            let mut std = 0.0;
+            faer::stats::row_mean(
+                faer::row::from_mut(&mut mean),
+                col.as_ref(),
+                faer::stats::NanHandling::Ignore,
+            );
+            faer::stats::row_varm(
+                faer::row::from_mut(&mut std),
+                col.as_ref(),
+                faer::row::from_ref(&mean),
+                faer::stats::NanHandling::Ignore,
+            );
+            let std = std.sqrt();
+            for x in col.col_mut(0).iter_mut() {
+                *x = (*x - mean) / std;
+            }
         });
         debug!("Standardized matrix");
         Ok(mat)
@@ -180,19 +194,23 @@ where
 {
     fn transform(self) -> Result<Matrix<'a>, ReadMatrixError> {
         let mut mat = self.parent.transform()?;
-        mat.as_mat_mut()?.par_col_chunks_mut(1).for_each(|mut col| {
-            let slice: &mut [f64] =
-                unsafe { std::mem::transmute(col.get_slice_unchecked((0, 0), col.nrows())) };
-            let mut count = 0.0;
-            let mut sum = 0.0;
-            for i in slice.iter() {
-                if i.is_finite() {
-                    count += 1.0;
-                    sum += *i;
-                }
-            }
-            let mean = sum / count;
-            for x in slice.iter_mut() {
+        mat.as_mat_mut()?.par_col_chunks_mut(1).for_each(|col| {
+            let mut mean = 0.0;
+            faer::stats::row_mean(
+                faer::row::from_mut(&mut mean),
+                col.as_ref(),
+                faer::stats::NanHandling::Ignore,
+            );
+            // let mut count = 0.0;
+            // let mut sum = 0.0;
+            // for i in slice.iter() {
+            //     if i.is_finite() {
+            //         count += 1.0;
+            //         sum += *i;
+            //     }
+            // }
+            // let mean = sum / count;
+            for x in col.col_mut(0).iter_mut() {
                 if !x.is_finite() {
                     *x = mean;
                 }
