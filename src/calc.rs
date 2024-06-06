@@ -1,6 +1,8 @@
 use faer::{
+    get_global_parallelism,
+    linalg::zip::MatShape,
     solvers::{SpSolver, SpSolverLstsq},
-    MatRef,
+    Mat, MatRef, Side,
 };
 use log::debug;
 use rayon::iter::IntoParallelIterator;
@@ -35,18 +37,30 @@ pub fn get_r2s(data: MatRef<f64>, outcomes: MatRef<f64>) -> Vec<R2> {
     let n = data.nrows();
     let m = data.ncols();
 
-    // let c_all = data.transpose() * outcomes;
+    let c_all = data.transpose() * outcomes;
     // let c_matrix = data.transpose() * data;
+    let mut c_matrix = Mat::zeros(data.ncols(), data.ncols());
+    faer::linalg::matmul::triangular::matmul(
+        c_matrix.as_mut(),
+        faer::linalg::matmul::triangular::BlockStructure::TriangularLower,
+        data.transpose(),
+        faer::linalg::matmul::triangular::BlockStructure::Rectangular,
+        data,
+        faer::linalg::matmul::triangular::BlockStructure::Rectangular,
+        None,
+        1.0,
+        get_global_parallelism(),
+    );
     // let inv_matrix = c_matrix.partial_piv_lu().solve(Mat::<f64>::identity(m, m));
     // let betas = inv_matrix * c_all;
-    // let betas = c_matrix.partial_piv_lu().solve(c_all);
+    let betas = c_matrix.cholesky(Side::Lower).unwrap().solve(c_all);
 
     debug!("Calculated betas");
 
     // having experimented with QR decomposition like below, it increased runtime by close to
     // an order of magnitude before i gave up and also more than 2xed memory usage
-    let qr = data.qr();
-    let betas = qr.solve_lstsq(outcomes);
+    // let qr = data.qr();
+    // let betas = qr.solve_lstsq(outcomes);
     // let q = qr.compute_thin_q();
     // let r = qr.compute_thin_r();
     // let betas = r.partial_piv_lu().solve(q.transpose() * outcomes);
