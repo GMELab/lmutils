@@ -27,6 +27,22 @@ impl R2 {
     }
 }
 
+pub fn cross_product(data: MatRef<f64>) -> Mat<f64> {
+    let mut mat = Mat::zeros(data.ncols(), data.ncols());
+    faer::linalg::matmul::triangular::matmul(
+        mat.as_mut(),
+        faer::linalg::matmul::triangular::BlockStructure::Rectangular,
+        data.transpose(),
+        faer::linalg::matmul::triangular::BlockStructure::Rectangular,
+        data,
+        faer::linalg::matmul::triangular::BlockStructure::Rectangular,
+        None,
+        1.0,
+        get_global_parallelism(),
+    );
+    mat
+}
+
 pub fn get_r2s(data: MatRef<f64>, outcomes: MatRef<f64>) -> Vec<R2> {
     debug!("Calculating R2s");
     let n = data.nrows();
