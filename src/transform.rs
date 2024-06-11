@@ -133,19 +133,19 @@ where
         let mut mat = self.parent.transform()?;
         mat.as_mat_mut()?.par_col_chunks_mut(1).for_each(|col| {
             let mut mean = 0.0;
-            let mut std = 0.0;
+            let mut var = 0.0;
             faer::stats::row_mean(
                 faer::row::from_mut(&mut mean),
                 col.as_ref(),
                 faer::stats::NanHandling::Ignore,
             );
             faer::stats::row_varm(
-                faer::row::from_mut(&mut std),
+                faer::row::from_mut(&mut var),
                 col.as_ref(),
                 faer::row::from_ref(&mean),
                 faer::stats::NanHandling::Ignore,
             );
-            let std = std.sqrt();
+            let std = var.sqrt();
             for x in col.col_mut(0).iter_mut() {
                 *x = (*x - mean) / std;
             }

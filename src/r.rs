@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 #![allow(refining_impl_trait)]
-use faer::MatRef;
+use faer::{get_global_parallelism, linalg::zip::MatShape, solvers::SpSolver, MatRef, Side};
 use faer_ext::IntoNalgebra;
 use rayon::prelude::*;
 
@@ -329,9 +329,22 @@ pub fn variance(x: &[f64]) -> f64 {
 }
 
 pub fn standardization(x: &mut [f64]) {
-    let (mean, sd) = mean_sd(x);
+    let mut mean = 0.0;
+    let mut std = 0.0;
+    faer::stats::row_mean(
+        faer::row::from_mut(&mut mean),
+        faer::mat::from_column_major_slice_mut(x, 1, x.len()).as_ref(),
+        faer::stats::NanHandling::Ignore,
+    );
+    faer::stats::row_varm(
+        faer::row::from_mut(&mut std),
+        faer::mat::from_column_major_slice_mut(x, 1, x.len()).as_ref(),
+        faer::row::from_ref(&mean),
+        faer::stats::NanHandling::Ignore,
+    );
+    let std = std.sqrt();
     for x in x.iter_mut() {
-        *x = (*x - mean) / sd;
+        *x = (*x - mean) / std;
     }
 }
 
@@ -386,21 +399,34 @@ pub struct Lm {
 
 pub fn lm(xs: MatRef<'_, f64>, ys: &[f64]) -> Lm {
     let ncols = xs.ncols();
-    let a = xs.into_nalgebra();
-    let a = a.insert_column(ncols, 1.0);
-    let b = nalgebra::DVector::from_iterator(ys.len(), ys.iter().copied());
-    let qr = a.clone().qr();
-    let (q, r) = (qr.q(), qr.r());
-    let x = r
-        .try_inverse()
-        .expect("could not find inverse or pseudo inverse of R")
-        * q.transpose()
-        * b;
-    let intercept = x[ncols];
+    let mut x = xs.to_owned();
+    x.resize_with(
+        xs.nrows(),
+        xs.ncols() + 1,
+        #[inline(always)]
+        |_, _| 1.0,
+    );
+    let y: MatRef<'_, f64> = faer::mat::from_column_major_slice(ys, ys.len(), 1);
+    let c_all = x.transpose() * y;
+    let mut c_matrix = faer::Mat::zeros(ncols + 1, ncols + 1);
+    faer::linalg::matmul::triangular::matmul(
+        c_matrix.as_mut(),
+        faer::linalg::matmul::triangular::BlockStructure::TriangularLower,
+        x.transpose(),
+        faer::linalg::matmul::triangular::BlockStructure::Rectangular,
+        &x,
+        faer::linalg::matmul::triangular::BlockStructure::Rectangular,
+        None,
+        1.0,
+        get_global_parallelism(),
+    );
+    let betas = c_matrix.cholesky(Side::Lower).unwrap().solve(c_all);
+    let betas = betas.col(0).try_as_slice().unwrap();
+    let intercept = betas[ncols];
     let residuals = ys
         .iter()
         .enumerate()
-        .map(|(i, y)| y - (intercept + (0..ncols).map(|j| x[j] * a[(i, j)]).sum::<f64>()))
+        .map(|(i, y)| y - (intercept + (0..ncols).map(|j| betas[j] * x[(i, j)]).sum::<f64>()))
         .collect::<Vec<_>>();
     let mean_y = mean(ys);
     let r2 = 1.0
