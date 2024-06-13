@@ -569,7 +569,7 @@ checksum = "4ec2a862134d2a7d32d7983ddcdd1c4923530833c9f2ea1a44fc5fa473989058"
 
 [[package]]
 name = "lmutils"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "csv",
  "extendr-api",
