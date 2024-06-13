@@ -263,6 +263,9 @@ impl File {
         match self.file_type {
             FileType::Csv => {
                 let mut writer = csv::Writer::from_writer(writer);
+                if let Some(colnames) = mat.colnames() {
+                    writer.write_record(colnames)?;
+                }
                 for i in 0..mat.rows {
                     writer.write_record(
                         mat.data
@@ -279,6 +282,9 @@ impl File {
                 let mut writer = csv::WriterBuilder::new()
                     .delimiter(b'\t')
                     .from_writer(writer);
+                if let Some(colnames) = mat.colnames() {
+                    writer.write_record(colnames)?;
+                }
                 for i in 0..mat.rows {
                     writer.write_record(
                         mat.data
@@ -296,6 +302,9 @@ impl File {
                 let mut writer = csv::WriterBuilder::new()
                     .delimiter(b' ')
                     .from_writer(writer);
+                if let Some(colnames) = mat.colnames() {
+                    writer.write_record(colnames)?;
+                }
                 for i in 0..mat.rows {
                     writer.write_record(
                         mat.data
