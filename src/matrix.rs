@@ -25,6 +25,7 @@ pub enum Matrix<'a> {
 
 /// SAFETY: This is only safe when not pointing to a .RData file.
 unsafe impl<'a> Send for Matrix<'a> {}
+unsafe impl<'a> Sync for Matrix<'a> {}
 
 impl<'a> Matrix<'a> {
     pub fn as_ref(&mut self) -> Result<Matrix<'_>, ReadMatrixError> {

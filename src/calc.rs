@@ -9,10 +9,12 @@ pub fn variance(data: &[f64]) -> f64 {
     data.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / n as f64
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct R2 {
     r2: f64,
     adj_r2: f64,
+    pub(crate) data: Option<String>,
+    pub(crate) outcome: Option<String>,
 }
 
 impl R2 {
@@ -24,6 +26,16 @@ impl R2 {
     #[inline]
     pub fn adj_r2(&self) -> f64 {
         self.adj_r2
+    }
+
+    #[inline]
+    pub fn data(&self) -> Option<&str> {
+        self.data.as_deref()
+    }
+
+    #[inline]
+    pub fn outcome(&self) -> Option<&str> {
+        self.outcome.as_deref()
     }
 }
 
@@ -82,7 +94,12 @@ pub fn get_r2s(data: MatRef<f64>, outcomes: MatRef<f64>) -> Vec<R2> {
             let predicted = data * betas.get(.., i);
             let r2 = variance(predicted.as_slice());
             let adj_r2 = 1.0 - (1.0 - r2) * (n as f64 - 1.0) / (n as f64 - m as f64 - 1.0);
-            R2 { r2, adj_r2 }
+            R2 {
+                r2,
+                adj_r2,
+                outcome: None,
+                data: None,
+            }
         })
         .collect();
     debug!("Calculated R2s");
