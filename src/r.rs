@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 #![allow(refining_impl_trait)]
-use faer::{get_global_parallelism, linalg::zip::MatShape, solvers::SpSolver, MatRef, Side};
-use faer_ext::IntoNalgebra;
+use faer::{get_global_parallelism, solvers::SpSolver, MatRef, Side};
 use rayon::prelude::*;
 
 /// Credit: code adapted from the R `qnorm` function https://github.com/wch/r-source/blob/5dec7823a19dc02fdcbb326912d1066951b12c2e/src/nmath/qnorm.c
