@@ -15,6 +15,8 @@ pub struct R2 {
     adj_r2: f64,
     pub(crate) data: Option<String>,
     pub(crate) outcome: Option<String>,
+    n: u32,
+    m: u32,
 }
 
 impl R2 {
@@ -99,6 +101,8 @@ pub fn get_r2s(data: MatRef<f64>, outcomes: MatRef<f64>) -> Vec<R2> {
                 adj_r2,
                 outcome: None,
                 data: None,
+                n: n as u32,
+                m: m as u32,
             }
         })
         .collect();
