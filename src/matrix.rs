@@ -157,7 +157,7 @@ impl<'a> Matrix<'a> {
 
     pub fn to_owned(self) -> Result<OwnedMatrix<f64>, ReadMatrixError> {
         Ok(match self {
-            Matrix::R(r) => OwnedMatrix::from_rmatrix(r),
+            Matrix::R(r) => OwnedMatrix::from_rmatrix(&r),
             Matrix::Owned(m) => m,
             Matrix::File(f) => f.read_matrix(true)?,
             Matrix::Ref(r) => OwnedMatrix::new(
@@ -178,6 +178,38 @@ impl<'a> Matrix<'a> {
         })
     }
 
+    pub fn into_owned(&mut self) -> Result<(), ReadMatrixError> {
+        match self {
+            Matrix::R(r) => {
+                *self = Matrix::Owned(OwnedMatrix::from_rmatrix(&r));
+                Ok(())
+            },
+            Matrix::Owned(_) => Ok(()),
+            Matrix::File(f) => {
+                *self = Matrix::Owned(f.read_matrix(true)?);
+                Ok(())
+            },
+            Matrix::Ref(r) => {
+                let r = r.as_ref();
+                *self = Matrix::Owned(OwnedMatrix::new(
+                    r.nrows(),
+                    r.ncols(),
+                    (0..r.ncols())
+                        .flat_map(|i| {
+                            r.get(.., i)
+                                .try_as_slice()
+                                .expect("matrix should have row stride 1")
+                                .iter()
+                                .copied()
+                        })
+                        .collect(),
+                    None,
+                ));
+                Ok(())
+            },
+        }
+    }
+
     pub fn colnames(&mut self) -> Option<Vec<&str>> {
         match self {
             Matrix::R(r) => colnames(r),
@@ -193,6 +225,24 @@ impl<'a> Matrix<'a> {
 
     pub fn from_slice(data: &'a mut [f64], rows: usize, cols: usize) -> Self {
         Self::Ref(faer::mat::from_column_major_slice_mut(data, rows, cols))
+    }
+
+    pub fn remove_column_by_name_if_exists(&mut self, name: &str) {
+        let colnames = self.colnames();
+        if colnames.is_none() {
+            return;
+        }
+        let exists = colnames
+            .expect("colnames should be present")
+            .iter()
+            .any(|x| *x == name);
+        if exists {
+            self.into_owned().expect("could not convert to owned");
+            match self {
+                Matrix::Owned(m) => m.remove_column_by_name_if_exists(name),
+                _ => unreachable!(),
+            }
+        }
     }
 }
 
@@ -472,11 +522,11 @@ where
     for<'a> Robj: AsTypedSlice<'a, R>,
     T: MatEmpty + Clone,
 {
-    fn from_rmatrix(r: RMatrix<R>) -> OwnedMatrix<T>;
+    fn from_rmatrix(r: &RMatrix<R>) -> OwnedMatrix<T>;
 }
 
 impl FromRMatrix<f64, f64> for OwnedMatrix<f64> {
-    fn from_rmatrix(r: RMatrix<f64>) -> OwnedMatrix<f64> {
+    fn from_rmatrix(r: &RMatrix<f64>) -> OwnedMatrix<f64> {
         let data = r.data().to_vec();
         OwnedMatrix::new(
             r.nrows(),
@@ -488,7 +538,7 @@ impl FromRMatrix<f64, f64> for OwnedMatrix<f64> {
 }
 
 impl FromRMatrix<String, Rstr> for OwnedMatrix<String> {
-    fn from_rmatrix(r: RMatrix<Rstr>) -> OwnedMatrix<String> {
+    fn from_rmatrix(r: &RMatrix<Rstr>) -> OwnedMatrix<String> {
         let data = r.data().iter().map(|x| x.to_string()).collect::<Vec<_>>();
         OwnedMatrix::new(
             r.nrows(),
