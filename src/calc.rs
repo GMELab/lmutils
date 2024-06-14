@@ -39,6 +39,16 @@ impl R2 {
     pub fn outcome(&self) -> Option<&str> {
         self.outcome.as_deref()
     }
+
+    #[inline]
+    pub fn n(&self) -> u32 {
+        self.n
+    }
+
+    #[inline]
+    pub fn m(&self) -> u32 {
+        self.m
+    }
 }
 
 pub fn cross_product(data: MatRef<f64>) -> Mat<f64> {
