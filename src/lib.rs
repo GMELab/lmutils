@@ -60,7 +60,7 @@ pub fn calculate_r2s<'a>(
             .collect::<Result<Vec<_>, _>>()?,
     );
     let results = Mutex::new(Vec::new());
-    let blocks_at_once = std::env::var("LMUTILS_BLOCKS_AT_ONCE")
+    let blocks_at_once = std::env::var("LMUTILS_NUM_MAIN_THREADS")
         .ok()
         .and_then(|x| x.parse::<usize>().ok())
         .unwrap_or(16)
