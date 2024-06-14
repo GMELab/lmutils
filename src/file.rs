@@ -189,7 +189,7 @@ impl File {
                     .1
                     .as_matrix()
                     .ok_or(ReadMatrixError::InvalidRdataFile)?;
-                OwnedMatrix::from_rmatrix(mat)
+                OwnedMatrix::from_rmatrix(&mat)
             },
             FileType::Rkyv => {
                 let mut bytes = vec![];
