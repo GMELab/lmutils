@@ -544,7 +544,7 @@ impl FromRMatrix<String, Rstr> for OwnedMatrix<String> {
             r.nrows(),
             r.ncols(),
             data,
-            colnames(&r).map(|x| x.iter().map(|x| x.to_string()).collect()),
+            colnames(r).map(|x| x.iter().map(|x| x.to_string()).collect()),
         )
     }
 }
@@ -559,7 +559,12 @@ where
 
 impl ToRMatrix<f64, f64> for OwnedMatrix<f64> {
     fn to_rmatrix(&self) -> RMatrix<f64> {
-        RMatrix::new_matrix(self.rows, self.cols, |r, c| self.data[r * self.cols + c])
+        RMatrix::new_matrix(
+            self.rows,
+            self.cols,
+            #[inline(always)]
+            |r, c| self.data[c * self.cols + r],
+        )
     }
 }
 
