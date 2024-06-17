@@ -147,12 +147,7 @@ impl<'a> Matrix<'a> {
     }
 
     pub fn into_robj(self) -> Result<Robj, ReadMatrixError> {
-        Ok(match self {
-            Matrix::R(r) => r.into_robj(),
-            Matrix::Owned(m) => m.to_rmatrix().into_robj(),
-            Matrix::File(f) => f.read_matrix(true)?.into_matrix().into_robj()?,
-            Matrix::Ref(r) => r.to_rmatrix().into_robj(),
-        })
+        Ok(self.to_rmatrix().into_robj())
     }
 
     pub fn to_owned(self) -> Result<OwnedMatrix<f64>, ReadMatrixError> {
@@ -563,7 +558,7 @@ impl ToRMatrix<f64, f64> for OwnedMatrix<f64> {
             self.rows,
             self.cols,
             #[inline(always)]
-            |r, c| self.data[c * self.cols + r],
+            |r, c| self.data[c * self.rows + r],
         )
     }
 }
@@ -588,6 +583,17 @@ impl<'a> ToRMatrix<f64, f64> for MatMut<'a, f64> {
         let self_ = self.rb();
         RMatrix::new_matrix(self.nrows(), self.ncols(), |r, c| unsafe {
             *self_.get_unchecked(r, c)
+        })
+    }
+}
+
+impl<'a> Matrix<'a> {
+    pub fn to_rmatrix(&self) -> Result<RMatrix<f64>, ReadMatrixError> {
+        Ok(match self {
+            Matrix::R(r) => r.as_matrix().unwrap(),
+            Matrix::Owned(m) => m.to_rmatrix(),
+            Matrix::File(f) => f.read_matrix(true)?.to_rmatrix(),
+            Matrix::Ref(r) => r.to_rmatrix(),
         })
     }
 }
