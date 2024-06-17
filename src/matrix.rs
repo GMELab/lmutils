@@ -181,7 +181,7 @@ impl<'a> Matrix<'a> {
     pub fn into_owned(&mut self) -> Result<(), ReadMatrixError> {
         match self {
             Matrix::R(r) => {
-                *self = Matrix::Owned(OwnedMatrix::from_rmatrix(&r));
+                *self = Matrix::Owned(OwnedMatrix::from_rmatrix(r));
                 Ok(())
             },
             Matrix::Owned(_) => Ok(()),
@@ -532,7 +532,7 @@ impl FromRMatrix<f64, f64> for OwnedMatrix<f64> {
             r.nrows(),
             r.ncols(),
             data,
-            colnames(&r).map(|x| x.iter().map(|x| x.to_string()).collect()),
+            colnames(r).map(|x| x.iter().map(|x| x.to_string()).collect()),
         )
     }
 }
