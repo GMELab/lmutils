@@ -88,7 +88,7 @@ pub fn calculate_r2s<'a>(
                                     r.outcome = colnames
                                         .as_ref()
                                         .and_then(|c| c.get(j).map(|c| c.to_string()))
-                                        .unwrap_or(j.to_string());
+                                        .or_else(|| Some(j.to_string()));
                                     r
                                 })
                                 .collect::<Vec<_>>();
