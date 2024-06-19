@@ -131,11 +131,12 @@ fn column_p_values<'a>(
     let or = outcomes.as_mat_ref()?;
     let data = Mutex::new(
         data.into_iter()
-            .map(|m| m.make_parallel_safe())
+            .enumerate()
+            .map(|(i, m)| m.make_parallel_safe().map(|m| (i, m)))
             .collect::<Result<Vec<_>, _>>()?,
     );
     let results = Mutex::new(Vec::new());
-    main_scope(data, |data| {
+    main_scope(data, |(i, data)| {
         let mut mat = data.transform().unwrap();
         mat.remove_column_by_name_if_exists("eid");
         mat.remove_column_by_name_if_exists("IID");
@@ -146,12 +147,12 @@ fn column_p_values<'a>(
                 let xs = data.get(.., x).try_as_slice().unwrap();
                 (0..or.ncols()).into_par_iter().map(move |y| {
                     let ys = or.get(.., y).try_as_slice().unwrap();
-                    (x, y, p_value(&xs, &ys))
+                    (x, y, p_value(xs, ys))
                 })
             })
             .map(|(x, y, mut p)| {
                 if let Some(data_names) = &data_names {
-                    p.data = Some(data_names[x].to_string());
+                    p.data = Some(data_names[i].to_string());
                 }
                 p.data_column = Some(x as u32);
                 p.outcome = colnames

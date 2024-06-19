@@ -136,6 +136,28 @@ pub struct PValue {
     pub(crate) outcome: Option<String>,
 }
 
+impl PValue {
+    #[inline]
+    pub fn p_value(&self) -> f64 {
+        self.p_value
+    }
+
+    #[inline]
+    pub fn data(&self) -> Option<&str> {
+        self.data.as_deref()
+    }
+
+    #[inline]
+    pub fn data_column(&self) -> Option<u32> {
+        self.data_column
+    }
+
+    #[inline]
+    pub fn outcome(&self) -> Option<&str> {
+        self.outcome.as_deref()
+    }
+}
+
 pub fn p_value(xs: &[f64], ys: &[f64]) -> PValue {
     debug!("Calculating p-values");
     let mut x = Mat::new();
@@ -176,8 +198,9 @@ pub fn p_value(xs: &[f64], ys: &[f64]) -> PValue {
     let t = m / se;
     let t_distr = StudentsT::new(0.0, 1.0, (xs.len() - 2) as f64).unwrap();
     PValue {
-        p_value: 2.0 * (1.0 - t_distr.cdf(t)),
+        p_value: 2.0 * (1.0 - t_distr.cdf(t.abs())),
         data: None,
+        data_column: None,
         outcome: None,
     }
 }
