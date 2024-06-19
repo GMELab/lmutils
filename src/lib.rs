@@ -94,6 +94,8 @@ pub fn calculate_r2s<'a>(
                             results.lock().unwrap().extend(r2s);
                         });
                     });
+                } else {
+                    break;
                 }
             });
         }
