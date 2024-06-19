@@ -127,3 +127,45 @@ pub fn get_r2s(data: MatRef<f64>, outcomes: MatRef<f64>) -> Vec<R2> {
     debug!("Calculated R2s");
     r2s
 }
+
+pub fn p_value(xs: &[f64], ys: &[f64]) -> f64 {
+    debug!("Calculating p-values");
+    let mut x = Mat::new();
+    x.resize_with(
+        xs.len(),
+        2,
+        #[inline(always)]
+        |i, j| if j == 0 { xs[i] } else { 1.0 },
+    );
+    let y: MatRef<'_, f64> = faer::mat::from_column_major_slice(ys, ys.len(), 1);
+    let c_all = x.transpose() * y;
+    let mut c_matrix = faer::Mat::zeros(2, 2);
+    faer::linalg::matmul::triangular::matmul(
+        c_matrix.as_mut(),
+        faer::linalg::matmul::triangular::BlockStructure::TriangularLower,
+        x.transpose(),
+        faer::linalg::matmul::triangular::BlockStructure::Rectangular,
+        &x,
+        faer::linalg::matmul::triangular::BlockStructure::Rectangular,
+        None,
+        1.0,
+        get_global_parallelism(),
+    );
+    let chol = c_matrix.cholesky(Side::Lower).unwrap();
+    let inv_matrix = chol.solve(Mat::<f64>::identity(2, 2));
+    let betas = chol.solve(c_all);
+    let m = betas.get(0, 0);
+    let intercept = betas.get(1, 0);
+    let df = xs.len() as f64 - 2.0;
+    let residuals = ys
+        .iter()
+        .zip(xs.iter())
+        .map(|(y, x)| (y - (intercept + m * x)))
+        .collect::<Vec<_>>();
+
+    let se =
+        (inv_matrix[(0, 0)] * ((residuals.iter().map(|x| x.powi(2)).sum::<f64>()) / df)).sqrt();
+    let t = m / se;
+    let t_distr = StudentsT::new(0.0, 1.0, (xs.len() - 2) as f64).unwrap();
+    2.0 * (1.0 - t_distr.cdf(t))
+}
