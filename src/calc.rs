@@ -1,7 +1,8 @@
-use faer::{get_global_parallelism, solvers::SpSolver, Mat, MatRef, Side};
+use faer::{get_global_parallelism, linalg, mat::As2D, solvers::SpSolver, Mat, MatRef, Side};
 use log::debug;
 use rayon::iter::IntoParallelIterator;
 use rayon::prelude::*;
+use statrs::distribution::{ContinuousCDF, StudentsT};
 
 pub fn variance(data: &[f64]) -> f64 {
     let n = data.len();
@@ -13,6 +14,7 @@ pub fn variance(data: &[f64]) -> f64 {
 pub struct R2 {
     r2: f64,
     adj_r2: f64,
+    predicted: Vec<f64>,
     pub(crate) data: Option<String>,
     pub(crate) outcome: Option<String>,
     n: u32,
@@ -28,6 +30,11 @@ impl R2 {
     #[inline]
     pub fn adj_r2(&self) -> f64 {
         self.adj_r2
+    }
+
+    #[inline]
+    pub fn predicted(&self) -> &[f64] {
+        &self.predicted
     }
 
     #[inline]
@@ -109,6 +116,7 @@ pub fn get_r2s(data: MatRef<f64>, outcomes: MatRef<f64>) -> Vec<R2> {
             R2 {
                 r2,
                 adj_r2,
+                predicted: predicted.as_slice().to_vec(),
                 outcome: None,
                 data: None,
                 n: n as u32,
