@@ -128,7 +128,15 @@ pub fn get_r2s(data: MatRef<f64>, outcomes: MatRef<f64>) -> Vec<R2> {
     r2s
 }
 
-pub fn p_value(xs: &[f64], ys: &[f64]) -> f64 {
+#[derive(Debug, Clone)]
+pub struct PValue {
+    p_value: f64,
+    pub(crate) data: Option<String>,
+    pub(crate) data_column: Option<u32>,
+    pub(crate) outcome: Option<String>,
+}
+
+pub fn p_value(xs: &[f64], ys: &[f64]) -> PValue {
     debug!("Calculating p-values");
     let mut x = Mat::new();
     x.resize_with(
@@ -167,5 +175,9 @@ pub fn p_value(xs: &[f64], ys: &[f64]) -> f64 {
         (inv_matrix[(0, 0)] * ((residuals.iter().map(|x| x.powi(2)).sum::<f64>()) / df)).sqrt();
     let t = m / se;
     let t_distr = StudentsT::new(0.0, 1.0, (xs.len() - 2) as f64).unwrap();
-    2.0 * (1.0 - t_distr.cdf(t))
+    PValue {
+        p_value: 2.0 * (1.0 - t_distr.cdf(t)),
+        data: None,
+        outcome: None,
+    }
 }

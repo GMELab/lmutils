@@ -6,7 +6,7 @@ use rayon::prelude::*;
 
 use crate::matrix::Matrix;
 
-pub trait Transform<'a> {
+pub trait Transform<'a>: Send {
     /// Apply the transformation to the matrix.
     fn transform(self) -> Result<Matrix<'a>, ReadMatrixError>;
 
