@@ -117,7 +117,7 @@ pub fn calculate_r2s<'a>(
     Ok(results.into_inner().unwrap())
 }
 
-fn column_p_values<'a>(
+pub fn column_p_values<'a>(
     data: Vec<impl Transform<'a>>,
     outcomes: impl Transform<'a>,
     data_names: Option<Vec<&str>>,
