@@ -1,4 +1,4 @@
-use faer::{get_global_parallelism, linalg, mat::As2D, solvers::SpSolver, Mat, MatRef, Side};
+use faer::{get_global_parallelism, solvers::SpSolver, Mat, MatRef, Side};
 use log::debug;
 use rayon::iter::IntoParallelIterator;
 use rayon::prelude::*;
