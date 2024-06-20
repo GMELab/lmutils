@@ -648,6 +648,18 @@ impl<'a> IntoMatrix<'a> for RMatrix<f64> {
     }
 }
 
+impl<'a> IntoMatrix<'a> for RMatrix<i32> {
+    fn into_matrix(self) -> Matrix<'a> {
+        let data = self.data().iter().map(|x| *x as f64).collect();
+        Matrix::Owned(OwnedMatrix::new(
+            self.nrows(),
+            self.ncols(),
+            data,
+            colnames(&self).map(|x| x.iter().map(|x| x.to_string()).collect()),
+        ))
+    }
+}
+
 impl<'a> IntoMatrix<'a> for OwnedMatrix<f64> {
     fn into_matrix(self) -> Matrix<'a> {
         Matrix::Owned(self)
