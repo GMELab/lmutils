@@ -7,6 +7,7 @@ mod transform;
 
 use std::sync::Mutex;
 
+use log::info;
 use rayon::prelude::*;
 
 pub use crate::{calc::*, errors::*, file::*, matrix::*, transform::*};
@@ -75,7 +76,7 @@ pub fn calculate_r2<'a>(
 
 /// Calculate R^2 and adjusted R^2 for a list of data and outcomes.
 pub fn calculate_r2s<'a>(
-    data: Vec<impl Transform<'a> + Send>,
+    data: Vec<impl Transform<'a>>,
     outcomes: impl Transform<'a>,
     data_names: Option<Vec<&str>>,
 ) -> Result<Vec<R2>, ReadMatrixError> {
@@ -94,6 +95,14 @@ pub fn calculate_r2s<'a>(
     );
     let results = Mutex::new(Vec::new());
     main_scope(data, |(i, data)| {
+        info!(
+            "Calculating R^2 for data set {}",
+            if let Some(data_names) = &data_names {
+                data_names[i].to_string()
+            } else {
+                i.to_string()
+            }
+        );
         let mut mat = data.transform().unwrap();
         mat.remove_column_by_name_if_exists("eid");
         mat.remove_column_by_name_if_exists("IID");
@@ -113,6 +122,14 @@ pub fn calculate_r2s<'a>(
             })
             .collect::<Vec<_>>();
         results.lock().unwrap().extend(r2s);
+        info!(
+            "Finished calculating R^2 for data set {}",
+            if let Some(data_names) = &data_names {
+                data_names[i].to_string()
+            } else {
+                i.to_string()
+            }
+        );
     });
     Ok(results.into_inner().unwrap())
 }
@@ -137,6 +154,14 @@ pub fn column_p_values<'a>(
     );
     let results = Mutex::new(Vec::new());
     main_scope(data, |(i, data)| {
+        info!(
+            "Calculating p-values for data set {}",
+            if let Some(data_names) = &data_names {
+                data_names[i].to_string()
+            } else {
+                i.to_string()
+            }
+        );
         let mut mat = data.transform().unwrap();
         mat.remove_column_by_name_if_exists("eid");
         mat.remove_column_by_name_if_exists("IID");
@@ -154,7 +179,7 @@ pub fn column_p_values<'a>(
                 if let Some(data_names) = &data_names {
                     p.data = Some(data_names[i].to_string());
                 }
-                p.data_column = Some(x as u32);
+                p.data_column = Some((x + 1) as u32);
                 p.outcome = colnames
                     .as_ref()
                     .and_then(|c| c.get(y).map(|c| c.to_string()))
@@ -163,6 +188,14 @@ pub fn column_p_values<'a>(
             })
             .collect::<Vec<_>>();
         results.lock().unwrap().extend(p_values);
+        info!(
+            "Finished calculating p-values for data set {}",
+            if let Some(data_names) = &data_names {
+                data_names[i].to_string()
+            } else {
+                i.to_string()
+            }
+        );
     });
     Ok(results.into_inner().unwrap())
 }
