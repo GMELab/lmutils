@@ -565,6 +565,7 @@ dependencies = [
  "faer",
  "flate2",
  "log",
+ "rand",
  "rayon",
  "rkyv",
  "serde",

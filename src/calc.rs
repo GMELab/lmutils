@@ -1,13 +1,29 @@
-use faer::{get_global_parallelism, solvers::SpSolver, Mat, MatRef, Side};
-use log::debug;
+use faer::{
+    get_global_parallelism,
+    mat::AsMatRef,
+    solvers::{SpSolver, Svd},
+    Mat, MatRef, Side,
+};
+use log::{debug, warn};
 use rayon::iter::IntoParallelIterator;
 use rayon::prelude::*;
 use statrs::distribution::{ContinuousCDF, StudentsT};
 
 pub fn variance(data: &[f64]) -> f64 {
-    let n = data.len();
-    let mean = data.iter().sum::<f64>() / n as f64;
-    data.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / n as f64
+    let mut mean = 0.0;
+    let mut var = 0.0;
+    faer::stats::row_mean(
+        faer::row::from_mut(&mut mean),
+        faer::mat::from_column_major_slice(data, data.len(), 1),
+        faer::stats::NanHandling::Ignore,
+    );
+    faer::stats::row_varm(
+        faer::row::from_mut(&mut var),
+        faer::mat::from_column_major_slice(data, data.len(), 1),
+        faer::row::from_ref(&mean),
+        faer::stats::NanHandling::Ignore,
+    );
+    var
 }
 
 #[derive(Debug, Clone)]
@@ -84,7 +100,7 @@ pub fn get_r2s(data: MatRef<f64>, outcomes: MatRef<f64>) -> Vec<R2> {
     let mut c_matrix = Mat::zeros(data.ncols(), data.ncols());
     faer::linalg::matmul::triangular::matmul(
         c_matrix.as_mut(),
-        faer::linalg::matmul::triangular::BlockStructure::TriangularLower,
+        faer::linalg::matmul::triangular::BlockStructure::Rectangular,
         data.transpose(),
         faer::linalg::matmul::triangular::BlockStructure::Rectangular,
         data,
@@ -95,7 +111,13 @@ pub fn get_r2s(data: MatRef<f64>, outcomes: MatRef<f64>) -> Vec<R2> {
     );
     // let inv_matrix = c_matrix.partial_piv_lu().solve(Mat::<f64>::identity(m, m));
     // let betas = inv_matrix * c_all;
-    let betas = c_matrix.cholesky(Side::Lower).unwrap().solve(c_all);
+    let betas = match c_matrix.cholesky(Side::Lower) {
+        Ok(chol) => chol.solve(c_all),
+        Err(_) => {
+            warn!("Usinng pseudo inverse");
+            Svd::new(c_matrix.as_mat_ref()).pseudoinverse() * &c_all
+        },
+    };
 
     debug!("Calculated betas");
 
