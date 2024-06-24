@@ -114,7 +114,7 @@ pub fn get_r2s(data: MatRef<f64>, outcomes: MatRef<f64>) -> Vec<R2> {
     let betas = match c_matrix.cholesky(Side::Lower) {
         Ok(chol) => chol.solve(c_all),
         Err(_) => {
-            warn!("Usinng pseudo inverse");
+            warn!("Using pseudo inverse");
             Svd::new(c_matrix.as_mat_ref()).pseudoinverse() * &c_all
         },
     };
