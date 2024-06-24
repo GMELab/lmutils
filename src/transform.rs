@@ -247,9 +247,9 @@ where
         }
         let m = mat.as_mat_ref()?;
         let nrows = m.nrows();
-        let ncols = m.ncols() - cols.len();
+        let ncols = cols.len();
         debug!("Computing data");
-        let mut data = Vec::with_capacity(nrows * (ncols - cols.len()));
+        let mut data = Vec::with_capacity(nrows * ncols);
         for i in &cols {
             data.extend_from_slice(m.col(*i).try_as_slice().unwrap());
         }
