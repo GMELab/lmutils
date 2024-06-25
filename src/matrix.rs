@@ -277,7 +277,12 @@ where
             let i = col * self.rows + row;
             data[i] = x;
         });
-        Self { data, ..self }
+        Self {
+            data,
+            rows: self.cols,
+            cols: self.rows,
+            colnames: None,
+        }
     }
 
     #[inline]
