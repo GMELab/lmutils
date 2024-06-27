@@ -124,7 +124,9 @@ impl File {
                         data.push(field.mat_parse()?);
                     }
                 }
-                OwnedMatrix::new(data.len() / cols, cols, data, colnames).transpose()
+                let mut mat = OwnedMatrix::new(cols, data.len() / cols, data, None).transpose();
+                mat.colnames = colnames;
+                mat
             },
             FileType::Tsv => {
                 let mut reader = csv::ReaderBuilder::new()
@@ -145,7 +147,9 @@ impl File {
                         data.push(field.mat_parse()?);
                     }
                 }
-                OwnedMatrix::new(data.len() / cols, cols, data, colnames).transpose()
+                let mut mat = OwnedMatrix::new(cols, data.len() / cols, data, None).transpose();
+                mat.colnames = colnames;
+                mat
             },
             FileType::Json => serde_json::from_reader(reader)?,
             FileType::Txt => {
@@ -167,7 +171,9 @@ impl File {
                         data.push(field.mat_parse()?);
                     }
                 }
-                OwnedMatrix::new(data.len() / cols, cols, data, colnames).transpose()
+                let mut mat = OwnedMatrix::new(cols, data.len() / cols, data, None).transpose();
+                mat.colnames = colnames;
+                mat
             },
             FileType::Rdata => {
                 let mut buf = [0; 5];
