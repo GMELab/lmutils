@@ -426,7 +426,6 @@ where
             for i in i..self.rows {
                 removing.insert(i);
             }
-            println!("{:?}", removing);
             self.remove_rows_mut(&removing);
         } else {
             fn binary_search<T>(data: &[T], x: &T) -> Option<usize>
