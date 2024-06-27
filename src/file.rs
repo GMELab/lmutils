@@ -277,7 +277,7 @@ impl File {
                         mat.data
                             .iter()
                             .skip(i)
-                            .step_by(mat.cols)
+                            .step_by(mat.rows)
                             .take(mat.cols)
                             .map(|x| x.to_string())
                             .collect::<Vec<String>>(),
@@ -296,7 +296,7 @@ impl File {
                         mat.data
                             .iter()
                             .skip(i)
-                            .step_by(mat.cols)
+                            .step_by(mat.rows)
                             .take(mat.cols)
                             .map(|x| x.to_string())
                             .collect::<Vec<String>>(),
@@ -316,7 +316,7 @@ impl File {
                         mat.data
                             .iter()
                             .skip(i)
-                            .step_by(mat.cols)
+                            .step_by(mat.rows)
                             .take(mat.cols)
                             .map(|x| x.to_string())
                             .collect::<Vec<String>>(),
