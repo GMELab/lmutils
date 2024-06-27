@@ -159,7 +159,7 @@ impl File {
                 let headers = reader.headers()?;
                 // Check if headers are numeric.
                 let colnames = if headers.iter().next().unwrap().parse::<f64>().is_err() {
-                    Some(headers.iter().map(|x| x.to_string()).collect())
+                    Some(headers.iter().map(|x| x.to_string()).collect::<Vec<_>>())
                 } else {
                     None
                 };

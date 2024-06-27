@@ -7,7 +7,7 @@ use crate::{
     MatParseError, ReadMatrixError,
 };
 use extendr_api::{
-    AsStrIter, AsTypedSlice, Attributes, FromRobj, IntoRobj, MatrixConversions, RMatrix,
+    wrapper, AsStrIter, AsTypedSlice, Attributes, FromRobj, IntoRobj, MatrixConversions, RMatrix,
     Rinternals, Robj, Rstr,
 };
 use faer::{
@@ -273,9 +273,9 @@ where
     pub fn transpose(self) -> Self {
         let mut data = vec![T::empty(); self.data.len()];
         self.data.into_iter().enumerate().for_each(|(i, x)| {
-            let row = i / self.cols;
-            let col = i % self.cols;
-            let i = col * self.rows + row;
+            let new_row = i / self.rows;
+            let new_col = i % self.rows;
+            let i = new_col * self.cols + new_row;
             data[i] = x;
         });
         Self {
@@ -707,12 +707,21 @@ where
 
 impl ToRMatrix<f64, f64> for OwnedMatrix<f64> {
     fn to_rmatrix(&self) -> RMatrix<f64> {
-        RMatrix::new_matrix(
+        use extendr_api::prelude::*;
+
+        let mat = RMatrix::new_matrix(
             self.rows,
             self.cols,
             #[inline(always)]
             |r, c| self.data[c * self.rows + r],
-        )
+        );
+        let mut dimnames = List::from_values([NULL, NULL]);
+        if let Some(colnames) = self.colnames() {
+            dimnames.set_elt(1, colnames.into_robj()).unwrap();
+        }
+        mat.set_attrib(wrapper::symbol::dimnames_symbol(), dimnames)
+            .unwrap();
+        mat
     }
 }
 
