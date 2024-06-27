@@ -1,3 +1,4 @@
+use core::panic;
 use std::{collections::HashSet, str::FromStr};
 
 use crate::{
@@ -321,6 +322,153 @@ where
                 .map(|(i, _)| i)
                 .collect(),
             ..self
+        }
+    }
+
+    pub fn remove_rows_mut(&mut self, removing: &HashSet<usize>)
+    where
+        T: Copy,
+    {
+        self.data = self
+            .data
+            .iter()
+            .zip((0..self.rows).cycle().take(self.rows * self.cols))
+            .filter(|(_, i)| !removing.contains(i))
+            .map(|(i, _)| *i)
+            .collect();
+        self.rows -= removing.len();
+    }
+
+    pub fn col(&self, col: usize) -> &[T] {
+        &self.data[(col * self.rows)..(col * self.rows + self.rows)]
+    }
+
+    pub fn get(&self, row: usize, col: usize) -> Option<&T> {
+        self.data.get(col * self.rows + row)
+    }
+
+    pub fn is_col_sorted(&self, col: usize) -> bool
+    where
+        T: PartialOrd + Send + Sync,
+    {
+        self.col(col).par_windows(2).all(|w| w[0] <= w[1])
+    }
+
+    pub fn sort_by_column(&mut self, by: &str)
+    where
+        T: PartialOrd + Copy + Send + Sync,
+    {
+        let colnames = self.colnames().expect("colnames should be present");
+        let by_col_idx = colnames
+            .iter()
+            .position(|x| x == by)
+            .expect("column not found");
+        if self.is_col_sorted(by_col_idx) {
+            return;
+        }
+        let mut order = {
+            self.col(by_col_idx)
+                .iter()
+                .copied()
+                .enumerate()
+                .collect::<Vec<_>>()
+        };
+        // check if the column is sorted
+        order.sort_by(|a, b| a.1.partial_cmp(&b.1).expect("could not compare"));
+        self.sort_by_order(order.into_iter().map(|(i, _)| i).collect());
+    }
+
+    pub fn sort_by_order(&mut self, order: Vec<usize>)
+    where
+        T: Copy + Send + Sync,
+    {
+        self.data.par_chunks_exact_mut(self.rows).for_each(|row| {
+            let sorted = order.iter().map(|i| row[*i]).collect::<Vec<_>>();
+            row.copy_from_slice(&sorted);
+        });
+    }
+
+    pub fn match_to(&mut self, other: &[T], col: &str)
+    where
+        T: PartialOrd + Copy + Send + Sync + Default,
+    {
+        let self_col_idx = self
+            .colnames()
+            .expect("colnames should be present")
+            .iter()
+            .position(|x| x == col)
+            .expect("column not found");
+        self.sort_by_column(col);
+        let other_is_sorted = 'a: {
+            let mut i = 1;
+            while i < other.len() {
+                if other[i - 1] > other[i] {
+                    break 'a false;
+                }
+                i += 1;
+            }
+            true
+        };
+        if other_is_sorted {
+            let mut i = 0;
+            let mut removing = HashSet::new();
+            for j in other {
+                while self.get(i, self_col_idx) < Some(j) {
+                    removing.insert(i);
+                    i += 1;
+                }
+                if self.get(i, self_col_idx) == Some(j) {
+                    i += 1;
+                } else {
+                    panic!("could not find match for index {}", i);
+                }
+            }
+            for i in i..self.rows {
+                removing.insert(i);
+            }
+            println!("{:?}", removing);
+            self.remove_rows_mut(&removing);
+        } else {
+            fn binary_search<T>(data: &[T], x: &T) -> Option<usize>
+            where
+                T: PartialOrd,
+            {
+                let mut low = 0;
+                let mut high = data.len();
+                while low < high {
+                    let mid = low + (high - low) / 2;
+                    if data[mid] < *x {
+                        low = mid + 1;
+                    } else {
+                        high = mid;
+                    }
+                }
+                if low < data.len() && data[low] == *x {
+                    Some(low)
+                } else {
+                    None
+                }
+            }
+
+            let data = vec![Default::default(); other.len() * self.cols];
+            let self_col = self.col(self_col_idx);
+            other.par_iter().enumerate().for_each(|(idx, j)| {
+                // SAFETY: no iteration of this iterator will mutably access
+                // overlapping data
+                let data: &mut [T] = unsafe {
+                    std::slice::from_raw_parts_mut(data.as_slice().as_ptr() as *mut T, data.len())
+                };
+                let i = binary_search(self_col, j);
+                if let Some(i) = i {
+                    for k in 0..self.cols {
+                        data[other.len() * k + idx] = *self.get(i, k).expect("could not get value");
+                    }
+                } else {
+                    panic!("could not find match for index {}", idx);
+                }
+            });
+            self.data = data;
+            self.rows = other.len();
         }
     }
 
@@ -732,5 +880,23 @@ where
 {
     fn from(t: T) -> Self {
         t.into_matrix()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::OwnedMatrix;
+
+    #[test]
+    fn test_binary_search() {
+        let mut mat = OwnedMatrix::new(
+            5,
+            3,
+            vec![1, 2, 3, 4, 5, 5, 4, 3, 2, 1, 1, 3, 5, 2, 4],
+            Some(["a", "b", "c"].iter().map(|x| x.to_string()).collect()),
+        );
+        mat.match_to(&[4, 3], "b");
+
+        panic!("{:?}", mat);
     }
 }
