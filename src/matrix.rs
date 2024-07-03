@@ -890,21 +890,3 @@ where
         t.into_matrix()
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use crate::OwnedMatrix;
-
-    #[test]
-    fn test_binary_search() {
-        let mut mat = OwnedMatrix::new(
-            5,
-            3,
-            vec![1, 2, 3, 4, 5, 5, 4, 3, 2, 1, 1, 3, 5, 2, 4],
-            Some(["a", "b", "c"].iter().map(|x| x.to_string()).collect()),
-        );
-        mat.match_to(&[4, 3], "b");
-
-        panic!("{:?}", mat);
-    }
-}

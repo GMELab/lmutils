@@ -5,8 +5,10 @@ mod matrix;
 pub mod r;
 mod transform;
 
-use std::sync::Mutex;
+use core::panic;
+use std::{mem::MaybeUninit, sync::Mutex};
 
+use faer::linalg::zip::MatShape;
 use log::info;
 use rayon::prelude::*;
 
@@ -93,14 +95,16 @@ pub fn calculate_r2s<'a>(
             .map(|(i, m)| m.make_parallel_safe().map(|m| (i, m)))
             .collect::<Result<Vec<_>, _>>()?,
     );
-    let results = Mutex::new(Vec::new());
+    let ndata = data.lock().unwrap().len();
+    let mut results = Vec::with_capacity(or.ncols() * ndata);
+    results.extend((0..(or.ncols() * ndata)).map(|_| MaybeUninit::uninit()));
     main_scope(data, |(i, data)| {
         info!(
             "Calculating R^2 for data set {}",
             if let Some(data_names) = &data_names {
                 data_names[i].to_string()
             } else {
-                i.to_string()
+                (i + 1).to_string()
             }
         );
         let mut mat = data.transform().unwrap();
@@ -113,6 +117,8 @@ pub fn calculate_r2s<'a>(
             .map(|(j, mut r)| {
                 if let Some(data_names) = &data_names {
                     r.data = Some(data_names[i].to_string());
+                } else {
+                    r.data = Some((i + 1).to_string());
                 }
                 r.outcome = colnames
                     .as_ref()
@@ -121,7 +127,14 @@ pub fn calculate_r2s<'a>(
                 r
             })
             .collect::<Vec<_>>();
-        results.lock().unwrap().extend(r2s);
+        let results = unsafe {
+            #[allow(invalid_reference_casting)]
+            &mut *(&results[(i * ndata)..((i + 1) * ndata)] as *const [MaybeUninit<R2>]
+                as *mut [MaybeUninit<R2>])
+        };
+        for (i, p) in r2s.into_iter().enumerate() {
+            results[i].write(p);
+        }
         info!(
             "Finished calculating R^2 for data set {}",
             if let Some(data_names) = &data_names {
@@ -131,7 +144,7 @@ pub fn calculate_r2s<'a>(
             }
         );
     });
-    Ok(results.into_inner().unwrap())
+    Ok(unsafe { std::mem::transmute::<_, Vec<R2>>(results) })
 }
 
 pub fn column_p_values<'a>(
@@ -152,14 +165,16 @@ pub fn column_p_values<'a>(
             .map(|(i, m)| m.make_parallel_safe().map(|m| (i, m)))
             .collect::<Result<Vec<_>, _>>()?,
     );
-    let results = Mutex::new(Vec::new());
+    let ndata = or.nrows();
+    let mut results = Vec::with_capacity(or.ncols() * ndata);
+    results.extend((0..(or.ncols() * ndata)).map(|_| MaybeUninit::uninit()));
     main_scope(data, |(i, data)| {
         info!(
             "Calculating p-values for data set {}",
             if let Some(data_names) = &data_names {
                 data_names[i].to_string()
             } else {
-                i.to_string()
+                (i + 1).to_string()
             }
         );
         let mut mat = data.transform().unwrap();
@@ -178,6 +193,8 @@ pub fn column_p_values<'a>(
             .map(|(x, y, mut p)| {
                 if let Some(data_names) = &data_names {
                     p.data = Some(data_names[i].to_string());
+                } else {
+                    p.data = Some((i + 1).to_string());
                 }
                 p.data_column = Some((x + 1) as u32);
                 p.outcome = colnames
@@ -187,7 +204,14 @@ pub fn column_p_values<'a>(
                 p
             })
             .collect::<Vec<_>>();
-        results.lock().unwrap().extend(p_values);
+        let results = unsafe {
+            #[allow(invalid_reference_casting)]
+            &mut *(&results[(i * ndata)..((i + 1) * ndata)] as *const [MaybeUninit<PValue>]
+                as *mut [MaybeUninit<PValue>])
+        };
+        for (i, p) in p_values.into_iter().enumerate() {
+            results[i].write(p);
+        }
         info!(
             "Finished calculating p-values for data set {}",
             if let Some(data_names) = &data_names {
@@ -197,5 +221,43 @@ pub fn column_p_values<'a>(
             }
         );
     });
-    Ok(results.into_inner().unwrap())
+    Ok(unsafe { std::mem::transmute::<_, Vec<PValue>>(results) })
+}
+
+#[cfg(test)]
+mod tests {
+    use core::panic;
+
+    use super::*;
+
+    #[test]
+    fn test_column_p_values() {
+        let data = [
+            OwnedMatrix::new(
+                4,
+                2,
+                vec![1.0, 2.0, 3.0, 4.0, 2.0, 5.0, 4.0, 2.0],
+                Some(vec!["x1".to_string(), "x2".to_string()]),
+            ),
+            OwnedMatrix::new(
+                4,
+                2,
+                vec![3.0, 4.0, 4.0, 2.0, 4.0, 6.0, 6.0, 7.0],
+                Some(vec!["x3".to_string(), "x4".to_string()]),
+            ),
+        ];
+        let outcomes = OwnedMatrix::new(
+            4,
+            2,
+            vec![1.0, 7.0, 2.0, 9.0, 5.0, 10.0, 6.0, 11.0],
+            Some(vec!["y1".to_string(), "y2".to_string()]),
+        );
+        let data = data
+            .into_iter()
+            .map(|x| x.into_matrix())
+            .collect::<Vec<_>>();
+        let outcomes = outcomes.into_matrix();
+        let p_values = calculate_r2s(data, outcomes, None).unwrap();
+        panic!("{:?}", p_values);
+    }
 }
