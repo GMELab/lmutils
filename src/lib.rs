@@ -5,10 +5,8 @@ mod matrix;
 pub mod r;
 mod transform;
 
-use core::panic;
 use std::{mem::MaybeUninit, sync::Mutex};
 
-use faer::linalg::zip::MatShape;
 use log::info;
 use rayon::prelude::*;
 
@@ -222,42 +220,4 @@ pub fn column_p_values<'a>(
         );
     });
     Ok(unsafe { std::mem::transmute::<_, Vec<PValue>>(results) })
-}
-
-#[cfg(test)]
-mod tests {
-    use core::panic;
-
-    use super::*;
-
-    #[test]
-    fn test_column_p_values() {
-        let data = [
-            OwnedMatrix::new(
-                4,
-                2,
-                vec![1.0, 2.0, 3.0, 4.0, 2.0, 5.0, 4.0, 2.0],
-                Some(vec!["x1".to_string(), "x2".to_string()]),
-            ),
-            OwnedMatrix::new(
-                4,
-                2,
-                vec![3.0, 4.0, 4.0, 2.0, 4.0, 6.0, 6.0, 7.0],
-                Some(vec!["x3".to_string(), "x4".to_string()]),
-            ),
-        ];
-        let outcomes = OwnedMatrix::new(
-            4,
-            2,
-            vec![1.0, 7.0, 2.0, 9.0, 5.0, 10.0, 6.0, 11.0],
-            Some(vec!["y1".to_string(), "y2".to_string()]),
-        );
-        let data = data
-            .into_iter()
-            .map(|x| x.into_matrix())
-            .collect::<Vec<_>>();
-        let outcomes = outcomes.into_matrix();
-        let p_values = calculate_r2s(data, outcomes, None).unwrap();
-        panic!("{:?}", p_values);
-    }
 }

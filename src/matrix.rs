@@ -1,10 +1,10 @@
 use core::panic;
-use std::{collections::HashSet, str::FromStr};
+use std::{collections::HashSet, mem::MaybeUninit, str::FromStr};
 
 use crate::{
     errors::{CombineMatricesError, FileParseError},
     file::File,
-    MatParseError, ReadMatrixError,
+    ExtendMatricesError, MatParseError, ReadMatrixError,
 };
 use extendr_api::{
     wrapper, AsStrIter, AsTypedSlice, Attributes, FromRobj, IntoRobj, MatrixConversions, RMatrix,
@@ -119,6 +119,53 @@ impl<'a> Matrix<'a> {
             self_.nrows(),
             self_.ncols() + others.iter().map(|i| i.ncols()).sum::<usize>(),
             data,
+            colnames,
+        )))
+    }
+
+    pub fn extend(mut self, mut others: Vec<Matrix<'_>>) -> Result<Self, ExtendMatricesError> {
+        if others.is_empty() {
+            return Ok(self);
+        }
+        let colnames = self.colnames();
+        if others.iter_mut().any(|i| i.colnames() != colnames) {
+            return Err(ExtendMatricesError::ColumnNamesMismatch);
+        }
+        let colnames = colnames.map(|x| x.iter().map(|x| x.to_string()).collect());
+        let self_ = self.as_mat_ref()?;
+        let others = others
+            .iter_mut()
+            .map(|x| x.as_mat_ref())
+            .collect::<Result<Vec<_>, _>>()?;
+        if others.iter().any(|i| i.ncols() != self_.ncols()) {
+            return Err(ExtendMatricesError::MatrixDimensionsMismatch);
+        }
+        let ncols = self_.ncols();
+        let nrows = self_.nrows() + others.iter().map(|i| i.nrows()).sum::<usize>();
+        let mats: Vec<MatRef<f64>> = [&[self_], others.as_slice()].concat();
+        let data = vec![MaybeUninit::<f64>::uninit(); nrows * ncols];
+        mats.par_iter().enumerate().for_each(|(i, m)| {
+            let rows_before = mats.iter().take(i).map(|m| m.nrows()).sum::<usize>();
+            for c in 0..ncols {
+                unsafe {
+                    let src = m
+                        .get_unchecked(.., c)
+                        .try_as_slice()
+                        .expect("could not get slice");
+                    let dst = data
+                        .as_ptr()
+                        .add(nrows * c + rows_before)
+                        .cast::<f64>()
+                        .cast_mut();
+                    let slice = std::slice::from_raw_parts_mut(dst, m.nrows());
+                    slice.copy_from_slice(src);
+                }
+            }
+        });
+        Ok(Self::Owned(OwnedMatrix::new(
+            nrows,
+            ncols,
+            unsafe { std::mem::transmute(data) },
             colnames,
         )))
     }

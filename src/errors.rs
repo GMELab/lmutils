@@ -51,6 +51,16 @@ pub enum CombineMatricesError {
 }
 
 #[derive(Error, Debug)]
+pub enum ExtendMatricesError {
+    #[error("matrix dimensions do not match")]
+    MatrixDimensionsMismatch,
+    #[error("column names do not match")]
+    ColumnNamesMismatch,
+    #[error("read matrix error: {0}")]
+    ReadMatrixError(#[from] ReadMatrixError),
+}
+
+#[derive(Error, Debug)]
 pub enum ReadMatrixError {
     #[error("io error: {0}")]
     IoError(#[from] std::io::Error),
@@ -118,6 +128,12 @@ impl From<ConvertFileError> for extendr_api::Error {
 
 impl From<CombineMatricesError> for extendr_api::Error {
     fn from(err: CombineMatricesError) -> Self {
+        extendr_api::Error::Other(err.to_string())
+    }
+}
+
+impl From<ExtendMatricesError> for extendr_api::Error {
+    fn from(err: ExtendMatricesError) -> Self {
         extendr_api::Error::Other(err.to_string())
     }
 }
