@@ -146,21 +146,19 @@ impl<'a> Matrix<'a> {
         let data = vec![MaybeUninit::<f64>::uninit(); nrows * ncols];
         mats.par_iter().enumerate().for_each(|(i, m)| {
             let rows_before = mats.iter().take(i).map(|m| m.nrows()).sum::<usize>();
-            for c in 0..ncols {
-                unsafe {
-                    let src = m
-                        .get_unchecked(.., c)
-                        .try_as_slice()
-                        .expect("could not get slice");
-                    let dst = data
-                        .as_ptr()
-                        .add(nrows * c + rows_before)
-                        .cast::<f64>()
-                        .cast_mut();
-                    let slice = std::slice::from_raw_parts_mut(dst, m.nrows());
-                    slice.copy_from_slice(src);
-                }
-            }
+            (0..ncols).into_par_iter().for_each(|c| unsafe {
+                let src = m
+                    .get_unchecked(.., c)
+                    .try_as_slice()
+                    .expect("could not get slice");
+                let dst = data
+                    .as_ptr()
+                    .add(nrows * c + rows_before)
+                    .cast::<f64>()
+                    .cast_mut();
+                let slice = std::slice::from_raw_parts_mut(dst, m.nrows());
+                slice.copy_from_slice(src);
+            });
         });
         Ok(Self::Owned(OwnedMatrix::new(
             nrows,
