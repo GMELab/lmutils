@@ -703,21 +703,27 @@ where
 
 impl<T, E> MatParse<T, E> for Rstr
 where
+    for<'a> &'a str: MatParse<T, E>,
     T: FromStr<Err = E>,
     MatParseError: From<E>,
 {
     fn mat_parse(&self) -> Result<T, MatParseError> {
-        Ok(self.as_str().parse()?)
+        self.as_str().mat_parse()
     }
 }
 
-impl<T, E> MatParse<T, E> for &str
-where
-    T: FromStr<Err = E>,
-    MatParseError: From<E>,
-{
-    fn mat_parse(&self) -> Result<T, MatParseError> {
-        Ok(self.parse()?)
+impl MatParse<f64, <f64 as FromStr>::Err> for &str {
+    fn mat_parse(&self) -> Result<f64, MatParseError> {
+        if *self == "NA" {
+            return Ok(f64::NAN);
+        }
+        self.parse().map_err(MatParseError::from)
+    }
+}
+
+impl MatParse<String, <String as FromStr>::Err> for &str {
+    fn mat_parse(&self) -> Result<String, MatParseError> {
+        Ok(self.to_string())
     }
 }
 

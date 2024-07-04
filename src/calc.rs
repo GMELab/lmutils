@@ -1,5 +1,3 @@
-use core::panic;
-
 use faer::{
     get_global_parallelism,
     mat::AsMatRef,
