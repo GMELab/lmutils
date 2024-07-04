@@ -48,6 +48,7 @@ impl<'a> Matrix<'a> {
         Ok(match self {
             Matrix::R(r) => unsafe {
                 let ptr = r.data().as_ptr() as *mut f64;
+                debug!("{:?} {:?}", r.nrows(), r.ncols());
                 faer::mat::from_raw_parts_mut(ptr, r.nrows(), r.ncols(), 1, r.nrows() as isize)
             },
             Matrix::Owned(m) => {
