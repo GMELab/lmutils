@@ -145,6 +145,9 @@ where
                 faer::row::from_ref(&mean),
                 faer::stats::NanHandling::Ignore,
             );
+            if var == 0.0 {
+                return;
+            }
             let std = var.sqrt();
             for x in col.col_mut(0).iter_mut() {
                 *x = (*x - mean) / std;
