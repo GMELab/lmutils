@@ -14,6 +14,7 @@ use faer::{
     reborrow::{IntoConst, Reborrow},
     MatMut, MatRef,
 };
+use log::debug;
 use rayon::prelude::*;
 
 #[derive(Debug)]
@@ -144,6 +145,7 @@ impl<'a> Matrix<'a> {
         let nrows = self_.nrows() + others.iter().map(|i| i.nrows()).sum::<usize>();
         let mats: Vec<MatRef<f64>> = [&[self_], others.as_slice()].concat();
         let data = vec![MaybeUninit::<f64>::uninit(); nrows * ncols];
+        debug!("nrows: {}, ncols: {}", nrows, ncols);
         mats.par_iter().enumerate().for_each(|(i, m)| {
             let rows_before = mats.iter().take(i).map(|m| m.nrows()).sum::<usize>();
             (0..ncols).into_par_iter().for_each(|c| unsafe {
