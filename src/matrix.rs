@@ -435,6 +435,26 @@ where
         });
     }
 
+    pub fn dedup_by_column(&mut self, by: &str)
+    where
+        T: PartialEq + Copy + Send + Sync + PartialOrd,
+    {
+        let colnames = self.colnames().expect("colnames should be present");
+        let by_col_idx = colnames
+            .iter()
+            .position(|x| x == by)
+            .expect("column not found");
+        let mut removing = HashSet::new();
+        let mut col = self.col(by_col_idx).iter().enumerate().collect::<Vec<_>>();
+        col.sort_by(|a, b| a.1.partial_cmp(b.1).expect("could not compare"));
+        for i in 1..col.len() {
+            if col[i - 1].1 == col[i].1 {
+                removing.insert(col[i].0);
+            }
+        }
+        self.remove_rows_mut(&removing);
+    }
+
     pub fn match_to(&mut self, other: &[T], col: &str)
     where
         T: PartialOrd + Copy + Send + Sync + Default,
