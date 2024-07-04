@@ -51,7 +51,7 @@ pub enum CombineMatricesError {
 }
 
 #[derive(Error, Debug)]
-pub enum ExtendMatricesError {
+pub enum ExtendMatrixError {
     #[error("matrix dimensions do not match")]
     MatrixDimensionsMismatch,
     #[error("column names do not match")]
@@ -132,8 +132,8 @@ impl From<CombineMatricesError> for extendr_api::Error {
     }
 }
 
-impl From<ExtendMatricesError> for extendr_api::Error {
-    fn from(err: ExtendMatricesError) -> Self {
+impl From<ExtendMatrixError> for extendr_api::Error {
+    fn from(err: ExtendMatrixError) -> Self {
         extendr_api::Error::Other(err.to_string())
     }
 }

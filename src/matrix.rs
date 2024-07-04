@@ -4,7 +4,7 @@ use std::{collections::HashSet, mem::MaybeUninit, str::FromStr};
 use crate::{
     errors::{CombineMatricesError, FileParseError},
     file::File,
-    ExtendMatricesError, MatParseError, ReadMatrixError,
+    ExtendMatrixError, MatParseError, ReadMatrixError,
 };
 use extendr_api::{
     wrapper, AsStrIter, AsTypedSlice, Attributes, FromRobj, IntoRobj, MatrixConversions, RMatrix,
@@ -123,13 +123,13 @@ impl<'a> Matrix<'a> {
         )))
     }
 
-    pub fn extend(mut self, mut others: Vec<Matrix<'_>>) -> Result<Self, ExtendMatricesError> {
+    pub fn extend(mut self, mut others: Vec<Matrix<'_>>) -> Result<Self, ExtendMatrixError> {
         if others.is_empty() {
             return Ok(self);
         }
         let colnames = self.colnames();
         if others.iter_mut().any(|i| i.colnames() != colnames) {
-            return Err(ExtendMatricesError::ColumnNamesMismatch);
+            return Err(ExtendMatrixError::ColumnNamesMismatch);
         }
         let colnames = colnames.map(|x| x.iter().map(|x| x.to_string()).collect());
         let self_ = self.as_mat_ref()?;
@@ -138,7 +138,7 @@ impl<'a> Matrix<'a> {
             .map(|x| x.as_mat_ref())
             .collect::<Result<Vec<_>, _>>()?;
         if others.iter().any(|i| i.ncols() != self_.ncols()) {
-            return Err(ExtendMatricesError::MatrixDimensionsMismatch);
+            return Err(ExtendMatrixError::MatrixDimensionsMismatch);
         }
         let ncols = self_.ncols();
         let nrows = self_.nrows() + others.iter().map(|i| i.nrows()).sum::<usize>();
