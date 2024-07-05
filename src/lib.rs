@@ -7,6 +7,7 @@ mod transform;
 
 use std::{mem::MaybeUninit, sync::Mutex};
 
+use faer::linalg::zip::MatShape;
 use log::info;
 use rayon::prelude::*;
 
@@ -94,7 +95,7 @@ pub fn calculate_r2s<'a>(
             .collect::<Result<Vec<_>, _>>()?,
     );
     let ndata = data.lock().unwrap().len();
-    let mut results = Vec::with_capacity(or.ncols() * ndata);
+    let mut results: Vec<MaybeUninit<R2>> = Vec::with_capacity(or.ncols() * ndata);
     results.extend((0..(or.ncols() * ndata)).map(|_| MaybeUninit::uninit()));
     main_scope(data, |(i, data)| {
         info!(
@@ -126,12 +127,13 @@ pub fn calculate_r2s<'a>(
             })
             .collect::<Vec<_>>();
         let results = unsafe {
-            #[allow(invalid_reference_casting)]
-            &mut *(&results[(i * ndata)..((i + 1) * ndata)] as *const [MaybeUninit<R2>]
-                as *mut [MaybeUninit<R2>])
+            std::slice::from_raw_parts_mut(
+                results.as_ptr().add(i * or.ncols()).cast::<R2>().cast_mut(),
+                or.ncols(),
+            )
         };
         for (i, p) in r2s.into_iter().enumerate() {
-            results[i].write(p);
+            results[i] = p;
         }
         info!(
             "Finished calculating R^2 for data set {}",
@@ -164,7 +166,7 @@ pub fn column_p_values<'a>(
             .collect::<Result<Vec<_>, _>>()?,
     );
     let ndata = or.nrows();
-    let mut results = Vec::with_capacity(or.ncols() * ndata);
+    let mut results: Vec<MaybeUninit<PValue>> = Vec::with_capacity(or.ncols() * ndata);
     results.extend((0..(or.ncols() * ndata)).map(|_| MaybeUninit::uninit()));
     main_scope(data, |(i, data)| {
         info!(
@@ -203,12 +205,17 @@ pub fn column_p_values<'a>(
             })
             .collect::<Vec<_>>();
         let results = unsafe {
-            #[allow(invalid_reference_casting)]
-            &mut *(&results[(i * ndata)..((i + 1) * ndata)] as *const [MaybeUninit<PValue>]
-                as *mut [MaybeUninit<PValue>])
+            std::slice::from_raw_parts_mut(
+                results
+                    .as_ptr()
+                    .add(i * or.ncols())
+                    .cast::<PValue>()
+                    .cast_mut(),
+                or.ncols(),
+            )
         };
         for (i, p) in p_values.into_iter().enumerate() {
-            results[i].write(p);
+            results[i] = p;
         }
         info!(
             "Finished calculating p-values for data set {}",
