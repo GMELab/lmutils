@@ -458,7 +458,7 @@ where
 
     pub fn match_to(&mut self, other: &[T], col: &str)
     where
-        T: PartialOrd + Copy + Send + Sync + Default,
+        T: PartialOrd + Copy + Send + Sync + Default + Debug,
     {
         let self_col_idx = self
             .colnames()
@@ -488,7 +488,11 @@ where
                 if self.get(i, self_col_idx) == Some(j) {
                     i += 1;
                 } else {
-                    panic!("could not find match for index {}", i);
+                    panic!(
+                        "could not find match for index {} with value {:?}",
+                        i,
+                        self.get(i, self_col_idx)
+                    );
                 }
             }
             for i in i..self.rows {
@@ -522,9 +526,8 @@ where
             other.par_iter().enumerate().for_each(|(idx, j)| {
                 // SAFETY: no iteration of this iterator will mutably access
                 // overlapping data
-                let data: &mut [T] = unsafe {
-                    std::slice::from_raw_parts_mut(data.as_slice().as_ptr() as *mut T, data.len())
-                };
+                let data: &mut [T] =
+                    unsafe { std::slice::from_raw_parts_mut(data.as_ptr().cast_mut(), data.len()) };
                 let i = binary_search(self_col, j);
                 if let Some(i) = i {
                     for k in 0..self.cols {
