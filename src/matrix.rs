@@ -521,13 +521,15 @@ where
                 }
             }
 
-            let data = vec![Default::default(); other.len() * self.cols];
+            let mut data: Vec<MaybeUninit<T>> = Vec::with_capacity(other.len() * self.cols);
+            data.extend((0..(other.len() * self.cols)).map(|_| MaybeUninit::uninit()));
             let self_col = self.col(self_col_idx);
             other.par_iter().enumerate().for_each(|(idx, j)| {
                 // SAFETY: no iteration of this iterator will mutably access
                 // overlapping data
-                let data: &mut [T] =
-                    unsafe { std::slice::from_raw_parts_mut(data.as_ptr().cast_mut(), data.len()) };
+                let data: &mut [T] = unsafe {
+                    std::slice::from_raw_parts_mut(data.as_ptr().cast::<T>().cast_mut(), data.len())
+                };
                 let i = binary_search(self_col, j);
                 if let Some(i) = i {
                     for k in 0..self.cols {
@@ -537,7 +539,7 @@ where
                     panic!("could not find match for index {}", idx);
                 }
             });
-            self.data = data;
+            self.data = unsafe { std::mem::transmute(data) };
             self.rows = other.len();
         }
     }

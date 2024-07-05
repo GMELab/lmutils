@@ -7,7 +7,6 @@ mod transform;
 
 use std::{mem::MaybeUninit, sync::Mutex};
 
-use faer::linalg::zip::MatShape;
 use log::info;
 use rayon::prelude::*;
 
