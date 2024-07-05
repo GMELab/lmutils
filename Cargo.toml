@@ -27,3 +27,4 @@ tracing = { version = "0.1.40", features = ["log"] }
 
 [dev-dependencies]
 rand = "0.8.5"
+test-log = "0.2.16"

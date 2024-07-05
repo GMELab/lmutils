@@ -8,7 +8,7 @@ mod transform;
 use std::{mem::MaybeUninit, sync::Mutex};
 
 use rayon::prelude::*;
-use tracing::{debug, debug_span, info, span, trace};
+use tracing::{debug, debug_span, info, trace};
 
 pub use crate::{calc::*, errors::*, file::*, matrix::*, transform::*};
 

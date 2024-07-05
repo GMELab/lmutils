@@ -15,7 +15,7 @@ use faer::{
     MatMut, MatRef,
 };
 use rayon::prelude::*;
-use tracing::debug;
+use tracing::{debug, trace};
 
 #[derive(Debug)]
 pub enum Matrix<'a> {
@@ -456,6 +456,7 @@ where
         self.remove_rows_mut(&removing);
     }
 
+    #[tracing::instrument(skip(self, other))]
     pub fn match_to(&mut self, other: &[T], col: &str)
     where
         T: PartialOrd + Copy + Send + Sync + Default + std::fmt::Debug,
@@ -477,6 +478,7 @@ where
             }
             true
         };
+        trace!(?other_is_sorted);
         if other_is_sorted {
             let mut i = 0;
             let mut removing = HashSet::new();
@@ -484,9 +486,11 @@ where
                 while self.get(i, self_col_idx) < Some(j) {
                     removing.insert(i);
                     i += 1;
+                    trace!("removing {}", i);
                 }
                 if self.get(i, self_col_idx) == Some(j) {
                     i += 1;
+                    trace!("matched {}", i);
                 } else {
                     panic!(
                         "could not find match for index {} with value {:?}",
@@ -967,5 +971,24 @@ where
 {
     fn from(t: T) -> Self {
         t.into_matrix()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test_log::test]
+    pub fn test_match_to() {
+        let mut m = crate::matrix::OwnedMatrix::new(
+            5,
+            2,
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 3.0, 4.0, 5.0],
+            Some(vec!["a".to_string(), "b".to_string()]),
+        );
+        let other = vec![5.0, 3.0, 1.0];
+        m.match_to(&other, "a");
+        assert_eq!(m.data, vec![5.0, 3.0, 1.0, 5.0, 3.0, 1.0],);
+        let other = vec![1.0, 3.0, 5.0];
+        m.match_to(&other, "a");
+        assert_eq!(m.data, vec![1.0, 3.0, 5.0, 1.0, 3.0, 5.0],);
     }
 }
