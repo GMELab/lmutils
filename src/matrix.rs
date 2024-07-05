@@ -459,7 +459,7 @@ where
     #[tracing::instrument(skip(self, other))]
     pub fn match_to(&mut self, other: &[T], col: &str)
     where
-        T: PartialOrd + Copy + Send + Sync + Default + std::fmt::Debug,
+        T: PartialOrd + Copy + Send + Sync + Default + std::fmt::Debug + tracing::Value,
     {
         let self_col_idx = self
             .colnames()
@@ -492,6 +492,13 @@ where
                     i += 1;
                     trace!("matched {}", i);
                 } else {
+                    trace!(
+                        ?j,
+                        val = self.get(i, self_col_idx),
+                        ?self_col_idx,
+                        ?i,
+                        "could not find match"
+                    );
                     panic!(
                         "could not find match for index {} with value {:?}",
                         i,
