@@ -14,8 +14,8 @@ use faer::{
     reborrow::{IntoConst, Reborrow},
     MatMut, MatRef,
 };
-use log::debug;
 use rayon::prelude::*;
+use tracing::debug;
 
 #[derive(Debug)]
 pub enum Matrix<'a> {

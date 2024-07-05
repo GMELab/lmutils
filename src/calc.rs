@@ -4,10 +4,10 @@ use faer::{
     solvers::{SpSolver, Svd},
     Mat, MatRef, Side,
 };
-use log::{debug, warn};
 use rayon::iter::IntoParallelIterator;
 use rayon::prelude::*;
 use statrs::distribution::{ContinuousCDF, StudentsT};
+use tracing::{debug, warn};
 
 pub fn variance(data: &[f64]) -> f64 {
     let mut mean = 0.0;
@@ -90,6 +90,7 @@ pub fn cross_product(data: MatRef<f64>) -> Mat<f64> {
     mat
 }
 
+#[tracing::instrument(skip(data, outcomes))]
 pub fn get_r2s(data: MatRef<f64>, outcomes: MatRef<f64>) -> Vec<R2> {
     debug!("Calculating R2s");
     let n = data.nrows();

@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
 use crate::{file::FileType, matrix::OwnedMatrix, ReadMatrixError};
-use log::debug;
 use rayon::prelude::*;
+use tracing::debug;
 
 use crate::matrix::Matrix;
 

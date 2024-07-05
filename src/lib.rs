@@ -7,8 +7,8 @@ mod transform;
 
 use std::{mem::MaybeUninit, sync::Mutex};
 
-use log::info;
 use rayon::prelude::*;
+use tracing::{debug, debug_span, info, span, trace};
 
 pub use crate::{calc::*, errors::*, file::*, matrix::*, transform::*};
 
@@ -32,6 +32,8 @@ where
                 if let Some(data) = data {
                     rayon::scope(|s| {
                         s.spawn(|_| {
+                            let s = debug_span!("main_scope");
+                            let _e = s.enter();
                             f(data);
                         })
                     });
@@ -75,6 +77,7 @@ pub fn calculate_r2<'a>(
 }
 
 /// Calculate R^2 and adjusted R^2 for a list of data and outcomes.
+#[tracing::instrument(skip(data, outcomes, data_names))]
 pub fn calculate_r2s<'a>(
     data: Vec<impl Transform<'a>>,
     outcomes: impl Transform<'a>,
@@ -125,15 +128,20 @@ pub fn calculate_r2s<'a>(
                 r
             })
             .collect::<Vec<_>>();
+        debug!("Writing results");
         let results = unsafe {
             std::slice::from_raw_parts_mut(
-                results.as_ptr().add(i * or.ncols()).cast::<R2>().cast_mut(),
+                results.as_ptr().add(i * or.ncols()).cast_mut(),
                 or.ncols(),
             )
         };
+        trace!("Made slice");
         for (i, p) in r2s.into_iter().enumerate() {
-            results[i] = p;
+            trace!("Writing result {}", i);
+            results[i].write(p);
+            trace!("Wrote result {}", i)
         }
+        trace!("Wrote results");
         info!(
             "Finished calculating R^2 for data set {}",
             if let Some(data_names) = &data_names {
@@ -205,16 +213,12 @@ pub fn column_p_values<'a>(
             .collect::<Vec<_>>();
         let results = unsafe {
             std::slice::from_raw_parts_mut(
-                results
-                    .as_ptr()
-                    .add(i * or.ncols())
-                    .cast::<PValue>()
-                    .cast_mut(),
+                results.as_ptr().add(i * or.ncols()).cast_mut(),
                 or.ncols(),
             )
         };
         for (i, p) in p_values.into_iter().enumerate() {
-            results[i] = p;
+            results[i].write(p);
         }
         info!(
             "Finished calculating p-values for data set {}",
