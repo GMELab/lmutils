@@ -458,7 +458,7 @@ where
 
     pub fn match_to(&mut self, other: &[T], col: &str)
     where
-        T: PartialOrd + Copy + Send + Sync + Default + Debug,
+        T: PartialOrd + Copy + Send + Sync + Default + std::fmt::Debug,
     {
         let self_col_idx = self
             .colnames()
