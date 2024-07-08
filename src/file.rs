@@ -59,7 +59,8 @@ impl File {
         rkyv_validate: bool,
     ) -> Result<OwnedMatrix<T>, ReadMatrixError>
     where
-        for<'a> T: MatEmpty + Clone + serde::Deserialize<'a> + ToVectorValue + rkyv::Archive,
+        for<'a> T:
+            MatEmpty + Clone + serde::Deserialize<'a> + ToVectorValue + rkyv::Archive + Send + Sync,
         for<'a> Robj: AsTypedSlice<'a, R>,
         for<'a> <T as rkyv::Archive>::Archived:
             rkyv::CheckBytes<rkyv::validation::validators::DefaultValidator<'a>>,
@@ -88,7 +89,8 @@ impl File {
         _rkyv_validate: bool,
     ) -> Result<OwnedMatrix<T>, ReadMatrixError>
     where
-        for<'a> T: MatEmpty + Clone + serde::Deserialize<'a> + ToVectorValue + rkyv::Archive,
+        for<'a> T:
+            MatEmpty + Clone + serde::Deserialize<'a> + ToVectorValue + rkyv::Archive + Send + Sync,
         for<'a> Robj: AsTypedSlice<'a, R>,
         for<'a> <T as rkyv::Archive>::Archived:
             rkyv::CheckBytes<rkyv::validation::validators::DefaultValidator<'a>>,

@@ -318,16 +318,22 @@ where
         }
     }
 
-    pub fn transpose(self) -> Self {
-        let mut data = vec![T::empty(); self.data.len()];
-        self.data.into_iter().enumerate().for_each(|(i, x)| {
+    pub fn transpose(self) -> Self
+    where
+        T: Send + Sync,
+    {
+        let mut data = Vec::with_capacity(self.rows * self.cols);
+        data.extend((0..(self.rows * self.cols)).map(|_| MaybeUninit::<T>::uninit()));
+        self.data.into_par_iter().enumerate().for_each(|(i, x)| {
             let new_row = i / self.rows;
             let new_col = i % self.rows;
             let i = new_col * self.cols + new_row;
-            data[i] = x;
+            unsafe {
+                data.as_ptr().add(i).cast_mut().cast::<T>().write(x);
+            };
         });
         Self {
-            data,
+            data: unsafe { std::mem::transmute(data) },
             rows: self.cols,
             cols: self.rows,
             colnames: None,
