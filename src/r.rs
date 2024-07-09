@@ -391,6 +391,8 @@ pub fn rm_heteroscedasticity(mut p: Vec<f64>, e: &[f64]) -> Vec<f64> {
 
 #[non_exhaustive]
 pub struct Lm {
+    pub slopes: Vec<f64>,
+    pub intercept: f64,
     pub residuals: Vec<f64>,
     pub r2: f64,
     pub adj_r2: f64,
@@ -434,6 +436,8 @@ pub fn lm(xs: MatRef<'_, f64>, ys: &[f64]) -> Lm {
     let adj_r2 =
         1.0 - (1.0 - r2) * (ys.len() as f64 - 1.0) / (ys.len() as f64 - ncols as f64 - 1.0);
     Lm {
+        slopes: betas[..ncols].to_vec(),
+        intercept,
         residuals,
         r2,
         adj_r2,
