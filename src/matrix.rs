@@ -686,6 +686,45 @@ where
             .drain((col_idx * self.rows)..(col_idx * self.rows + self.rows));
         self.cols -= 1;
     }
+
+    pub fn remove_columns(self, removing: &HashSet<usize>) -> Self
+    where
+        T: Copy + Send + Sync,
+    {
+        let cols = self.cols();
+        if removing.iter().any(|i| *i >= cols) {
+            panic!("cannot remove out of range column");
+        }
+        let cols = cols - removing.len();
+        let rows = self.rows();
+        let data = vec![MaybeUninit::<T>::uninit(); cols * rows];
+        (0..self.cols())
+            .filter(|x| !removing.contains(x))
+            .collect::<Vec<_>>()
+            .into_par_iter()
+            .enumerate()
+            .for_each(|(n, o)| {
+                let s = unsafe {
+                    std::slice::from_raw_parts_mut(
+                        data.as_ptr().add(n * self.rows).cast::<T>().cast_mut(),
+                        self.rows,
+                    )
+                };
+                s.copy_from_slice(self.col(o))
+            });
+        OwnedMatrix {
+            rows,
+            cols,
+            colnames: self.colnames.map(|c| {
+                c.into_iter()
+                    .enumerate()
+                    .filter(|(i, _)| !removing.contains(i))
+                    .map(|(_, x)| x)
+                    .collect()
+            }),
+            data: unsafe { std::mem::transmute(data) },
+        }
+    }
 }
 
 impl OwnedMatrix<f64> {
