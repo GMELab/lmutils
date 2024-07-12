@@ -1,12 +1,12 @@
 use std::collections::HashSet;
 
-use crate::{file::FileType, matrix::OwnedMatrix, ReadMatrixError};
+use crate::{calc::standardization, file::FileType, matrix::OwnedMatrix, mean, ReadMatrixError};
 use rayon::prelude::*;
 use tracing::debug;
 
 use crate::matrix::Matrix;
 
-pub trait Transform<'a>: Send {
+pub trait Transform<'a>: Clone + Send + Sync {
     /// Apply the transformation to the matrix.
     fn transform(self) -> Result<Matrix<'a>, ReadMatrixError>;
 
@@ -50,13 +50,10 @@ pub trait Transform<'a>: Send {
 }
 
 impl<'a> Transform<'a> for Matrix<'a> {
-    fn transform(self) -> Result<Matrix<'a>, ReadMatrixError> {
-        let mat = match self {
-            Matrix::File(f) => Matrix::Owned(f.read_matrix(true)?),
-            _ => self,
-        };
+    fn transform(mut self) -> Result<Matrix<'a>, ReadMatrixError> {
+        self.into_owned()?;
         debug!("Loaded matrix");
-        Ok(mat)
+        Ok(self)
     }
 
     fn make_parallel_safe(self) -> Result<Matrix<'a>, ReadMatrixError>
@@ -64,19 +61,18 @@ impl<'a> Transform<'a> for Matrix<'a> {
         Self: Sized,
     {
         Ok(match self {
-            Matrix::R(r) => Matrix::R(r),
-            Matrix::Owned(m) => Matrix::Owned(m),
             Matrix::File(f) => match f.file_type() {
-                FileType::Rdata => Matrix::Owned(f.read_matrix(true)?),
+                FileType::Rdata => f.read()?,
                 _ => Matrix::File(f),
             },
-            Matrix::Ref(r) => Matrix::Ref(r),
+            _ => self,
         })
     }
 }
 
 macro_rules! simple_transform {
     ($name:ident) => {
+        #[derive(Clone)]
         pub struct $name<'a, T>
         where
             T: Transform<'a>,
@@ -103,6 +99,7 @@ simple_transform!(Standardization);
 simple_transform!(RemoveNanRows);
 simple_transform!(NanToMean);
 
+#[derive(Clone)]
 pub struct MinSum<'a, T>
 where
     T: Transform<'a>,
@@ -132,26 +129,8 @@ where
     fn transform(self) -> Result<Matrix<'a>, ReadMatrixError> {
         let mut mat = self.parent.transform()?;
         mat.as_mat_mut()?.par_col_chunks_mut(1).for_each(|col| {
-            let mut mean = 0.0;
-            let mut var = 0.0;
-            faer::stats::row_mean(
-                faer::row::from_mut(&mut mean),
-                col.as_ref(),
-                faer::stats::NanHandling::Ignore,
-            );
-            faer::stats::row_varm(
-                faer::row::from_mut(&mut var),
-                col.as_ref(),
-                faer::row::from_ref(&mean),
-                faer::stats::NanHandling::Ignore,
-            );
-            if var == 0.0 {
-                return;
-            }
-            let std = var.sqrt();
-            for x in col.col_mut(0).iter_mut() {
-                *x = (*x - mean) / std;
-            }
+            let col = col.col_mut(0);
+            standardization(col.try_as_slice_mut().unwrap());
         });
         debug!("Standardized matrix");
         Ok(mat)
@@ -170,7 +149,7 @@ where
     T: Transform<'a>,
 {
     fn transform(self) -> Result<Matrix<'a>, ReadMatrixError> {
-        let mat = self.parent.transform()?;
+        let mut mat = self.parent.transform()?;
         let rows = mat
             .as_mat_ref()?
             .par_row_chunks(1)
@@ -179,7 +158,8 @@ where
             .map(|(i, _)| i)
             .collect::<HashSet<_>>();
         debug!("Removed {} rows with NaN values", rows.len());
-        Matrix::remove_rows(mat, &rows)
+        mat.remove_rows(&rows).unwrap();
+        Ok(mat)
     }
 
     fn make_parallel_safe(self) -> Result<Self, ReadMatrixError> {
@@ -197,24 +177,11 @@ where
     fn transform(self) -> Result<Matrix<'a>, ReadMatrixError> {
         let mut mat = self.parent.transform()?;
         mat.as_mat_mut()?.par_col_chunks_mut(1).for_each(|col| {
-            let mut mean = 0.0;
-            faer::stats::row_mean(
-                faer::row::from_mut(&mut mean),
-                col.as_ref(),
-                faer::stats::NanHandling::Ignore,
-            );
-            // let mut count = 0.0;
-            // let mut sum = 0.0;
-            // for i in slice.iter() {
-            //     if i.is_finite() {
-            //         count += 1.0;
-            //         sum += *i;
-            //     }
-            // }
-            // let mean = sum / count;
-            for x in col.col_mut(0).iter_mut() {
+            let col = col.col_mut(0);
+            let m = mean(col.as_ref().try_as_slice().unwrap());
+            for x in col.iter_mut() {
                 if !x.is_finite() {
-                    *x = mean;
+                    *x = m;
                 }
             }
         });
@@ -238,17 +205,16 @@ where
         let mut mat = self.parent.transform()?;
         let min_sum = self.min_sum;
         debug!("Computing column sums");
-        let cols = mat
-            .as_mat_ref()?
+        let m = mat.as_mat_ref()?;
+        let cols = m
             .par_col_chunks(1)
             .enumerate()
             .filter(|(_, col)| col.sum() >= min_sum)
             .map(|(i, _)| i)
             .collect::<Vec<_>>();
-        if cols.len() == mat.as_mat_ref()?.ncols() {
+        if cols.len() == m.ncols() {
             return Ok(mat);
         }
-        let m = mat.as_mat_ref()?;
         let nrows = m.nrows();
         let ncols = cols.len();
         debug!("Computing data");
@@ -258,9 +224,9 @@ where
         }
         let mat = Matrix::Owned(OwnedMatrix {
             data,
-            rows: nrows,
-            cols: ncols,
-            colnames: mat.colnames().map(|x| {
+            nrows,
+            ncols,
+            colnames: mat.colnames()?.map(|x| {
                 x.iter()
                     .enumerate()
                     .filter(|(i, _)| !cols.contains(i))

@@ -2,6 +2,8 @@ use std::convert::Infallible;
 
 use thiserror::Error;
 
+use crate::Join;
+
 #[derive(Error, Debug)]
 pub enum FileParseError {
     #[error("no file name")]
@@ -43,7 +45,7 @@ pub enum ConvertFileError {
 }
 
 #[derive(Error, Debug)]
-pub enum CombineMatricesError {
+pub enum CombineColumnsError {
     #[error("matrix dimensions do not match")]
     MatrixDimensionsMismatch,
     #[error("read matrix error: {0}")]
@@ -51,13 +53,137 @@ pub enum CombineMatricesError {
 }
 
 #[derive(Error, Debug)]
-pub enum ExtendMatrixError {
+pub enum CombineRowsError {
     #[error("matrix dimensions do not match")]
     MatrixDimensionsMismatch,
     #[error("column names do not match")]
     ColumnNamesMismatch,
     #[error("read matrix error: {0}")]
     ReadMatrixError(#[from] ReadMatrixError),
+}
+
+#[derive(Error, Debug)]
+pub enum RemoveRowsError {
+    #[error("read matrix error: {0}")]
+    ReadMatrixError(#[from] ReadMatrixError),
+    #[error("row index {0} out of bounds")]
+    RowIndexOutOfBounds(usize),
+}
+
+#[derive(Error, Debug)]
+pub enum RemoveColumnsError {
+    #[error("read matrix error: {0}")]
+    ReadMatrixError(#[from] ReadMatrixError),
+    #[error("column index {0} out of bounds")]
+    ColumnIndexOutOfBounds(usize),
+}
+
+#[derive(Error, Debug)]
+pub enum RemoveColumnByNameError {
+    #[error("read matrix error: {0}")]
+    ReadMatrixError(#[from] ReadMatrixError),
+    #[error("remove columns error: {0}")]
+    RemoveColumnsError(#[from] RemoveColumnsError),
+    #[error("column name {0} not found")]
+    ColumnNameNotFound(String),
+    #[error("missing column names")]
+    MissingColumnNames,
+}
+
+#[derive(Error, Debug)]
+pub enum SortByOrderError {
+    #[error("read matrix error: {0}")]
+    ReadMatrixError(#[from] ReadMatrixError),
+    #[error("order index {0} out of bounds")]
+    RowIndexOutOfBounds(usize),
+    #[error("order length {0} does not match matrix length")]
+    OrderLengthMismatch(usize),
+}
+
+#[derive(Error, Debug)]
+pub enum SortByColumnError {
+    #[error("read matrix error: {0}")]
+    ReadMatrixError(#[from] ReadMatrixError),
+    #[error("column index {0} out of bounds")]
+    ColumnIndexOutOfBounds(usize),
+    #[error("sort by order error: {0}")]
+    SortByOrderError(#[from] SortByOrderError),
+}
+
+#[derive(Error, Debug)]
+pub enum SortByColumnNameError {
+    #[error("read matrix error: {0}")]
+    ReadMatrixError(#[from] ReadMatrixError),
+    #[error("column name {0} not found")]
+    ColumnNameNotFound(String),
+    #[error("sort by column error: {0}")]
+    SortByColumnError(#[from] SortByColumnError),
+    #[error("missing column names")]
+    MissingColumnNames,
+}
+
+#[derive(Error, Debug)]
+pub enum DedupByColumnError {
+    #[error("read matrix error: {0}")]
+    ReadMatrixError(#[from] ReadMatrixError),
+    #[error("column index {0} out of bounds")]
+    ColumnIndexOutOfBounds(usize),
+}
+
+#[derive(Error, Debug)]
+pub enum DedupByColumnNameError {
+    #[error("read matrix error: {0}")]
+    ReadMatrixError(#[from] ReadMatrixError),
+    #[error("column name {0} not found")]
+    ColumnNameNotFound(String),
+    #[error("dedup by column error: {0}")]
+    DedupByColumnError(#[from] DedupByColumnError),
+    #[error("missing column names")]
+    MissingColumnNames,
+}
+
+#[derive(Error, Debug)]
+pub enum MatchToColumnError {
+    #[error("read matrix error: {0}")]
+    ReadMatrixError(#[from] ReadMatrixError),
+    #[error("column index {0} out of bounds")]
+    ColumnIndexOutOfBounds(usize),
+    #[error("not all rows matched with join {0}")]
+    NotAllRowsMatched(Join),
+}
+
+#[derive(Error, Debug)]
+pub enum MatchToByColumnNameError {
+    #[error("read matrix error: {0}")]
+    ReadMatrixError(#[from] ReadMatrixError),
+    #[error("column name {0} not found")]
+    ColumnNameNotFound(String),
+    #[error("match to column error: {0}")]
+    MatchToColumnError(#[from] MatchToColumnError),
+    #[error("missing column names")]
+    MissingColumnNames,
+}
+
+#[derive(Error, Debug)]
+pub enum JoinError {
+    #[error("read matrix error: {0}")]
+    ReadMatrixError(#[from] ReadMatrixError),
+    #[error("column index {0} out of bounds")]
+    ColumnIndexOutOfBounds(usize),
+    #[error("not all rows matched with join {0}")]
+    NotAllRowsMatched(Join),
+}
+
+#[derive(Error, Debug)]
+pub enum JoinByColumnNameError {
+    #[error("read matrix error: {0}")]
+    ReadMatrixError(#[from] ReadMatrixError),
+    #[error("column name {0} not found")]
+    ColumnNameNotFound(String),
+    #[error("join error: {0}")]
+    JoinError(#[from] JoinError),
+    #[error("missing column names")]
+    MissingColumnNames,
 }
 
 #[derive(Error, Debug)]
@@ -78,16 +204,14 @@ pub enum ReadMatrixError {
     RkyvError(String),
     #[error("cbor error: {0}")]
     CborError(#[from] serde_cbor::Error),
-}
-
-impl From<extendr_api::Error> for ReadMatrixError {
-    fn from(err: extendr_api::Error) -> Self {
-        ReadMatrixError::RError(err.to_string())
-    }
+    #[error("matrix from robj error: {0}")]
+    MatrixFromRobjError(#[from] MatrixFromRobjError),
 }
 
 #[derive(Error, Debug)]
 pub enum WriteMatrixError {
+    #[error("read matrix error: {0}")]
+    ReadMatrixError(#[from] ReadMatrixError),
     #[error("io error: {0}")]
     IoError(#[from] std::io::Error),
     #[error("csv error: {0}")]
@@ -102,50 +226,61 @@ pub enum WriteMatrixError {
     CborError(#[from] serde_cbor::Error),
 }
 
-impl From<extendr_api::Error> for WriteMatrixError {
-    fn from(err: extendr_api::Error) -> Self {
-        WriteMatrixError::RError(err.to_string())
-    }
+#[derive(Error, Debug)]
+pub enum MatrixFromRobjError {
+    #[error("invalid item type")]
+    InvalidItemType,
+    #[error("r error: {0}")]
+    RError(#[from] extendr_api::Error),
+    #[error("file parse error: {0}")]
+    FileParseError(#[from] FileParseError),
 }
 
-impl From<FileParseError> for extendr_api::Error {
-    fn from(err: FileParseError) -> Self {
-        extendr_api::Error::Other(err.to_string())
-    }
+macro_rules! rerror {
+    ($($err:ty),*) => {
+        $(
+            impl From<extendr_api::Error> for $err {
+                fn from(err: extendr_api::Error) -> Self {
+                    <$err>::RError(err.to_string())
+                }
+            }
+        )*
+    };
 }
 
-impl From<MatParseError> for extendr_api::Error {
-    fn from(err: MatParseError) -> Self {
-        extendr_api::Error::Other(err.to_string())
-    }
+rerror!(ReadMatrixError, WriteMatrixError);
+
+macro_rules! others {
+    ($($err:ty),*) => {
+        $(
+            impl From<$err> for extendr_api::Error {
+                fn from(err: $err) -> Self {
+                    extendr_api::Error::Other(err.to_string())
+                }
+            }
+        )*
+    };
 }
 
-impl From<ConvertFileError> for extendr_api::Error {
-    fn from(err: ConvertFileError) -> Self {
-        extendr_api::Error::Other(err.to_string())
-    }
-}
-
-impl From<CombineMatricesError> for extendr_api::Error {
-    fn from(err: CombineMatricesError) -> Self {
-        extendr_api::Error::Other(err.to_string())
-    }
-}
-
-impl From<ExtendMatrixError> for extendr_api::Error {
-    fn from(err: ExtendMatrixError) -> Self {
-        extendr_api::Error::Other(err.to_string())
-    }
-}
-
-impl From<ReadMatrixError> for extendr_api::Error {
-    fn from(err: ReadMatrixError) -> Self {
-        extendr_api::Error::Other(err.to_string())
-    }
-}
-
-impl From<WriteMatrixError> for extendr_api::Error {
-    fn from(err: WriteMatrixError) -> Self {
-        extendr_api::Error::Other(err.to_string())
-    }
-}
+others!(
+    FileParseError,
+    MatParseError,
+    ConvertFileError,
+    CombineColumnsError,
+    CombineRowsError,
+    RemoveRowsError,
+    RemoveColumnsError,
+    RemoveColumnByNameError,
+    SortByOrderError,
+    SortByColumnError,
+    SortByColumnNameError,
+    DedupByColumnError,
+    DedupByColumnNameError,
+    MatchToColumnError,
+    MatchToByColumnNameError,
+    JoinError,
+    JoinByColumnNameError,
+    ReadMatrixError,
+    WriteMatrixError,
+    MatrixFromRobjError
+);
