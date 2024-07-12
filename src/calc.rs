@@ -222,7 +222,7 @@ pub fn p_value(xs: &[f64], ys: &[f64]) -> PValue {
 }
 
 pub fn mean<E: ComplexField + SimpleEntity>(x: &[E]) -> E {
-    let mut mean = E::zeroed();
+    let mut mean = E::faer_zero();
     faer::stats::row_mean(
         faer::row::from_mut(&mut mean),
         faer::mat::from_column_major_slice(x, 1, x.len()).as_ref(),
