@@ -2,7 +2,7 @@ use faer::{
     get_global_parallelism,
     mat::AsMatRef,
     solvers::{SpSolver, Svd},
-    Mat, MatRef, Side,
+    ComplexField, Mat, MatRef, Side, SimpleEntity,
 };
 use rayon::iter::IntoParallelIterator;
 use rayon::prelude::*;
@@ -221,8 +221,8 @@ pub fn p_value(xs: &[f64], ys: &[f64]) -> PValue {
     }
 }
 
-pub fn mean(x: &[f64]) -> f64 {
-    let mut mean = 0.0;
+pub fn mean<E: ComplexField + SimpleEntity>(x: &[E]) -> E {
+    let mut mean = E::zeroed();
     faer::stats::row_mean(
         faer::row::from_mut(&mut mean),
         faer::mat::from_column_major_slice(x, 1, x.len()).as_ref(),
