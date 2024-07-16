@@ -9,23 +9,6 @@ use rayon::prelude::*;
 use statrs::distribution::{ContinuousCDF, StudentsT};
 use tracing::{debug, warn};
 
-pub fn variance(data: &[f64]) -> f64 {
-    let mut mean = 0.0;
-    let mut var = 0.0;
-    faer::stats::row_mean(
-        faer::row::from_mut(&mut mean),
-        faer::mat::from_column_major_slice(data, data.len(), 1),
-        faer::stats::NanHandling::Ignore,
-    );
-    faer::stats::row_varm(
-        faer::row::from_mut(&mut var),
-        faer::mat::from_column_major_slice(data, data.len(), 1),
-        faer::row::from_ref(&mean),
-        faer::stats::NanHandling::Ignore,
-    );
-    var
-}
-
 #[derive(Debug, Clone)]
 pub struct R2 {
     r2: f64,
@@ -82,11 +65,6 @@ impl R2 {
     pub fn m(&self) -> u32 {
         self.m
     }
-}
-
-#[inline]
-pub fn cross_product(data: MatRef<f64>) -> Mat<f64> {
-    data.transpose() * data
 }
 
 #[tracing::instrument(skip(data, outcomes))]
@@ -221,27 +199,45 @@ pub fn p_value(xs: &[f64], ys: &[f64]) -> PValue {
     }
 }
 
+pub fn variance(data: &[f64]) -> f64 {
+    let mut mean = 0.0;
+    let mut var = 0.0;
+    faer::stats::row_mean(
+        faer::row::from_mut(&mut mean),
+        faer::mat::from_column_major_slice(data, data.len(), 1),
+        faer::stats::NanHandling::Ignore,
+    );
+    faer::stats::row_varm(
+        faer::row::from_mut(&mut var),
+        faer::mat::from_column_major_slice(data, data.len(), 1),
+        faer::row::from_ref(&mean),
+        faer::stats::NanHandling::Ignore,
+    );
+    var
+}
+
 pub fn mean<E: ComplexField + SimpleEntity>(x: &[E]) -> E {
     let mut mean = E::faer_zero();
     faer::stats::row_mean(
         faer::row::from_mut(&mut mean),
-        faer::mat::from_column_major_slice(x, 1, x.len()).as_ref(),
+        faer::mat::from_column_major_slice(x, x.len(), 1).as_ref(),
         faer::stats::NanHandling::Ignore,
     );
     mean
 }
 
-pub fn standardization(x: &mut [f64]) {
+#[tracing::instrument(skip(x))]
+pub fn standardize(x: &mut [f64]) {
     let mut mean = 0.0;
     let mut std: f64 = 0.0;
     faer::stats::row_mean(
         faer::row::from_mut(&mut mean),
-        faer::mat::from_column_major_slice(&*x, 1, x.len()).as_ref(),
+        faer::mat::from_column_major_slice(&*x, x.len(), 1).as_ref(),
         faer::stats::NanHandling::Ignore,
     );
     faer::stats::row_varm(
         faer::row::from_mut(&mut std),
-        faer::mat::from_column_major_slice(&*x, 1, x.len()).as_ref(),
+        faer::mat::from_column_major_slice(&*x, x.len(), 1).as_ref(),
         faer::row::from_ref(&mean),
         faer::stats::NanHandling::Ignore,
     );

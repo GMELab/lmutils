@@ -1,21 +1,14 @@
 use core::panic;
 use std::{collections::HashSet, mem::MaybeUninit, str::FromStr};
 
-use crate::{
-    errors::{CombineColumnsError, FileParseError},
-    file::File,
-    CombineRowsError, DedupByColumnError, DedupByColumnNameError, JoinByColumnNameError, JoinError,
-    MatParseError, MatchToByColumnNameError, MatchToColumnError, MatrixFromRobjError,
-    ReadMatrixError, RemoveColumnByNameError, RemoveColumnsError, RemoveRowsError,
-    SortByColumnError, SortByColumnNameError, SortByOrderError,
-};
+use crate::{file::File, mean, standardize, Error};
 use extendr_api::{
     io::Load, single_threaded, wrapper, AsStrIter, Attributes, Conversions, IntoRobj,
     MatrixConversions, RMatrix, Rinternals, Robj,
 };
-use faer::{MatMut, MatRef};
+use faer::{linalg::qr, MatMut, MatRef};
 use rayon::prelude::*;
-use tracing::{debug, trace, warn};
+use tracing::{debug, trace};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Join {
@@ -28,6 +21,7 @@ pub enum Join {
 }
 
 impl std::fmt::Display for Join {
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Join::Inner => write!(f, "inner"),
@@ -37,40 +31,27 @@ impl std::fmt::Display for Join {
     }
 }
 
-#[derive(Debug)]
 pub enum Matrix<'a> {
     R(RMatrix<f64>),
     Owned(OwnedMatrix),
     File(File),
     Ref(MatMut<'a, f64>),
+    Transform(
+        #[allow(clippy::type_complexity)]
+        Vec<Box<dyn for<'b> FnOnce(&'b mut Matrix<'a>) -> Result<&'b mut Matrix<'a>, Error> + 'a>>,
+        Box<Matrix<'a>>,
+    ),
 }
 
-impl<'a> Clone for Matrix<'a> {
-    fn clone(&self) -> Self {
+impl<'a> std::fmt::Debug for Matrix<'a> {
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Matrix::R(m) => Matrix::R((*m).as_matrix().unwrap()),
-            Matrix::Owned(m) => Matrix::Owned(m.clone()),
-            Matrix::File(f) => Matrix::File(f.clone()),
-            Matrix::Ref(m) => {
-                let data = vec![MaybeUninit::<f64>::uninit(); m.nrows() * m.ncols()];
-                m.as_ref().par_col_chunks(1).enumerate().for_each(|(i, c)| {
-                    // SAFETY: No two threads will write to the same location
-                    let data = unsafe {
-                        std::slice::from_raw_parts_mut(
-                            data.as_ptr().add(i * m.nrows()).cast::<f64>().cast_mut(),
-                            data.len(),
-                        )
-                    };
-                    data.copy_from_slice(c.col(0).try_as_slice().expect("could not get slice"));
-                });
-                Matrix::Owned(OwnedMatrix::new(
-                    m.nrows(),
-                    m.ncols(),
-                    // SAFETY: The data is initialized now
-                    unsafe { std::mem::transmute(data) },
-                    None,
-                ))
-            },
+            Matrix::R(m) => write!(f, "Matrix::R({:?})", m),
+            Matrix::Owned(m) => write!(f, "Matrix::Owned({:?})", m),
+            Matrix::File(m) => write!(f, "Matrix::File({:?})", m),
+            Matrix::Ref(m) => write!(f, "Matrix::Ref({:?})", m),
+            Matrix::Transform(t, m) => write!(f, "Matrix::Transform({:?}, {:?})", t.len(), m),
         }
     }
 }
@@ -80,14 +61,16 @@ unsafe impl<'a> Send for Matrix<'a> {}
 unsafe impl<'a> Sync for Matrix<'a> {}
 
 impl<'a> Matrix<'a> {
-    pub fn as_mat_ref(&mut self) -> Result<MatRef<'_, f64>, ReadMatrixError> {
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn as_mat_ref(&mut self) -> Result<MatRef<'_, f64>, crate::Error> {
         Ok(match self {
-            m @ Matrix::File(_) => m.into_owned()?,
+            m @ (Matrix::File(_) | Matrix::Transform(_, _)) => m.into_owned()?,
             m => m,
         }
         .as_mat_ref_loaded())
     }
 
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn as_mat_ref_loaded(&self) -> MatRef<'_, f64> {
         match self {
             Matrix::R(m) => faer::mat::from_column_major_slice(m.data(), m.nrows(), m.ncols()),
@@ -96,10 +79,12 @@ impl<'a> Matrix<'a> {
             },
             Matrix::File(_) => panic!("cannot call this function on a file"),
             Matrix::Ref(m) => m.as_ref(),
+            Matrix::Transform(_, _) => panic!("cannot call this function on a transform"),
         }
     }
 
-    pub fn as_mat_mut(&mut self) -> Result<MatMut<'_, f64>, ReadMatrixError> {
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn as_mat_mut(&mut self) -> Result<MatMut<'_, f64>, crate::Error> {
         Ok(match self {
             // SAFETY: We know that the data is valid
             Matrix::R(m) => unsafe {
@@ -114,23 +99,49 @@ impl<'a> Matrix<'a> {
             Matrix::Owned(m) => {
                 faer::mat::from_column_major_slice_mut(m.data.as_mut(), m.nrows, m.ncols)
             },
-            m @ Matrix::File(_) => m.into_owned()?.as_mat_mut()?,
+            m @ (Matrix::File(_) | Matrix::Transform(_, _)) => m.into_owned()?.as_mat_mut()?,
             Matrix::Ref(m) => m.as_mut(),
         })
     }
 
-    pub fn as_owned_ref(&mut self) -> Result<&OwnedMatrix, ReadMatrixError> {
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn as_owned_ref(&mut self) -> Result<&OwnedMatrix, crate::Error> {
         self.into_owned().map(|m| match m {
             Matrix::Owned(m) => &*m,
             _ => unreachable!(),
         })
     }
 
-    pub fn to_rmatrix(&mut self) -> Result<RMatrix<f64>, ReadMatrixError> {
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn as_owned_mut(&mut self) -> Result<&mut OwnedMatrix, crate::Error> {
+        self.into_owned().map(|m| match m {
+            Matrix::Owned(m) => m,
+            _ => unreachable!(),
+        })
+    }
+
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn to_rmatrix(&mut self) -> Result<RMatrix<f64>, crate::Error> {
         Ok(match self {
             Matrix::R(m) => m.clone().into_robj().clone().as_matrix().unwrap(),
-            Matrix::Owned(m) => m.to_rmatrix(),
-            m @ Matrix::File(_) => m.into_owned()?.to_rmatrix()?,
+            Matrix::Owned(m) => {
+                use extendr_api::prelude::*;
+
+                let mat = RMatrix::new_matrix(
+                    m.nrows,
+                    m.ncols,
+                    #[inline(always)]
+                    |r, c| m.data[c * m.nrows + r],
+                );
+                let mut dimnames = List::from_values([NULL, NULL]);
+                if let Some(colnames) = &m.colnames {
+                    dimnames.set_elt(1, colnames.into_robj()).unwrap();
+                }
+                mat.set_attrib(wrapper::symbol::dimnames_symbol(), dimnames)
+                    .unwrap();
+                mat
+            },
+            m @ (Matrix::File(_) | Matrix::Transform(_, _)) => m.into_owned()?.to_rmatrix()?,
             Matrix::Ref(m) => {
                 let m = m.as_ref();
                 // SAFETY: We know that r and c are within bounds
@@ -141,30 +152,33 @@ impl<'a> Matrix<'a> {
         })
     }
 
-    pub fn into_robj(mut self) -> Result<Robj, ReadMatrixError> {
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn into_robj(mut self) -> Result<Robj, crate::Error> {
         Ok(self.to_rmatrix().into_robj())
     }
 
-    pub fn from_rdata(mut reader: impl std::io::Read) -> Result<Self, ReadMatrixError> {
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn from_rdata(mut reader: impl std::io::Read) -> Result<Self, crate::Error> {
         let mut buf = [0; 5];
         reader.read_exact(&mut buf)?;
         if buf != *b"RDX3\n" {
-            return Err(ReadMatrixError::InvalidRdataFile);
+            return Err(crate::Error::InvalidRdataFile);
         }
         let obj = single_threaded(|| {
             Robj::from_reader(&mut reader, extendr_api::io::PstreamFormat::XdrFormat, None)
         })?;
         let mat = obj
             .as_pairlist()
-            .ok_or(ReadMatrixError::InvalidRdataFile)?
+            .ok_or(crate::Error::InvalidRdataFile)?
             .into_iter()
             .next()
-            .ok_or(ReadMatrixError::InvalidRdataFile)?
+            .ok_or(crate::Error::InvalidRdataFile)?
             .1;
-        Ok(Matrix::from_robj(mat)?)
+        Matrix::from_robj(mat)
     }
 
-    pub fn from_robj(r: Robj) -> Result<Self, MatrixFromRobjError> {
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn from_robj(r: Robj) -> Result<Self, crate::Error> {
         if r.is_matrix() {
             let float = RMatrix::<f64>::try_from(r);
             match float {
@@ -199,20 +213,22 @@ impl<'a> Matrix<'a> {
                         .map(|x| x.as_matrix::<f64>().unwrap().into_matrix())
                 })?);
             } else {
-                Err(MatrixFromRobjError::InvalidItemType)
+                Err(crate::Error::InvalidItemType)
             }
         } else {
-            Err(MatrixFromRobjError::InvalidItemType)
+            Err(crate::Error::InvalidItemType)
         }
     }
 
-    pub fn to_owned(self) -> Result<OwnedMatrix, ReadMatrixError> {
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn to_owned(self) -> Result<OwnedMatrix, crate::Error> {
         Ok(match self {
             Matrix::File(m) => m.read()?.to_owned_loaded(),
             m => m.to_owned_loaded(),
         })
     }
 
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn to_owned_loaded(self) -> OwnedMatrix {
         match self {
             Matrix::File(_) => panic!("cannot call this function on a file"),
@@ -226,12 +242,13 @@ impl<'a> Matrix<'a> {
         }
     }
 
-    #[inline]
     #[tracing::instrument(skip(self))]
-    pub fn into_owned(&mut self) -> Result<&mut Self, ReadMatrixError> {
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn into_owned(&mut self) -> Result<&mut Self, crate::Error> {
         match self {
             Matrix::R(m) => {
-                *self = Matrix::Owned(OwnedMatrix::from_rmatrix(m));
+                let m = std::mem::replace(m, RMatrix::new_matrix(0, 0, |_, _| 0.0));
+                *self = Matrix::from_robj(m.into_robj())?;
                 Ok(self)
             },
             Matrix::Owned(_) => Ok(self),
@@ -255,55 +272,115 @@ impl<'a> Matrix<'a> {
                     m.nrows(),
                     m.ncols(),
                     // SAFETY: The data is initialized now
-                    unsafe { std::mem::transmute(data) },
+                    unsafe {
+                        std::mem::transmute::<
+                            std::vec::Vec<std::mem::MaybeUninit<f64>>,
+                            std::vec::Vec<f64>,
+                        >(data)
+                    },
                     None,
                 ));
                 Ok(self)
             },
+            m @ Matrix::Transform(_, _) => {
+                let slf = std::mem::replace(m, Matrix::Owned(OwnedMatrix::new(0, 0, vec![], None)));
+                if let Matrix::Transform(fns, mat) = slf {
+                    let mut mat = *mat;
+                    debug!("{:?}", mat);
+                    for f in fns {
+                        f(&mut mat)?;
+                    }
+                    *m = mat;
+                }
+                Ok(m)
+            },
         }
     }
 
-    pub fn colnames(&mut self) -> Result<Option<Vec<&str>>, ReadMatrixError> {
-        Ok(match self {
-            Matrix::R(m) => colnames(m),
-            Matrix::Owned(m) => m.colnames().map(|x| x.iter().map(|x| x.as_str()).collect()),
+    #[tracing::instrument(skip(self))]
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn load(&mut self) -> Result<&mut Matrix<'a>, crate::Error> {
+        match self {
             Matrix::File(f) => {
-                let m = f.read()?;
-                *self = m;
-                self.colnames()?
+                *self = f.read()?;
+                Ok(self)
             },
+            _ => Ok(self),
+        }
+    }
+
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn colnames(&mut self) -> Result<Option<Vec<&str>>, crate::Error> {
+        Ok(match self {
+            Matrix::R(m) => m.dimnames().map(|mut dimnames| {
+                dimnames
+                    .nth(1)
+                    .unwrap()
+                    .as_str_iter()
+                    .unwrap()
+                    .collect::<Vec<_>>()
+            }),
+            Matrix::Owned(m) => m
+                .colnames
+                .as_deref()
+                .map(|x| x.iter().map(|x| x.as_str()).collect()),
+            m @ (Matrix::File(_) | Matrix::Transform(_, _)) => m.into_owned()?.colnames()?,
             Matrix::Ref(_) => None,
         })
     }
 
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn from_slice(data: &'a mut [f64], rows: usize, cols: usize) -> Self {
         Matrix::Ref(faer::mat::from_column_major_slice_mut(data, rows, cols))
     }
 
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn from_rmatrix(r: RMatrix<f64>) -> Self {
         Matrix::R(r)
     }
 
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn from_owned(m: OwnedMatrix) -> Self {
         Matrix::Owned(m)
     }
 
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn from_file(f: File) -> Self {
         Matrix::File(f)
     }
 
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn from_mat_mut(m: MatMut<'a, f64>) -> Self {
         assert!(m.row_stride() == 1);
         Matrix::Ref(m)
+    }
+
+    fn transform(
+        &mut self,
+        f: impl for<'b> FnOnce(&'b mut Matrix<'a>) -> Result<&'b mut Matrix<'a>, Error> + 'a,
+    ) -> &mut Self {
+        match self {
+            Matrix::Transform(fns, _) => fns.push(Box::new(f)),
+            _ => {
+                let m =
+                    std::mem::replace(self, Matrix::Owned(OwnedMatrix::new(0, 0, vec![], None)));
+                *self = Matrix::Transform(vec![], Box::new(m));
+                self.transform(f);
+            },
+        }
+        self
+    }
+
+    pub fn t_combine_columns(&mut self, mut others: Vec<Matrix<'a>>) -> &mut Matrix<'a> {
+        self.transform(move |m| m.combine_columns(others.as_mut_slice()))
     }
 
     #[tracing::instrument(skip(self, others))]
     pub fn combine_columns(
         &mut self,
         others: &mut [Matrix<'a>],
-    ) -> Result<&mut Self, CombineColumnsError> {
+    ) -> Result<&mut Self, crate::Error> {
         if others.is_empty() {
-            warn!("attempted to combine by columns with empty others");
             return Ok(self);
         }
 
@@ -337,7 +414,7 @@ impl<'a> Matrix<'a> {
             .collect::<Result<Vec<_>, _>>()?;
         let nrows = self.nrows()?;
         if others.iter().any(|i| i.nrows() != nrows) {
-            return Err(CombineColumnsError::MatrixDimensionsMismatch);
+            return Err(crate::Error::MatrixDimensionsMismatch);
         }
         let ncols = self.ncols()? + others.iter().map(|i| i.ncols()).sum::<usize>();
         let data = vec![MaybeUninit::<f64>::uninit(); nrows * ncols];
@@ -366,19 +443,23 @@ impl<'a> Matrix<'a> {
             nrows,
             ncols,
             // SAFETY: The data is initialized now
-            unsafe { std::mem::transmute(data) },
+            unsafe {
+                std::mem::transmute::<std::vec::Vec<std::mem::MaybeUninit<f64>>, std::vec::Vec<f64>>(
+                    data,
+                )
+            },
             colnames,
         ));
         Ok(self)
     }
 
+    pub fn t_combine_rows(&mut self, mut others: Vec<Matrix<'a>>) -> &mut Self {
+        self.transform(move |m| m.combine_rows(others.as_mut_slice()))
+    }
+
     #[tracing::instrument(skip(self, others))]
-    pub fn combine_rows(
-        &mut self,
-        others: &mut [Matrix<'a>],
-    ) -> Result<&mut Self, CombineRowsError> {
+    pub fn combine_rows(&mut self, others: &mut [Matrix<'a>]) -> Result<&mut Self, crate::Error> {
         if others.is_empty() {
-            warn!("attempted to combine by rows with empty others");
             return Ok(self);
         }
         let colnames = self.colnames()?;
@@ -389,7 +470,7 @@ impl<'a> Matrix<'a> {
             .iter()
             .any(|i| *i != colnames)
         {
-            return Err(CombineRowsError::ColumnNamesMismatch);
+            return Err(crate::Error::ColumnNamesMismatch);
         }
         let colnames = colnames.map(|x| x.iter().map(|x| x.to_string()).collect());
         let ncols = self.ncols()?;
@@ -398,7 +479,7 @@ impl<'a> Matrix<'a> {
             .map(|x| x.as_mat_ref())
             .collect::<Result<Vec<_>, _>>()?;
         if others.iter().any(|i| i.ncols() != ncols) {
-            return Err(CombineRowsError::MatrixDimensionsMismatch);
+            return Err(crate::Error::MatrixDimensionsMismatch);
         }
         let nrows = self.nrows()? + others.iter().map(|i| i.nrows()).sum::<usize>();
         debug!("nrows: {}, ncols: {}", nrows, ncols);
@@ -428,17 +509,28 @@ impl<'a> Matrix<'a> {
             nrows,
             ncols,
             // SAFETY: The data is initialized now
-            unsafe { std::mem::transmute(data) },
+            unsafe {
+                std::mem::transmute::<std::vec::Vec<std::mem::MaybeUninit<f64>>, std::vec::Vec<f64>>(
+                    data,
+                )
+            },
             colnames,
         ));
         Ok(self)
     }
 
+    pub fn t_remove_rows(&mut self, removing: HashSet<usize>) -> &mut Self {
+        self.transform(move |m| m.remove_rows(&removing))
+    }
+
     #[tracing::instrument(skip(self))]
-    pub fn remove_rows(&mut self, removing: &HashSet<usize>) -> Result<&mut Self, RemoveRowsError> {
+    pub fn remove_rows(&mut self, removing: &HashSet<usize>) -> Result<&mut Self, crate::Error> {
+        if removing.is_empty() {
+            return Ok(self);
+        }
         for i in removing.iter() {
             if *i >= self.nrows()? {
-                return Err(RemoveRowsError::RowIndexOutOfBounds(*i));
+                return Err(crate::Error::RowIndexOutOfBounds(*i));
             }
         }
         let new_nrows = self.nrows()? - removing.len();
@@ -466,22 +558,30 @@ impl<'a> Matrix<'a> {
             new_nrows,
             self.ncols()?,
             // SAFETY: The data is initialized now
-            unsafe { std::mem::transmute(data) },
+            unsafe {
+                std::mem::transmute::<std::vec::Vec<std::mem::MaybeUninit<f64>>, std::vec::Vec<f64>>(
+                    data,
+                )
+            },
             self.colnames()?
                 .map(|x| x.iter().map(|x| x.to_string()).collect()),
         ));
         Ok(self)
     }
 
+    pub fn t_remove_columns(&mut self, removing: HashSet<usize>) -> &mut Self {
+        self.transform(move |m| m.remove_columns(&removing))
+    }
+
     #[tracing::instrument(skip(self))]
-    pub fn remove_columns(
-        &mut self,
-        removing: &HashSet<usize>,
-    ) -> Result<&mut Self, RemoveColumnsError> {
+    pub fn remove_columns(&mut self, removing: &HashSet<usize>) -> Result<&mut Self, crate::Error> {
+        if removing.is_empty() {
+            return Ok(self);
+        }
         let m = self.as_mat_ref()?;
         for i in removing.iter() {
             if *i >= m.ncols() {
-                return Err(RemoveColumnsError::ColumnIndexOutOfBounds(*i));
+                return Err(crate::Error::ColumnIndexOutOfBounds(*i));
             }
         }
         let new_ncols = m.ncols() - removing.len();
@@ -503,7 +603,11 @@ impl<'a> Matrix<'a> {
             m.nrows(),
             new_ncols,
             // SAFETY: The data is initialized now
-            unsafe { std::mem::transmute(data) },
+            unsafe {
+                std::mem::transmute::<std::vec::Vec<std::mem::MaybeUninit<f64>>, std::vec::Vec<f64>>(
+                    data,
+                )
+            },
             self.colnames()?.map(|x| {
                 x.iter()
                     .enumerate()
@@ -520,14 +624,16 @@ impl<'a> Matrix<'a> {
         Ok(self)
     }
 
+    pub fn t_remove_column_by_name(&mut self, name: &str) -> &mut Self {
+        let name = name.to_string();
+        self.transform(move |m| m.remove_column_by_name(&name))
+    }
+
     #[tracing::instrument(skip(self))]
-    pub fn remove_column_by_name(
-        &mut self,
-        name: &str,
-    ) -> Result<&mut Self, RemoveColumnByNameError> {
+    pub fn remove_column_by_name(&mut self, name: &str) -> Result<&mut Self, crate::Error> {
         let colnames = self.colnames()?;
         if colnames.is_none() {
-            return Err(RemoveColumnByNameError::MissingColumnNames);
+            return Err(crate::Error::MissingColumnNames);
         }
         let exists = colnames
             .expect("colnames should be present")
@@ -536,28 +642,34 @@ impl<'a> Matrix<'a> {
         if let Some(i) = exists {
             self.remove_columns(&[i].iter().copied().collect())?;
         } else {
-            return Err(RemoveColumnByNameError::ColumnNameNotFound(
-                name.to_string(),
-            ));
+            return Err(crate::Error::ColumnNameNotFound(name.to_string()));
         }
         Ok(self)
+    }
+
+    pub fn t_remove_column_by_name_if_exists(&mut self, name: &str) -> &mut Self {
+        let name = name.to_string();
+        self.transform(move |m| m.remove_column_by_name_if_exists(&name))
     }
 
     #[tracing::instrument(skip(self))]
     pub fn remove_column_by_name_if_exists(
         &mut self,
         name: &str,
-    ) -> Result<&mut Self, ReadMatrixError> {
+    ) -> Result<&mut Self, crate::Error> {
         match self.remove_column_by_name(name) {
             Ok(_) => Ok(self),
-            Err(RemoveColumnByNameError::ColumnNameNotFound(_)) => Ok(self),
-            Err(RemoveColumnByNameError::ReadMatrixError(e)) => Err(e),
-            _ => unreachable!(),
+            Err(crate::Error::ColumnNameNotFound(_)) => Ok(self),
+            Err(e) => Err(e),
         }
     }
 
+    pub fn t_transpose(&mut self) -> &mut Self {
+        self.transform(|m| m.transpose())
+    }
+
     #[tracing::instrument(skip(self))]
-    pub fn transpose(&mut self) -> Result<&mut Self, ReadMatrixError> {
+    pub fn transpose(&mut self) -> Result<&mut Self, crate::Error> {
         let m = self.as_mat_ref()?;
         let new_data = vec![MaybeUninit::<f64>::uninit(); m.nrows() * m.ncols()];
         m.par_col_chunks(1).enumerate().for_each(|(new_row, c)| {
@@ -572,34 +684,47 @@ impl<'a> Matrix<'a> {
             m.ncols(),
             m.nrows(),
             // SAFETY: The data is initialized now
-            unsafe { std::mem::transmute(new_data) },
+            unsafe {
+                std::mem::transmute::<std::vec::Vec<std::mem::MaybeUninit<f64>>, std::vec::Vec<f64>>(
+                    new_data,
+                )
+            },
             None,
         ));
         Ok(self)
     }
 
+    pub fn t_sort_by_column(&mut self, by: usize) -> &mut Self {
+        self.transform(move |m| m.sort_by_column(by))
+    }
+
     #[tracing::instrument(skip(self))]
-    pub fn sort_by_column(&mut self, by: usize) -> Result<&mut Self, SortByColumnError> {
+    pub fn sort_by_column(&mut self, by: usize) -> Result<&mut Self, crate::Error> {
         if by >= self.ncols()? {
-            return Err(SortByColumnError::ColumnIndexOutOfBounds(by));
+            return Err(crate::Error::ColumnIndexOutOfBounds(by));
         }
         let col = self.col(by)?.unwrap();
         let mut order = col.iter().copied().enumerate().collect::<Vec<_>>();
         order.sort_by(|a, b| a.1.partial_cmp(&b.1).expect("could not compare"));
-        Ok(self.sort_by_order(
+        self.sort_by_order(
             order
                 .into_iter()
                 .map(|(i, _)| i)
                 .collect::<Vec<_>>()
                 .as_slice(),
-        )?)
+        )
+    }
+
+    pub fn t_sort_by_column_name(&mut self, by: &str) -> &mut Self {
+        let by = by.to_string();
+        self.transform(move |m| m.sort_by_column_name(&by))
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn sort_by_column_name(&mut self, by: &str) -> Result<&mut Self, SortByColumnNameError> {
+    pub fn sort_by_column_name(&mut self, by: &str) -> Result<&mut Self, crate::Error> {
         let colnames = self.colnames()?;
         if colnames.is_none() {
-            return Err(SortByColumnNameError::MissingColumnNames);
+            return Err(crate::Error::MissingColumnNames);
         }
         let by_col_idx = colnames
             .expect("colnames should be present")
@@ -609,18 +734,22 @@ impl<'a> Matrix<'a> {
             self.sort_by_column(i)?;
             Ok(self)
         } else {
-            Err(SortByColumnNameError::ColumnNameNotFound(by.to_string()))
+            Err(crate::Error::ColumnNameNotFound(by.to_string()))
         }
     }
 
+    pub fn t_sort_by_order(&mut self, order: Vec<usize>) -> &mut Self {
+        self.transform(move |m| m.sort_by_order(&order))
+    }
+
     #[tracing::instrument(skip(self))]
-    pub fn sort_by_order(&mut self, order: &[usize]) -> Result<&mut Self, SortByOrderError> {
+    pub fn sort_by_order(&mut self, order: &[usize]) -> Result<&mut Self, crate::Error> {
         if order.len() != self.nrows()? {
-            return Err(SortByOrderError::OrderLengthMismatch(order.len()));
+            return Err(crate::Error::OrderLengthMismatch(order.len()));
         }
         for i in order.iter() {
             if *i >= self.nrows()? {
-                return Err(SortByOrderError::RowIndexOutOfBounds(*i));
+                return Err(crate::Error::RowIndexOutOfBounds(*i));
             }
         }
         let data = vec![MaybeUninit::<f64>::uninit(); self.as_mat_ref()?.nrows() * self.ncols()?];
@@ -641,17 +770,25 @@ impl<'a> Matrix<'a> {
             m.nrows(),
             m.ncols(),
             // SAFETY: The data is initialized now
-            unsafe { std::mem::transmute(data) },
+            unsafe {
+                std::mem::transmute::<std::vec::Vec<std::mem::MaybeUninit<f64>>, std::vec::Vec<f64>>(
+                    data,
+                )
+            },
             self.colnames()?
                 .map(|x| x.iter().map(|x| x.to_string()).collect()),
         ));
         Ok(self)
     }
 
+    pub fn t_dedup_by_column(&mut self, by: usize) -> &mut Self {
+        self.transform(move |m| m.dedup_by_column(by))
+    }
+
     #[tracing::instrument(skip(self))]
-    pub fn dedup_by_column(&mut self, by: usize) -> Result<&mut Self, DedupByColumnError> {
+    pub fn dedup_by_column(&mut self, by: usize) -> Result<&mut Self, crate::Error> {
         if by >= self.ncols()? {
-            return Err(DedupByColumnError::ColumnIndexOutOfBounds(by));
+            return Err(crate::Error::ColumnIndexOutOfBounds(by));
         }
         let mut col = self.col(by)?.unwrap().to_vec();
         col.sort_by(|a, b| a.partial_cmp(b).expect("could not compare"));
@@ -661,18 +798,24 @@ impl<'a> Matrix<'a> {
                 removing.insert(i);
             }
         }
-        Ok(self
+        self
             .remove_rows(&removing)
             // by doing this we avoid nesting another error that's impossible to occur inside
-            // DedupByColumnError
-            .expect("all indices should be valid"))
+            // crate::Error
+            .expect("all indices should be valid");
+        Ok(self)
+    }
+
+    pub fn t_dedup_by_column_name(&mut self, by: &str) -> &mut Self {
+        let by = by.to_string();
+        self.transform(move |m| m.dedup_by_column_name(&by))
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn dedup_by_column_name(&mut self, by: &str) -> Result<&mut Self, DedupByColumnNameError> {
+    pub fn dedup_by_column_name(&mut self, by: &str) -> Result<&mut Self, crate::Error> {
         let colnames = self.colnames()?;
         if colnames.is_none() {
-            return Err(DedupByColumnNameError::MissingColumnNames);
+            return Err(crate::Error::MissingColumnNames);
         }
         let by_col_idx = colnames
             .expect("colnames should be present")
@@ -682,8 +825,12 @@ impl<'a> Matrix<'a> {
             self.dedup_by_column(i)?;
             Ok(self)
         } else {
-            Err(DedupByColumnNameError::ColumnNameNotFound(by.to_string()))
+            Err(crate::Error::ColumnNameNotFound(by.to_string()))
         }
+    }
+
+    pub fn t_match_to(&mut self, other: Vec<f64>, col: usize, join: Join) -> &mut Self {
+        self.transform(move |m| m.match_to(&other, col, join))
     }
 
     #[tracing::instrument(skip(self, other))]
@@ -692,9 +839,9 @@ impl<'a> Matrix<'a> {
         other: &[f64],
         col: usize,
         join: Join,
-    ) -> Result<&mut Self, MatchToColumnError> {
+    ) -> Result<&mut Self, crate::Error> {
         if col >= self.ncols()? {
-            return Err(MatchToColumnError::ColumnIndexOutOfBounds(col));
+            return Err(crate::Error::ColumnIndexOutOfBounds(col));
         }
         let col = self
             .col(col)?
@@ -727,12 +874,12 @@ impl<'a> Matrix<'a> {
             Join::Inner => (),
             Join::Left => {
                 if order.len() < col.len() {
-                    return Err(MatchToColumnError::NotAllRowsMatched(join));
+                    return Err(crate::Error::NotAllRowsMatched(join));
                 }
             },
             Join::Right => {
                 if order.len() < other.len() {
-                    return Err(MatchToColumnError::NotAllRowsMatched(join));
+                    return Err(crate::Error::NotAllRowsMatched(join));
                 }
             },
         }
@@ -757,7 +904,11 @@ impl<'a> Matrix<'a> {
             order.len(),
             m.ncols(),
             // SAFETY: The data is initialized now
-            unsafe { std::mem::transmute(data) },
+            unsafe {
+                std::mem::transmute::<std::vec::Vec<std::mem::MaybeUninit<f64>>, std::vec::Vec<f64>>(
+                    data,
+                )
+            },
             self.colnames()?
                 .map(|x| x.iter().map(|x| x.to_string()).collect()),
         ));
@@ -766,16 +917,26 @@ impl<'a> Matrix<'a> {
         Ok(self)
     }
 
+    pub fn t_match_to_by_column_name(
+        &mut self,
+        other: Vec<f64>,
+        col: &str,
+        join: Join,
+    ) -> &mut Self {
+        let col = col.to_string();
+        self.transform(move |m| m.match_to_by_column_name(&other, &col, join))
+    }
+
     #[tracing::instrument(skip(self))]
     pub fn match_to_by_column_name(
         &mut self,
         other: &[f64],
         col: &str,
         join: Join,
-    ) -> Result<&mut Self, MatchToByColumnNameError> {
+    ) -> Result<&mut Self, crate::Error> {
         let colnames = self.colnames()?;
         if colnames.is_none() {
-            return Err(MatchToByColumnNameError::MissingColumnNames);
+            return Err(crate::Error::MissingColumnNames);
         }
         let by_col_idx = colnames
             .expect("colnames should be present")
@@ -785,10 +946,18 @@ impl<'a> Matrix<'a> {
             self.match_to(other, i, join)?;
             Ok(self)
         } else {
-            Err(MatchToByColumnNameError::ColumnNameNotFound(
-                col.to_string(),
-            ))
+            Err(crate::Error::ColumnNameNotFound(col.to_string()))
         }
+    }
+
+    pub fn t_join(
+        &mut self,
+        mut other: Matrix<'a>,
+        self_by: usize,
+        other_by: usize,
+        join: Join,
+    ) -> &mut Self {
+        self.transform(move |m| m.join(&mut other, self_by, other_by, join))
     }
 
     #[tracing::instrument(skip(self, other))]
@@ -798,12 +967,12 @@ impl<'a> Matrix<'a> {
         self_by: usize,
         other_by: usize,
         join: Join,
-    ) -> Result<&mut Self, JoinError> {
+    ) -> Result<&mut Self, crate::Error> {
         if self_by >= self.ncols()? {
-            return Err(JoinError::ColumnIndexOutOfBounds(self_by));
+            return Err(crate::Error::ColumnIndexOutOfBounds(self_by));
         }
         if other_by >= other.ncols()? {
-            return Err(JoinError::ColumnIndexOutOfBounds(other_by));
+            return Err(crate::Error::ColumnIndexOutOfBounds(other_by));
         }
         let mut self_col = self
             .col(self_by)?
@@ -844,12 +1013,12 @@ impl<'a> Matrix<'a> {
             Join::Inner => (),
             Join::Left => {
                 if order.len() < self_col.len() {
-                    return Err(JoinError::NotAllRowsMatched(join));
+                    return Err(crate::Error::NotAllRowsMatched(join));
                 }
             },
             Join::Right => {
                 if order.len() < other_col.len() {
-                    return Err(JoinError::NotAllRowsMatched(join));
+                    return Err(crate::Error::NotAllRowsMatched(join));
                 }
             },
         }
@@ -908,11 +1077,25 @@ impl<'a> Matrix<'a> {
             order.len(),
             ncols,
             // SAFETY: The data is initialized now
-            unsafe { std::mem::transmute(data) },
+            unsafe {
+                std::mem::transmute::<std::vec::Vec<std::mem::MaybeUninit<f64>>, std::vec::Vec<f64>>(
+                    data,
+                )
+            },
             self_colnames,
         ));
 
         Ok(self)
+    }
+
+    pub fn t_join_by_column_name(
+        &mut self,
+        mut other: Matrix<'a>,
+        by: &str,
+        join: Join,
+    ) -> &mut Self {
+        let by = by.to_string();
+        self.transform(move |m| m.join_by_column_name(&mut other, &by, join))
     }
 
     #[tracing::instrument(skip(self, other))]
@@ -921,11 +1104,11 @@ impl<'a> Matrix<'a> {
         other: &mut Matrix<'a>,
         by: &str,
         join: Join,
-    ) -> Result<&mut Self, JoinByColumnNameError> {
+    ) -> Result<&mut Self, crate::Error> {
         let self_colnames = self.colnames()?;
         let other_colnames = other.colnames()?;
         if self_colnames.is_none() || other_colnames.is_none() {
-            return Err(JoinByColumnNameError::MissingColumnNames);
+            return Err(crate::Error::MissingColumnNames);
         }
         let self_by_col_idx = self_colnames
             .expect("colnames should be present")
@@ -939,31 +1122,217 @@ impl<'a> Matrix<'a> {
             self.join(other, i, j, join)?;
             Ok(self)
         } else {
-            Err(JoinByColumnNameError::ColumnNameNotFound(by.to_string()))
+            Err(crate::Error::ColumnNameNotFound(by.to_string()))
         }
     }
 
-    pub fn nrows(&mut self) -> Result<usize, ReadMatrixError> {
+    pub fn t_standardize(&mut self) -> &mut Self {
+        self.transform(|m| m.standardize())
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn standardize(&mut self) -> Result<&mut Self, crate::Error> {
+        debug!("Standardizing matrix");
+        self.as_mat_mut()?
+            .par_col_chunks_mut(1)
+            .for_each(|c| standardize(c.col_mut(0).try_as_slice_mut().expect("I")));
+        debug!("Standardized matrix");
+        Ok(self)
+    }
+
+    pub fn t_remove_nan_rows(&mut self) -> &mut Self {
+        self.transform(|m| m.remove_nan_rows())
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn remove_nan_rows(&mut self) -> Result<&mut Self, crate::Error> {
+        let removing = self
+            .as_mat_ref()?
+            .par_row_chunks(1)
+            .enumerate()
+            .filter(|(_, row)| !row.is_all_finite())
+            .map(|(i, _)| i)
+            .collect::<HashSet<_>>();
+        debug!("Removed {} rows with NaN values", removing.len());
+        self.remove_rows(&removing)
+    }
+
+    pub fn t_remove_nan_columns(&mut self) -> &mut Self {
+        self.transform(|m| m.remove_nan_columns())
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn remove_nan_columns(&mut self) -> Result<&mut Self, crate::Error> {
+        let removing = self
+            .as_mat_ref()?
+            .par_col_chunks(1)
+            .enumerate()
+            .filter(|(_, col)| !col.is_all_finite())
+            .map(|(i, _)| i)
+            .collect::<HashSet<_>>();
+        debug!("Removed {} columns with NaN values", removing.len());
+        self.remove_columns(&removing)
+    }
+
+    pub fn t_nan_to_value(&mut self, val: f64) -> &mut Self {
+        self.transform(move |m| m.nan_to_value(val))
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn nan_to_value(&mut self, val: f64) -> Result<&mut Self, crate::Error> {
+        self.as_mat_mut()?.par_col_chunks_mut(1).for_each(|c| {
+            c.col_mut(0).iter_mut().for_each(|x| {
+                if !x.is_finite() {
+                    *x = val;
+                }
+            })
+        });
+        Ok(self)
+    }
+
+    pub fn t_nan_to_column_mean(&mut self) -> &mut Self {
+        self.transform(move |m| m.nan_to_column_mean())
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn nan_to_column_mean(&mut self) -> Result<&mut Self, crate::Error> {
+        self.as_mat_mut()?.par_col_chunks_mut(1).for_each(|c| {
+            let col = c.col_mut(0);
+            let m = mean(col.as_ref().try_as_slice().unwrap());
+            col.iter_mut().for_each(|x| {
+                if !x.is_finite() {
+                    *x = m;
+                }
+            })
+        });
+        Ok(self)
+    }
+
+    pub fn t_nan_to_row_mean(&mut self) -> &mut Self {
+        self.transform(move |m| m.nan_to_row_mean())
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn nan_to_row_mean(&mut self) -> Result<&mut Self, crate::Error> {
+        self.as_mat_mut()?.par_row_chunks_mut(1).for_each(|r| {
+            let row = r.row_mut(0);
+            let mut m = 0.0;
+            faer::stats::col_mean(
+                faer::col::from_mut(&mut m),
+                row.as_ref().as_2d(),
+                faer::stats::NanHandling::Ignore,
+            );
+            row.iter_mut().for_each(|x| {
+                if !x.is_finite() {
+                    *x = m;
+                }
+            })
+        });
+        Ok(self)
+    }
+
+    pub fn t_min_column_sum(&mut self, sum: f64) -> &mut Self {
+        self.transform(move |m| m.min_column_sum(sum))
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn min_column_sum(&mut self, sum: f64) -> Result<&mut Self, crate::Error> {
+        let removing = self
+            .as_mat_mut()?
+            .par_col_chunks_mut(1)
+            .enumerate()
+            .filter(|(_, c)| c.sum() < sum)
+            .map(|(i, _)| i)
+            .collect();
+        self.remove_columns(&removing)
+    }
+
+    pub fn t_max_column_sum(&mut self, sum: f64) -> &mut Self {
+        self.transform(move |m| m.max_column_sum(sum))
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn max_column_sum(&mut self, sum: f64) -> Result<&mut Self, crate::Error> {
+        let removing = self
+            .as_mat_mut()?
+            .par_col_chunks_mut(1)
+            .enumerate()
+            .filter(|(_, c)| c.sum() > sum)
+            .map(|(i, _)| i)
+            .collect();
+        self.remove_columns(&removing)
+    }
+
+    pub fn t_min_row_sum(&mut self, sum: f64) -> &mut Self {
+        self.transform(move |m| m.min_row_sum(sum))
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn min_row_sum(&mut self, sum: f64) -> Result<&mut Self, crate::Error> {
+        let removing = self
+            .as_mat_mut()?
+            .par_row_chunks_mut(1)
+            .enumerate()
+            .filter(|(_, r)| r.sum() < sum)
+            .map(|(i, _)| i)
+            .collect();
+        self.remove_rows(&removing)
+    }
+
+    pub fn t_max_row_sum(&mut self, sum: f64) -> &mut Self {
+        self.transform(move |m| m.max_row_sum(sum))
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn max_row_sum(&mut self, sum: f64) -> Result<&mut Self, crate::Error> {
+        let removing = self
+            .as_mat_mut()?
+            .par_row_chunks_mut(1)
+            .enumerate()
+            .filter(|(_, r)| r.sum() > sum)
+            .map(|(i, _)| i)
+            .collect();
+        self.remove_rows(&removing)
+    }
+
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn nrows(&mut self) -> Result<usize, crate::Error> {
         self.as_mat_ref().map(|x| x.nrows())
     }
 
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn nrows_loaded(&self) -> usize {
         self.as_mat_ref_loaded().nrows()
     }
 
-    pub fn ncols(&mut self) -> Result<usize, ReadMatrixError> {
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn ncols(&mut self) -> Result<usize, crate::Error> {
         self.as_mat_ref().map(|x| x.ncols())
     }
 
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn ncols_loaded(&self) -> usize {
         self.as_mat_ref_loaded().ncols()
     }
 
-    pub fn data(&mut self) -> Result<&[f64], ReadMatrixError> {
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn data(&mut self) -> Result<&[f64], crate::Error> {
         self.as_owned_ref().map(|x| x.data.as_slice())
     }
 
-    pub fn col(&mut self, col: usize) -> Result<Option<&[f64]>, ReadMatrixError> {
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn as_mut_slice(&mut self) -> Result<&mut [f64], crate::Error> {
+        match self {
+            Matrix::Owned(m) => Ok(&mut m.data),
+            Matrix::R(m) => Ok(unsafe {
+                std::slice::from_raw_parts_mut(m.data().as_ptr().cast_mut(), m.data().len())
+            }),
+            ref m => self.into_owned()?.as_mut_slice(),
+        }
+    }
+
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn col(&mut self, col: usize) -> Result<Option<&[f64]>, crate::Error> {
         if col >= self.ncols()? {
             return Ok(None);
         }
@@ -976,6 +1345,7 @@ impl<'a> Matrix<'a> {
         })
     }
 
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn col_loaded(&self, col: usize) -> Option<&[f64]> {
         if col >= self.ncols_loaded() {
             return None;
@@ -988,7 +1358,8 @@ impl<'a> Matrix<'a> {
         })
     }
 
-    pub fn get(&mut self, row: usize, col: usize) -> Result<Option<f64>, ReadMatrixError> {
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn get(&mut self, row: usize, col: usize) -> Result<Option<f64>, crate::Error> {
         let nrows = self.nrows()?;
         let ncols = self.ncols()?;
         self.as_mat_ref().map(|x| {
@@ -1000,6 +1371,7 @@ impl<'a> Matrix<'a> {
         })
     }
 
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn get_loaded(&self, row: usize, col: usize) -> Option<f64> {
         let nrows = self.nrows_loaded();
         let ncols = self.ncols_loaded();
@@ -1012,8 +1384,9 @@ impl<'a> Matrix<'a> {
 }
 
 impl FromStr for Matrix<'_> {
-    type Err = FileParseError;
+    type Err = crate::Error;
 
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(Matrix::File(s.parse()?))
     }
@@ -1039,6 +1412,9 @@ pub struct OwnedMatrix {
 impl OwnedMatrix {
     pub fn new(rows: usize, cols: usize, data: Vec<f64>, colnames: Option<Vec<String>>) -> Self {
         assert!(rows * cols == data.len());
+        if let Some(colnames) = &colnames {
+            assert_eq!(cols, colnames.len());
+        }
         Self {
             nrows: rows,
             ncols: cols,
@@ -1046,96 +1422,6 @@ impl OwnedMatrix {
             colnames,
         }
     }
-
-    pub fn transpose(self) -> Self {
-        let mut data = Vec::with_capacity(self.nrows * self.ncols);
-        data.extend((0..(self.nrows * self.ncols)).map(|_| MaybeUninit::<f64>::uninit()));
-        self.data.into_par_iter().enumerate().for_each(|(i, x)| {
-            let new_row = i / self.nrows;
-            let new_col = i % self.nrows;
-            let i = new_col * self.ncols + new_row;
-            unsafe {
-                data.as_ptr().add(i).cast_mut().cast::<f64>().write(x);
-            };
-        });
-        Self {
-            data: unsafe { std::mem::transmute(data) },
-            nrows: self.ncols,
-            ncols: self.nrows,
-            colnames: None,
-        }
-    }
-
-    #[inline(always)]
-    pub fn nrows(&self) -> usize {
-        self.nrows
-    }
-
-    #[inline(always)]
-    pub fn ncols(&self) -> usize {
-        self.ncols
-    }
-
-    #[inline(always)]
-    pub fn data(&self) -> &[f64] {
-        &self.data
-    }
-
-    #[inline(always)]
-    pub fn into_data(self) -> Vec<f64> {
-        self.data
-    }
-
-    #[inline(always)]
-    pub fn colnames(&self) -> Option<&[String]> {
-        self.colnames.as_deref()
-    }
-
-    pub fn from_rmatrix(r: &RMatrix<f64>) -> Self {
-        let data = r.data().to_vec();
-        Self {
-            nrows: r.nrows(),
-            ncols: r.ncols(),
-            data,
-            colnames: colnames(r).map(|x| x.iter().map(|x| x.to_string()).collect()),
-        }
-    }
-
-    pub fn to_rmatrix(&self) -> RMatrix<f64> {
-        use extendr_api::prelude::*;
-
-        let mat = RMatrix::new_matrix(
-            self.nrows,
-            self.ncols,
-            #[inline(always)]
-            |r, c| self.data[c * self.nrows + r],
-        );
-        let mut dimnames = List::from_values([NULL, NULL]);
-        if let Some(colnames) = self.colnames() {
-            dimnames.set_elt(1, colnames.into_robj()).unwrap();
-        }
-        mat.set_attrib(wrapper::symbol::dimnames_symbol(), dimnames)
-            .unwrap();
-        mat
-    }
-}
-
-fn colnames<T>(r: &RMatrix<T>) -> Option<Vec<&str>> {
-    r.dimnames().map(|mut dimnames| {
-        dimnames
-            .nth(1)
-            .unwrap()
-            .as_str_iter()
-            .unwrap()
-            .collect::<Vec<_>>()
-    })
-}
-
-pub fn parse(s: &str) -> Result<f64, MatParseError> {
-    if s == "NA" {
-        return Ok(f64::NAN);
-    }
-    s.parse().map_err(MatParseError::from)
 }
 
 pub trait IntoMatrix<'a> {
@@ -1143,30 +1429,28 @@ pub trait IntoMatrix<'a> {
 }
 
 impl<'a> IntoMatrix<'a> for RMatrix<f64> {
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn into_matrix(self) -> Matrix<'a> {
         Matrix::R(self)
     }
 }
 
 impl<'a> IntoMatrix<'a> for RMatrix<i32> {
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn into_matrix(self) -> Matrix<'a> {
-        let data = self.data().iter().map(|x| *x as f64).collect();
-        Matrix::Owned(OwnedMatrix::new(
-            self.nrows(),
-            self.ncols(),
-            data,
-            colnames(&self).map(|x| x.iter().map(|x| x.to_string()).collect()),
-        ))
+        Matrix::from_robj(self.into_robj()).unwrap()
     }
 }
 
 impl<'a> IntoMatrix<'a> for OwnedMatrix {
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn into_matrix(self) -> Matrix<'a> {
         Matrix::Owned(self)
     }
 }
 
 impl<'a> IntoMatrix<'a> for File {
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn into_matrix(self) -> Matrix<'a> {
         Matrix::File(self)
     }
@@ -1179,20 +1463,18 @@ pub trait TryIntoMatrix<'a> {
 }
 
 impl<'a> TryIntoMatrix<'a> for Robj {
-    type Err = &'static str;
+    type Err = crate::Error;
 
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn try_into_matrix(self) -> Result<Matrix<'a>, Self::Err> {
-        if self.is_matrix() {
-            Ok(Matrix::R(self.as_matrix::<f64>().ok_or("Invalid matrix")?))
-        } else {
-            Err("Invalid item type")
-        }
+        Matrix::from_robj(self)
     }
 }
 
 impl<'a> TryIntoMatrix<'a> for MatMut<'a, f64> {
     type Err = ();
 
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn try_into_matrix(self) -> Result<Matrix<'a>, Self::Err> {
         if self.row_stride() == 1 {
             Ok(Matrix::Ref(self))
@@ -1203,8 +1485,9 @@ impl<'a> TryIntoMatrix<'a> for MatMut<'a, f64> {
 }
 
 impl<'a> TryIntoMatrix<'a> for &str {
-    type Err = FileParseError;
+    type Err = crate::Error;
 
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn try_into_matrix(self) -> Result<Matrix<'a>, Self::Err> {
         Ok(Matrix::File(self.parse()?))
     }
@@ -1216,6 +1499,7 @@ where
 {
     type Err = ();
 
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn try_into_matrix(self) -> Result<Matrix<'a>, Self::Err> {
         Ok(self.into_matrix())
     }
@@ -1225,6 +1509,7 @@ impl<'a, T> From<T> for Matrix<'a>
 where
     T: IntoMatrix<'a>,
 {
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn from(t: T) -> Self {
         t.into_matrix()
     }
@@ -1258,7 +1543,7 @@ mod tests {
             Some(vec!["e".to_string(), "f".to_string()]),
         )
         .into_matrix();
-        let m = m1.combine_columns(&mut [m2, m3]).unwrap();
+        let m = m1.t_combine_columns(vec![m2, m3]);
         assert_eq!(
             m.data().unwrap(),
             &[
@@ -1286,7 +1571,7 @@ mod tests {
         let mut m1 = OwnedMatrix::new(3, 2, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], None).into_matrix();
         let m2 = OwnedMatrix::new(2, 2, vec![19.0, 20.0, 21.0, 22.0], None).into_matrix();
         let res = m1.combine_columns(&mut [m2]).unwrap_err();
-        assert!(matches!(res, CombineColumnsError::MatrixDimensionsMismatch));
+        assert!(matches!(res, Error::MatrixDimensionsMismatch));
     }
 
     #[test]
@@ -1300,7 +1585,7 @@ mod tests {
         .into_matrix();
         let m2 =
             OwnedMatrix::new(3, 2, vec![19.0, 20.0, 21.0, 22.0, 23.0, 24.0], None).into_matrix();
-        let m = m1.combine_columns(&mut [m2]).unwrap();
+        let m = m1.t_combine_columns(vec![m2]);
         assert_eq!(
             m.data().unwrap(),
             &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0]
@@ -1312,11 +1597,28 @@ mod tests {
 
     #[test]
     fn test_combine_rows_success() {
-        let mut m1 = OwnedMatrix::new(3, 2, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], None).into_matrix();
-        let m2 = OwnedMatrix::new(3, 2, vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0], None).into_matrix();
-        let m3 =
-            OwnedMatrix::new(3, 2, vec![13.0, 14.0, 15.0, 16.0, 17.0, 18.0], None).into_matrix();
-        let m = m1.combine_rows(&mut [m2, m3]).unwrap();
+        let mut m1 = OwnedMatrix::new(
+            3,
+            2,
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            Some(vec!["a".to_string(), "b".to_string()]),
+        )
+        .into_matrix();
+        let m2 = OwnedMatrix::new(
+            3,
+            2,
+            vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
+            Some(vec!["a".to_string(), "b".to_string()]),
+        )
+        .into_matrix();
+        let m3 = OwnedMatrix::new(
+            3,
+            2,
+            vec![13.0, 14.0, 15.0, 16.0, 17.0, 18.0],
+            Some(vec!["a".to_string(), "b".to_string()]),
+        )
+        .into_matrix();
+        let m = m1.t_combine_rows(vec![m2, m3]);
         assert_eq!(
             m.data().unwrap(),
             &[
@@ -1324,7 +1626,10 @@ mod tests {
                 16.0, 17.0, 18.0
             ],
         );
-        assert!(m.colnames().unwrap().is_none());
+        assert_eq!(
+            m.colnames().unwrap().unwrap(),
+            &["a".to_string(), "b".to_string()]
+        );
         assert_eq!(m.nrows().unwrap(), 9);
         assert_eq!(m.ncols().unwrap(), 2);
     }
@@ -1334,27 +1639,27 @@ mod tests {
         let mut m1 = OwnedMatrix::new(2, 3, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], None).into_matrix();
         let m2 = OwnedMatrix::new(2, 2, vec![19.0, 20.0, 21.0, 22.0], None).into_matrix();
         let res = m1.combine_rows(&mut [m2]).unwrap_err();
-        assert!(matches!(res, CombineRowsError::MatrixDimensionsMismatch));
+        assert!(matches!(res, Error::MatrixDimensionsMismatch));
     }
 
     #[test]
     fn test_combine_rows_column_names_mismatch() {
         let mut m1 = OwnedMatrix::new(
-            2,
             3,
+            2,
             vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
             Some(vec!["a".to_string(), "b".to_string()]),
         )
         .into_matrix();
         let m2 = OwnedMatrix::new(
-            2,
             3,
+            2,
             vec![19.0, 20.0, 21.0, 22.0, 23.0, 24.0],
             Some(vec!["c".to_string(), "d".to_string()]),
         )
         .into_matrix();
         let m = m1.combine_rows(&mut [m2]).unwrap_err();
-        assert!(matches!(m, CombineRowsError::ColumnNamesMismatch));
+        assert!(matches!(m, Error::ColumnNamesMismatch));
     }
 
     #[test]
@@ -1368,13 +1673,24 @@ mod tests {
         .into_matrix();
         let mut removing = HashSet::new();
         removing.insert(1);
-        let m = m.remove_rows(&removing).unwrap();
+        let m = m.t_remove_rows(removing);
         assert_eq!(m.data().unwrap(), &[1.0, 3.0, 4.0, 6.0]);
         assert_eq!(
             m.colnames().unwrap().unwrap(),
             &["a".to_string(), "b".to_string()]
         );
         assert_eq!(m.nrows().unwrap(), 2);
+        assert_eq!(m.ncols().unwrap(), 2);
+    }
+
+    #[test]
+    fn test_remove_rows_empty() {
+        let mut m = OwnedMatrix::new(3, 2, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], None).into_matrix();
+        let removing = HashSet::new();
+        let m = m.t_remove_rows(removing);
+        assert_eq!(m.data().unwrap(), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        assert!(m.colnames().unwrap().is_none());
+        assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 2);
     }
 
@@ -1390,7 +1706,7 @@ mod tests {
         let mut removing = HashSet::new();
         removing.insert(3);
         let m = m.remove_rows(&removing).unwrap_err();
-        assert!(matches!(m, RemoveRowsError::RowIndexOutOfBounds(3)));
+        assert!(matches!(m, Error::RowIndexOutOfBounds(3)));
     }
 
     #[test]
@@ -1404,11 +1720,22 @@ mod tests {
         .into_matrix();
         let mut removing = HashSet::new();
         removing.insert(1);
-        let m = m.remove_columns(&removing).unwrap();
+        let m = m.t_remove_columns(removing);
         assert_eq!(m.data().unwrap(), &[1.0, 2.0, 3.0]);
         assert_eq!(m.colnames().unwrap().unwrap(), &["a".to_string()]);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 1);
+    }
+
+    #[test]
+    fn test_remove_columns_empty() {
+        let mut m = OwnedMatrix::new(3, 2, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], None).into_matrix();
+        let removing = HashSet::new();
+        let m = m.t_remove_columns(removing);
+        assert_eq!(m.data().unwrap(), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        assert!(m.colnames().unwrap().is_none());
+        assert_eq!(m.nrows().unwrap(), 3);
+        assert_eq!(m.ncols().unwrap(), 2);
     }
 
     #[test]
@@ -1423,7 +1750,7 @@ mod tests {
         let mut removing = HashSet::new();
         removing.insert(2);
         let m = m.remove_columns(&removing).unwrap_err();
-        assert!(matches!(m, RemoveColumnsError::ColumnIndexOutOfBounds(2)));
+        assert!(matches!(m, Error::ColumnIndexOutOfBounds(2)));
     }
 
     #[test]
@@ -1435,7 +1762,7 @@ mod tests {
             Some(vec!["a".to_string(), "b".to_string()]),
         )
         .into_matrix();
-        let m = m.remove_column_by_name("a").unwrap();
+        let m = m.t_remove_column_by_name("a");
         assert_eq!(m.data().unwrap(), &[4.0, 5.0, 6.0]);
         assert_eq!(m.colnames().unwrap().unwrap(), &["b".to_string()]);
         assert_eq!(m.nrows().unwrap(), 3);
@@ -1452,7 +1779,7 @@ mod tests {
         )
         .into_matrix();
         let m = m.remove_column_by_name("c").unwrap_err();
-        assert!(matches!(m, RemoveColumnByNameError::ColumnNameNotFound(_)));
+        assert!(matches!(m, Error::ColumnNameNotFound(_)));
     }
 
     #[test]
@@ -1464,7 +1791,7 @@ mod tests {
             Some(vec!["a".to_string(), "b".to_string()]),
         )
         .into_matrix();
-        let m = m.remove_column_by_name_if_exists("a").unwrap();
+        let m = m.t_remove_column_by_name_if_exists("a");
         assert_eq!(m.data().unwrap(), &[4.0, 5.0, 6.0]);
         assert_eq!(m.colnames().unwrap().unwrap(), &["b".to_string()]);
         assert_eq!(m.nrows().unwrap(), 3);
@@ -1480,7 +1807,7 @@ mod tests {
             Some(vec!["a".to_string(), "b".to_string()]),
         )
         .into_matrix();
-        let m = m.remove_column_by_name_if_exists("c").unwrap();
+        let m = m.t_remove_column_by_name_if_exists("c");
         assert_eq!(m.data().unwrap(), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
         assert_eq!(
             m.colnames().unwrap().unwrap(),
@@ -1499,7 +1826,7 @@ mod tests {
             Some(vec!["a".to_string(), "b".to_string()]),
         )
         .into_matrix();
-        let m = m.transpose().unwrap();
+        let m = m.t_transpose();
         assert_eq!(m.data().unwrap(), &[1.0, 4.0, 2.0, 5.0, 3.0, 6.0]);
         assert_eq!(m.nrows().unwrap(), 2);
         assert_eq!(m.ncols().unwrap(), 3);
@@ -1534,7 +1861,7 @@ mod tests {
             Some(vec!["a".to_string(), "b".to_string()]),
         )
         .into_matrix();
-        let m = m.sort_by_column(0).unwrap();
+        let m = m.t_sort_by_column(0);
         assert_eq!(m.data().unwrap(), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 2);
@@ -1554,7 +1881,7 @@ mod tests {
         )
         .into_matrix();
         let m = m.sort_by_column(2).unwrap_err();
-        assert!(matches!(m, SortByColumnError::ColumnIndexOutOfBounds(2)));
+        assert!(matches!(m, Error::ColumnIndexOutOfBounds(2)));
     }
 
     #[test]
@@ -1566,7 +1893,7 @@ mod tests {
             Some(vec!["a".to_string(), "b".to_string()]),
         )
         .into_matrix();
-        let m = m.sort_by_column_name("a").unwrap();
+        let m = m.t_sort_by_column_name("a");
         assert_eq!(m.data().unwrap(), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 2);
@@ -1580,7 +1907,7 @@ mod tests {
     fn test_sort_by_column_name_no_colnames() {
         let mut m = OwnedMatrix::new(3, 2, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], None).into_matrix();
         let m = m.sort_by_column_name("a").unwrap_err();
-        assert!(matches!(m, SortByColumnNameError::MissingColumnNames));
+        assert!(matches!(m, Error::MissingColumnNames));
     }
 
     #[test]
@@ -1593,7 +1920,7 @@ mod tests {
         )
         .into_matrix();
         let m = m.sort_by_column_name("c").unwrap_err();
-        assert!(matches!(m, SortByColumnNameError::ColumnNameNotFound(_)));
+        assert!(matches!(m, Error::ColumnNameNotFound(_)));
     }
 
     #[test]
@@ -1605,7 +1932,7 @@ mod tests {
             Some(vec!["a".to_string(), "b".to_string()]),
         )
         .into_matrix();
-        let m = m.sort_by_order(&[2, 0, 1]).unwrap();
+        let m = m.t_sort_by_order(vec![2, 0, 1]);
         assert_eq!(m.data().unwrap(), &[1.0, 3.0, 2.0, 4.0, 6.0, 5.0]);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 2);
@@ -1625,7 +1952,7 @@ mod tests {
         )
         .into_matrix();
         let m = m.sort_by_order(&[2, 0, 3]).unwrap_err();
-        assert!(matches!(m, SortByOrderError::RowIndexOutOfBounds(3)));
+        assert!(matches!(m, Error::RowIndexOutOfBounds(3)));
     }
 
     #[test]
@@ -1638,7 +1965,7 @@ mod tests {
         )
         .into_matrix();
         let m = m.sort_by_order(&[2, 0]).unwrap_err();
-        assert!(matches!(m, SortByOrderError::OrderLengthMismatch(2)));
+        assert!(matches!(m, Error::OrderLengthMismatch(2)));
     }
 
     #[test]
@@ -1650,7 +1977,7 @@ mod tests {
             Some(vec!["a".to_string(), "b".to_string()]),
         )
         .into_matrix();
-        let m = m.dedup_by_column(0).unwrap();
+        let m = m.t_dedup_by_column(0);
         assert_eq!(m.data().unwrap(), &[1.0, 2.0, 4.0, 5.0]);
         assert_eq!(m.nrows().unwrap(), 2);
         assert_eq!(m.ncols().unwrap(), 2);
@@ -1670,7 +1997,7 @@ mod tests {
         )
         .into_matrix();
         let m = m.dedup_by_column(2).unwrap_err();
-        assert!(matches!(m, DedupByColumnError::ColumnIndexOutOfBounds(2)));
+        assert!(matches!(m, Error::ColumnIndexOutOfBounds(2)));
     }
 
     #[test]
@@ -1682,7 +2009,7 @@ mod tests {
             Some(vec!["a".to_string(), "b".to_string()]),
         )
         .into_matrix();
-        let m = m.dedup_by_column_name("a").unwrap();
+        let m = m.t_dedup_by_column_name("a");
         assert_eq!(m.data().unwrap(), &[1.0, 2.0, 4.0, 5.0]);
         assert_eq!(m.nrows().unwrap(), 2);
         assert_eq!(m.ncols().unwrap(), 2);
@@ -1696,7 +2023,7 @@ mod tests {
     fn test_dedup_by_column_name_no_colnames() {
         let mut m = OwnedMatrix::new(3, 2, vec![1.0, 2.0, 2.0, 4.0, 5.0, 6.0], None).into_matrix();
         let m = m.dedup_by_column_name("a").unwrap_err();
-        assert!(matches!(m, DedupByColumnNameError::MissingColumnNames));
+        assert!(matches!(m, Error::MissingColumnNames));
     }
 
     #[test]
@@ -1709,7 +2036,7 @@ mod tests {
         )
         .into_matrix();
         let m = m.dedup_by_column_name("c").unwrap_err();
-        assert!(matches!(m, DedupByColumnNameError::ColumnNameNotFound(_)));
+        assert!(matches!(m, Error::ColumnNameNotFound(_)));
     }
 
     #[test]
@@ -1721,8 +2048,8 @@ mod tests {
             Some(vec!["a".to_string(), "b".to_string()]),
         )
         .into_matrix();
-        let other = [5.0, 8.0, 1.0, 2.0, 7.0];
-        let m = m1.match_to(&other, 0, Join::Inner).unwrap();
+        let other = vec![5.0, 8.0, 1.0, 2.0, 7.0];
+        let m = m1.t_match_to(other, 0, Join::Inner);
         assert_eq!(m.data().unwrap(), &[5.0, 1.0, 2.0, 5.0, 1.0, 2.0]);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 2);
@@ -1741,8 +2068,8 @@ mod tests {
             Some(vec!["a".to_string(), "b".to_string()]),
         )
         .into_matrix();
-        let other = [5.0, 1.0, 6.0, 2.0, 3.0, 4.0, 5.0, 7.0];
-        let m = m1.match_to(&other, 0, Join::Left).unwrap();
+        let other = vec![5.0, 1.0, 6.0, 2.0, 3.0, 4.0, 5.0, 7.0];
+        let m = m1.t_match_to(other, 0, Join::Left);
         assert_eq!(
             m.data().unwrap(),
             &[5.0, 1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 3.0, 4.0],
@@ -1764,8 +2091,8 @@ mod tests {
             Some(vec!["a".to_string(), "b".to_string()]),
         )
         .into_matrix();
-        let other = [5.0, 1.0, 2.0];
-        let m = m1.match_to(&other, 0, Join::Right).unwrap();
+        let other = vec![5.0, 1.0, 2.0];
+        let m = m1.t_match_to(other, 0, Join::Right);
         assert_eq!(m.data().unwrap(), &[5.0, 1.0, 2.0, 5.0, 1.0, 2.0],);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 2);
@@ -1784,8 +2111,8 @@ mod tests {
             Some(vec!["a".to_string(), "b".to_string()]),
         )
         .into_matrix();
-        let other = [];
-        let m = m1.match_to(&other, 0, Join::Inner).unwrap();
+        let other = vec![];
+        let m = m1.t_match_to(other, 0, Join::Inner);
         assert!(m.data().unwrap().is_empty());
         assert_eq!(m.nrows().unwrap(), 0);
         assert_eq!(m.ncols().unwrap(), 2);
@@ -1806,7 +2133,7 @@ mod tests {
         .into_matrix();
         let other = [5.0, 1.0, 6.0, 2.0, 3.0, 4.0, 5.0, 7.0];
         let m = m1.match_to(&other, 2, Join::Left).unwrap_err();
-        assert!(matches!(m, MatchToColumnError::ColumnIndexOutOfBounds(2)));
+        assert!(matches!(m, Error::ColumnIndexOutOfBounds(2)));
     }
 
     #[test]
@@ -1820,10 +2147,7 @@ mod tests {
         .into_matrix();
         let other = [5.0, 6.0, 2.0, 3.0, 4.0, 5.0];
         let m = m1.match_to(&other, 0, Join::Left).unwrap_err();
-        assert!(matches!(
-            m,
-            MatchToColumnError::NotAllRowsMatched(Join::Left)
-        ));
+        assert!(matches!(m, Error::NotAllRowsMatched(Join::Left)));
     }
 
     #[test]
@@ -1837,10 +2161,7 @@ mod tests {
         .into_matrix();
         let other = [5.0, 6.0, 2.0, 3.0, 4.0, 5.0];
         let m = m1.match_to(&other, 0, Join::Right).unwrap_err();
-        assert!(matches!(
-            m,
-            MatchToColumnError::NotAllRowsMatched(Join::Right)
-        ));
+        assert!(matches!(m, Error::NotAllRowsMatched(Join::Right)));
     }
 
     #[test]
@@ -1852,10 +2173,8 @@ mod tests {
             Some(vec!["a".to_string(), "b".to_string()]),
         )
         .into_matrix();
-        let other = [5.0, 8.0, 1.0, 2.0, 7.0];
-        let m = m1
-            .match_to_by_column_name(&other, "a", Join::Inner)
-            .unwrap();
+        let other = vec![5.0, 8.0, 1.0, 2.0, 7.0];
+        let m = m1.t_match_to_by_column_name(other, "a", Join::Inner);
         assert_eq!(m.data().unwrap(), &[5.0, 1.0, 2.0, 5.0, 1.0, 2.0]);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 2);
@@ -1874,8 +2193,8 @@ mod tests {
             Some(vec!["a".to_string(), "b".to_string()]),
         )
         .into_matrix();
-        let other = [5.0, 1.0, 6.0, 2.0, 3.0, 4.0, 5.0, 7.0];
-        let m = m1.match_to_by_column_name(&other, "a", Join::Left).unwrap();
+        let other = vec![5.0, 1.0, 6.0, 2.0, 3.0, 4.0, 5.0, 7.0];
+        let m = m1.t_match_to_by_column_name(other, "a", Join::Left);
         assert_eq!(
             m.data().unwrap(),
             &[5.0, 1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 3.0, 4.0],
@@ -1897,10 +2216,8 @@ mod tests {
             Some(vec!["a".to_string(), "b".to_string()]),
         )
         .into_matrix();
-        let other = [5.0, 1.0, 2.0];
-        let m = m1
-            .match_to_by_column_name(&other, "a", Join::Right)
-            .unwrap();
+        let other = vec![5.0, 1.0, 2.0];
+        let m = m1.t_match_to_by_column_name(other, "a", Join::Right);
         assert_eq!(m.data().unwrap(), &[5.0, 1.0, 2.0, 5.0, 1.0, 2.0],);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 2);
@@ -1919,10 +2236,8 @@ mod tests {
             Some(vec!["a".to_string(), "b".to_string()]),
         )
         .into_matrix();
-        let other = [];
-        let m = m1
-            .match_to_by_column_name(&other, "a", Join::Inner)
-            .unwrap();
+        let other = vec![];
+        let m = m1.t_match_to_by_column_name(other, "a", Join::Inner);
         assert!(m.data().unwrap().is_empty());
         assert_eq!(m.nrows().unwrap(), 0);
         assert_eq!(m.ncols().unwrap(), 2);
@@ -1945,7 +2260,7 @@ mod tests {
         let m = m1
             .match_to_by_column_name(&other, "c", Join::Inner)
             .unwrap_err();
-        assert!(matches!(m, MatchToByColumnNameError::ColumnNameNotFound(_)));
+        assert!(matches!(m, Error::ColumnNameNotFound(_)));
     }
 
     #[test]
@@ -1955,7 +2270,7 @@ mod tests {
         let m = m1
             .match_to_by_column_name(&other, "a", Join::Inner)
             .unwrap_err();
-        assert!(matches!(m, MatchToByColumnNameError::MissingColumnNames));
+        assert!(matches!(m, Error::MissingColumnNames));
     }
 
     #[test]
@@ -1974,7 +2289,7 @@ mod tests {
             Some(vec!["a".to_string(), "c".to_string()]),
         )
         .into_matrix();
-        let m = m1.join(&mut m2, 0, 0, Join::Inner).unwrap();
+        let m = m1.t_join(m2, 0, 0, Join::Inner);
         assert_eq!(
             m.data().unwrap(),
             &[6.0, 2.0, 5.0, 6.0, 2.0, 5.0, 3.0, 4.0, 7.0]
@@ -2005,7 +2320,7 @@ mod tests {
             Some(vec!["a".to_string(), "c".to_string()]),
         )
         .into_matrix();
-        let m = m1.join(&mut m2, 0, 0, Join::Left).unwrap();
+        let m = m1.t_join(m2, 0, 0, Join::Left);
         assert_eq!(
             m.data().unwrap(),
             &[6.0, 2.0, 3.0, 4.0, 5.0, 6.0, 2.0, 3.0, 4.0, 5.0, 6.0, 2.0, 3.0, 4.0, 5.0]
@@ -2034,7 +2349,7 @@ mod tests {
             Some(vec!["a".to_string(), "c".to_string()]),
         )
         .into_matrix();
-        let m = m1.join(&mut m2, 0, 0, Join::Right).unwrap();
+        let m = m1.t_join(m2, 0, 0, Join::Right);
         assert_eq!(
             m.data().unwrap(),
             &[6.0, 2.0, 5.0, 6.0, 2.0, 5.0, 3.0, 4.0, 7.0]
@@ -2064,7 +2379,7 @@ mod tests {
         )
         .into_matrix();
         let m = m1.join(&mut m2, 0, 2, Join::Inner).unwrap_err();
-        assert!(matches!(m, JoinError::ColumnIndexOutOfBounds(2)));
+        assert!(matches!(m, Error::ColumnIndexOutOfBounds(2)));
     }
 
     #[test]
@@ -2086,7 +2401,7 @@ mod tests {
         )
         .into_matrix();
         let m = m1.join(&mut m2, 0, 0, Join::Left).unwrap_err();
-        assert!(matches!(m, JoinError::NotAllRowsMatched(Join::Left)));
+        assert!(matches!(m, Error::NotAllRowsMatched(Join::Left)));
     }
 
     #[test]
@@ -2106,7 +2421,7 @@ mod tests {
         )
         .into_matrix();
         let m = m1.join(&mut m2, 0, 0, Join::Right).unwrap_err();
-        assert!(matches!(m, JoinError::NotAllRowsMatched(Join::Right)));
+        assert!(matches!(m, Error::NotAllRowsMatched(Join::Right)));
     }
 
     #[test]
@@ -2125,7 +2440,7 @@ mod tests {
             Some(vec!["a".to_string(), "c".to_string()]),
         )
         .into_matrix();
-        let m = m1.join_by_column_name(&mut m2, "a", Join::Inner).unwrap();
+        let m = m1.t_join_by_column_name(m2, "a", Join::Inner);
         assert_eq!(
             m.data().unwrap(),
             &[6.0, 2.0, 5.0, 6.0, 2.0, 5.0, 3.0, 4.0, 7.0]
@@ -2156,7 +2471,7 @@ mod tests {
             Some(vec!["a".to_string(), "c".to_string()]),
         )
         .into_matrix();
-        let m = m1.join_by_column_name(&mut m2, "a", Join::Left).unwrap();
+        let m = m1.t_join_by_column_name(m2, "a", Join::Left);
         assert_eq!(
             m.data().unwrap(),
             &[6.0, 2.0, 3.0, 4.0, 5.0, 6.0, 2.0, 3.0, 4.0, 5.0, 6.0, 2.0, 3.0, 4.0, 5.0]
@@ -2185,7 +2500,7 @@ mod tests {
             Some(vec!["a".to_string(), "c".to_string()]),
         )
         .into_matrix();
-        let m = m1.join_by_column_name(&mut m2, "a", Join::Right).unwrap();
+        let m = m1.t_join_by_column_name(m2, "a", Join::Right);
         assert_eq!(
             m.data().unwrap(),
             &[6.0, 2.0, 5.0, 6.0, 2.0, 5.0, 3.0, 4.0, 7.0]
@@ -2195,6 +2510,213 @@ mod tests {
         assert_eq!(
             m.colnames().unwrap().unwrap(),
             &["a".to_string(), "b".to_string(), "c".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_standardize() {
+        let mut m = OwnedMatrix::new(
+            3,
+            2,
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            Some(vec!["a".to_string(), "b".to_string()]),
+        )
+        .into_matrix();
+        let m = m.t_standardize();
+        assert_eq!(m.data().unwrap(), &[-1.0, 0.0, 1.0, -1.0, 0.0, 1.0]);
+        assert_eq!(m.nrows().unwrap(), 3);
+        assert_eq!(m.ncols().unwrap(), 2);
+        assert_eq!(
+            m.colnames().unwrap().unwrap(),
+            &["a".to_string(), "b".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_remove_nan_rows() {
+        let mut m = OwnedMatrix::new(
+            3,
+            2,
+            vec![1.0, 2.0, f64::NAN, 4.0, 5.0, 6.0],
+            Some(vec!["a".to_string(), "b".to_string()]),
+        )
+        .into_matrix();
+        let m = m.t_remove_nan_rows();
+        assert_eq!(m.data().unwrap(), &[1.0, 2.0, 4.0, 5.0]);
+        assert_eq!(m.nrows().unwrap(), 2);
+        assert_eq!(m.ncols().unwrap(), 2);
+        assert_eq!(
+            m.colnames().unwrap().unwrap(),
+            &["a".to_string(), "b".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_remove_nan_columns() {
+        let mut m = OwnedMatrix::new(
+            3,
+            2,
+            vec![1.0, 2.0, f64::NAN, 4.0, 5.0, 6.0],
+            Some(vec!["a".to_string(), "b".to_string()]),
+        )
+        .into_matrix();
+        let m = m.t_remove_nan_columns();
+        assert_eq!(m.data().unwrap(), &[4.0, 5.0, 6.0]);
+        assert_eq!(m.nrows().unwrap(), 3);
+        assert_eq!(m.ncols().unwrap(), 1);
+        assert_eq!(m.colnames().unwrap().unwrap(), &["b".to_string()]);
+    }
+
+    #[test]
+    fn test_nan_to_value() {
+        let mut m = OwnedMatrix::new(
+            3,
+            2,
+            vec![1.0, 2.0, f64::NAN, 4.0, 5.0, 6.0],
+            Some(vec!["a".to_string(), "b".to_string()]),
+        )
+        .into_matrix();
+        let m = m.t_nan_to_value(0.0);
+        assert_eq!(m.data().unwrap(), &[1.0, 2.0, 0.0, 4.0, 5.0, 6.0]);
+        assert_eq!(m.nrows().unwrap(), 3);
+        assert_eq!(m.ncols().unwrap(), 2);
+        assert_eq!(
+            m.colnames().unwrap().unwrap(),
+            &["a".to_string(), "b".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_nan_to_column_mean() {
+        let mut m = OwnedMatrix::new(
+            3,
+            2,
+            vec![1.0, 2.0, f64::NAN, 4.0, f64::NAN, 6.0],
+            Some(vec!["a".to_string(), "b".to_string()]),
+        )
+        .into_matrix();
+        let m = m.t_nan_to_column_mean();
+        assert_eq!(m.data().unwrap(), &[1.0, 2.0, 1.5, 4.0, 5.0, 6.0]);
+        assert_eq!(m.nrows().unwrap(), 3);
+        assert_eq!(m.ncols().unwrap(), 2);
+        assert_eq!(
+            m.colnames().unwrap().unwrap(),
+            &["a".to_string(), "b".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_nan_to_row_mean() {
+        let mut m = OwnedMatrix::new(
+            3,
+            4,
+            vec![
+                1.0,
+                2.0,
+                f64::NAN,
+                4.0,
+                5.0,
+                6.0,
+                7.0,
+                f64::NAN,
+                9.0,
+                11.0,
+                11.0,
+                12.0,
+            ],
+            Some(vec![
+                "a".to_string(),
+                "b".to_string(),
+                "c".to_string(),
+                "d".to_string(),
+            ]),
+        )
+        .into_matrix();
+        let m = m.t_nan_to_row_mean();
+        assert_eq!(
+            m.data().unwrap(),
+            &[1.0, 2.0, 9.0, 4.0, 5.0, 6.0, 7.0, 6.0, 9.0, 11.0, 11.0, 12.0]
+        );
+        assert_eq!(m.nrows().unwrap(), 3);
+        assert_eq!(m.ncols().unwrap(), 4);
+        assert_eq!(
+            m.colnames().unwrap().unwrap(),
+            &[
+                "a".to_string(),
+                "b".to_string(),
+                "c".to_string(),
+                "d".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn test_min_column_sum() {
+        let mut m = OwnedMatrix::new(
+            3,
+            2,
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            Some(vec!["a".to_string(), "b".to_string()]),
+        )
+        .into_matrix();
+        let m = m.t_min_column_sum(7.0);
+        assert_eq!(m.data().unwrap(), &[4.0, 5.0, 6.0]);
+        assert_eq!(m.nrows().unwrap(), 3);
+        assert_eq!(m.ncols().unwrap(), 1);
+        assert_eq!(m.colnames().unwrap().unwrap(), &["b".to_string()]);
+    }
+
+    #[test]
+    fn test_max_column_sum() {
+        let mut m = OwnedMatrix::new(
+            3,
+            2,
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            Some(vec!["a".to_string(), "b".to_string()]),
+        )
+        .into_matrix();
+        let m = m.t_max_column_sum(7.0);
+        assert_eq!(m.data().unwrap(), &[1.0, 2.0, 3.0]);
+        assert_eq!(m.nrows().unwrap(), 3);
+        assert_eq!(m.ncols().unwrap(), 1);
+        assert_eq!(m.colnames().unwrap().unwrap(), &["a".to_string()]);
+    }
+
+    #[test]
+    fn test_min_row_sum() {
+        let mut m = OwnedMatrix::new(
+            3,
+            2,
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            Some(vec!["a".to_string(), "b".to_string()]),
+        )
+        .into_matrix();
+        let m = m.t_min_row_sum(7.0);
+        assert_eq!(m.data().unwrap(), &[2.0, 3.0, 5.0, 6.0]);
+        assert_eq!(m.nrows().unwrap(), 2);
+        assert_eq!(m.ncols().unwrap(), 2);
+        assert_eq!(
+            m.colnames().unwrap().unwrap(),
+            &["a".to_string(), "b".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_max_row_sum() {
+        let mut m = OwnedMatrix::new(
+            3,
+            2,
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            Some(vec!["a".to_string(), "b".to_string()]),
+        )
+        .into_matrix();
+        let m = m.t_max_row_sum(7.0);
+        assert_eq!(m.data().unwrap(), &[1.0, 2.0, 4.0, 5.0]);
+        assert_eq!(m.nrows().unwrap(), 2);
+        assert_eq!(m.ncols().unwrap(), 2);
+        assert_eq!(
+            m.colnames().unwrap().unwrap(),
+            &["a".to_string(), "b".to_string()]
         );
     }
 }

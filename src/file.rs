@@ -2,10 +2,7 @@ use std::{path::PathBuf, str::FromStr};
 
 use extendr_api::{io::Save, pairlist, Pairlist};
 
-use crate::{
-    errors::FileParseError, parse, IntoMatrix, Matrix, OwnedMatrix, ReadMatrixError,
-    WriteMatrixError,
-};
+use crate::{IntoMatrix, Matrix, OwnedMatrix};
 
 #[derive(Clone, Debug)]
 pub struct File {
@@ -38,7 +35,7 @@ impl File {
         self.gz
     }
 
-    pub fn read(&self) -> Result<Matrix<'static>, ReadMatrixError> {
+    pub fn read<'a>(&self) -> Result<Matrix<'a>, crate::Error> {
         let file = std::fs::File::open(&self.path)?;
         if self.gz || self.file_type == FileType::Rdata {
             let decoder = flate2::read::GzDecoder::new(std::io::BufReader::new(
@@ -51,10 +48,10 @@ impl File {
         }
     }
 
-    pub fn read_from_reader(
+    pub fn read_from_reader<'a>(
         &self,
         mut reader: impl std::io::Read,
-    ) -> Result<Matrix<'static>, ReadMatrixError> {
+    ) -> Result<Matrix<'a>, crate::Error> {
         Ok(match self.file_type {
             FileType::Csv => Self::read_text_file(reader, b',')?,
             FileType::Tsv => Self::read_text_file(reader, b'\t')?,
@@ -64,48 +61,40 @@ impl File {
             FileType::Rkyv => {
                 let mut bytes = vec![];
                 reader.read_to_end(&mut bytes)?;
-                Matrix::Owned(unsafe {
-                    rkyv::from_bytes_unchecked(&bytes)
-                        .map_err(|e| ReadMatrixError::RkyvError(e.to_string()))?
-                })
+                Matrix::Owned(unsafe { rkyv::from_bytes_unchecked(&bytes)? })
             },
             FileType::Cbor => Matrix::Owned(serde_cbor::from_reader(reader)?),
         })
     }
 
-    fn read_text_file(
-        reader: impl std::io::Read,
-        sep: u8,
-    ) -> Result<Matrix<'static>, ReadMatrixError> {
+    fn read_text_file<'a>(reader: impl std::io::Read, sep: u8) -> Result<Matrix<'a>, crate::Error> {
         let mut data = vec![];
         let mut reader = csv::ReaderBuilder::new().delimiter(sep).from_reader(reader);
         let headers = reader.headers()?;
         // Check if headers are numeric.
-        let colnames = if headers.iter().next().unwrap().parse::<f64>().is_err() {
-            Some(headers.iter().map(|x| x.to_string()).collect())
-        } else {
-            None
-        };
-        for i in headers.iter() {
-            if i.parse::<f64>().is_err() {
-                break;
-            }
-            data.push(parse(i)?);
-        }
+        let colnames = Some(headers.iter().map(|x| x.to_string()).collect());
         let cols = headers.len();
         let _ = headers;
         for result in reader.records() {
             let record = result?;
             for field in record.iter() {
-                data.push(parse(field)?);
+                data.push({
+                    if field == "NA" {
+                        Ok(f64::NAN)
+                    } else {
+                        field.parse().map_err(crate::Error::from)
+                    }
+                }?);
             }
         }
-        let mut mat = OwnedMatrix::new(cols, data.len() / cols, data, None).transpose();
+        let mut mat = OwnedMatrix::new(cols, data.len() / cols, data, None).into_matrix();
+        mat.transpose();
+        let mut mat = mat.to_owned()?;
         mat.colnames = colnames;
         Ok(mat.into_matrix())
     }
 
-    pub fn write(&self, mat: &mut Matrix<'_>) -> Result<(), WriteMatrixError> {
+    pub fn write(&self, mat: &mut Matrix<'_>) -> Result<(), crate::Error> {
         let file = std::fs::File::create(&self.path)?;
         if self.gz || self.file_type == FileType::Rdata {
             let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
@@ -119,12 +108,11 @@ impl File {
         &self,
         mut writer: impl std::io::Write,
         mat: &mut Matrix<'_>,
-    ) -> Result<(), WriteMatrixError> {
-        let mat = mat.as_owned_ref()?;
+    ) -> Result<(), crate::Error> {
         match self.file_type {
             FileType::Csv => Self::write_text_file(writer, mat, b',')?,
             FileType::Tsv => Self::write_text_file(writer, mat, b'\t')?,
-            FileType::Json => serde_json::to_writer(writer, &mat)?,
+            FileType::Json => serde_json::to_writer(writer, mat.as_owned_ref()?)?,
             FileType::Txt => Self::write_text_file(writer, mat, b' ')?,
             FileType::Rdata => {
                 let mat = mat.to_rmatrix();
@@ -138,22 +126,22 @@ impl File {
                 )?;
             },
             FileType::Rkyv => {
-                let bytes = rkyv::to_bytes::<_, 256>(mat)
-                    .map_err(|e| WriteMatrixError::RkyvError(e.to_string()))?;
+                let bytes = rkyv::to_bytes::<_, 256>(mat.as_owned_ref()?)?;
                 writer.write_all(&bytes)?;
             },
-            FileType::Cbor => serde_cbor::to_writer(writer, &mat)?,
+            FileType::Cbor => serde_cbor::to_writer(writer, mat.as_owned_ref()?)?,
         }
         Ok(())
     }
 
     fn write_text_file(
         writer: impl std::io::Write,
-        mat: &OwnedMatrix,
+        mat: &mut Matrix<'_>,
         sep: u8,
-    ) -> Result<(), WriteMatrixError> {
+    ) -> Result<(), crate::Error> {
+        let mat = mat.as_owned_ref()?;
         let mut writer = csv::WriterBuilder::new().delimiter(sep).from_writer(writer);
-        if let Some(colnames) = mat.colnames() {
+        if let Some(colnames) = &mat.colnames {
             writer.write_record(colnames)?;
         }
         for i in 0..mat.nrows {
@@ -170,17 +158,17 @@ impl File {
         Ok(())
     }
 
-    pub fn from_path(path: impl Into<PathBuf>) -> Result<Self, FileParseError> {
+    pub fn from_path(path: impl Into<PathBuf>) -> Result<Self, crate::Error> {
         let path = path.into();
         let extension = path
             .file_name()
-            .ok_or(FileParseError::NoFileName)?
+            .ok_or(crate::Error::NoFileName)?
             .to_str()
-            .ok_or(FileParseError::InvalidFileName)?
+            .ok_or(crate::Error::InvalidFileName)?
             .split('.')
             .collect::<Vec<&str>>();
         if extension.len() < 2 {
-            return Err(FileParseError::NoFileExtension);
+            return Err(crate::Error::NoFileExtension);
         }
         let gz = extension[extension.len() - 1] == "gz";
         let extension = extension[extension.len() - if gz { 2 } else { 1 }];
@@ -192,7 +180,7 @@ impl File {
             "rdata" | "RData" => FileType::Rdata,
             "rkyv" => FileType::Rkyv,
             "cbor" => FileType::Cbor,
-            _ => return Err(FileParseError::UnsupportedFileType(extension.to_string())),
+            _ => return Err(crate::Error::UnsupportedFileType(extension.to_string())),
         };
         Ok(Self {
             path,
@@ -203,7 +191,7 @@ impl File {
 }
 
 impl FromStr for File {
-    type Err = FileParseError;
+    type Err = crate::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::from_path(s)
