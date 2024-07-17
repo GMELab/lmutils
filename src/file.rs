@@ -4,7 +4,7 @@ use extendr_api::{io::Save, pairlist, Pairlist};
 
 use crate::{IntoMatrix, Matrix, OwnedMatrix};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct File {
     path: PathBuf,
     file_type: FileType,
@@ -21,16 +21,19 @@ impl File {
     }
 
     #[inline(always)]
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn path(&self) -> &PathBuf {
         &self.path
     }
 
     #[inline(always)]
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn file_type(&self) -> FileType {
         self.file_type
     }
 
     #[inline(always)]
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn gz(&self) -> bool {
         self.gz
     }
@@ -48,6 +51,8 @@ impl File {
         }
     }
 
+    #[cfg_attr(coverage_nightly, coverage(off))] // We can't test RData, so we exclude this from
+                                                 // coverage even though everything else is tested
     pub fn read_from_reader<'a>(
         &self,
         mut reader: impl std::io::Read,
@@ -104,6 +109,8 @@ impl File {
         }
     }
 
+    #[cfg_attr(coverage_nightly, coverage(off))] // We can't test RData, so we exclude this from
+                                                 // coverage even though everything else is tested
     pub fn write_matrix_to_writer(
         &self,
         mut writer: impl std::io::Write,
@@ -166,6 +173,7 @@ impl File {
             .to_str()
             .ok_or(crate::Error::InvalidFileName)?
             .split('.')
+            .filter(|x| !x.is_empty())
             .collect::<Vec<&str>>();
         if extension.len() < 2 {
             return Err(crate::Error::NoFileExtension);
@@ -193,6 +201,7 @@ impl File {
 impl FromStr for File {
     type Err = crate::Error;
 
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::from_path(s)
     }
@@ -217,4 +226,186 @@ pub enum FileType {
     Rkyv,
     /// Serialied matrix type.
     Cbor,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_log::test;
+
+    #[test]
+    fn test_csv() {
+        let mut mat = Matrix::Owned(OwnedMatrix::new(
+            3,
+            2,
+            vec![1.0, 2.0, f64::NAN, 4.0, 5.0, 6.0],
+            Some(vec!["a".to_string(), "b".to_string()]),
+        ));
+        let file = crate::File::new("tests/test.csv", crate::FileType::Csv, false);
+        file.write(&mut mat).unwrap();
+        let mat2 = file.read().unwrap();
+        assert_eq!(mat, mat2);
+    }
+
+    #[test]
+    fn test_tsv() {
+        let mut mat = Matrix::Owned(OwnedMatrix::new(
+            3,
+            2,
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            Some(vec!["a".to_string(), "b".to_string()]),
+        ));
+        let file = crate::File::new("tests/test.tsv", crate::FileType::Tsv, false);
+        file.write(&mut mat).unwrap();
+        let mat2 = file.read().unwrap();
+        assert_eq!(mat, mat2);
+    }
+
+    #[test]
+    fn test_json() {
+        let mut mat = Matrix::Owned(OwnedMatrix::new(
+            3,
+            2,
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            Some(vec!["a".to_string(), "b".to_string()]),
+        ));
+        let file = crate::File::new("tests/test.json", crate::FileType::Json, false);
+        file.write(&mut mat).unwrap();
+        let mat2 = file.read().unwrap();
+        assert_eq!(mat, mat2);
+    }
+
+    #[test]
+    fn test_txt() {
+        let mut mat = Matrix::Owned(OwnedMatrix::new(
+            3,
+            2,
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            Some(vec!["a".to_string(), "b".to_string()]),
+        ));
+        let file = crate::File::new("tests/test.txt", crate::FileType::Txt, false);
+        file.write(&mut mat).unwrap();
+        let mat2 = file.read().unwrap();
+        assert_eq!(mat, mat2);
+    }
+
+    #[test]
+    fn test_rkyv() {
+        let mut mat = Matrix::Owned(OwnedMatrix::new(
+            3,
+            2,
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            Some(vec!["a".to_string(), "b".to_string()]),
+        ));
+        let file = crate::File::new("tests/test.rkyv", crate::FileType::Rkyv, false);
+        file.write(&mut mat).unwrap();
+        let mat2 = file.read().unwrap();
+        assert_eq!(mat, mat2);
+    }
+
+    #[test]
+    fn test_cbor() {
+        let mut mat = Matrix::Owned(OwnedMatrix::new(
+            3,
+            2,
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            Some(vec!["a".to_string(), "b".to_string()]),
+        ));
+        let file = crate::File::new("tests/test.cbor", crate::FileType::Cbor, false);
+        file.write(&mut mat).unwrap();
+        let mat2 = file.read().unwrap();
+        assert_eq!(mat, mat2);
+    }
+
+    #[test]
+    fn test_from_path() {
+        let file = crate::File::from_path("tests/test.csv").unwrap();
+        assert_eq!(file.file_type, crate::FileType::Csv);
+        let file = crate::File::from_path("tests/test.tsv").unwrap();
+        assert_eq!(file.file_type, crate::FileType::Tsv);
+        let file = crate::File::from_path("tests/test.json").unwrap();
+        assert_eq!(file.file_type, crate::FileType::Json);
+        let file = crate::File::from_path("tests/test.txt").unwrap();
+        assert_eq!(file.file_type, crate::FileType::Txt);
+        let file = crate::File::from_path("tests/test.rdata").unwrap();
+        assert_eq!(file.file_type, crate::FileType::Rdata);
+        let file = crate::File::from_path("tests/test.rkyv").unwrap();
+        assert_eq!(file.file_type, crate::FileType::Rkyv);
+        let file = crate::File::from_path("tests/test.cbor").unwrap();
+        assert_eq!(file.file_type, crate::FileType::Cbor);
+    }
+
+    #[test]
+    fn test_from_path_gz() {
+        let file = crate::File::from_path("tests/test.csv.gz").unwrap();
+        assert_eq!(file.file_type, crate::FileType::Csv);
+        assert!(file.gz);
+        let file = crate::File::from_path("tests/test.tsv.gz").unwrap();
+        assert_eq!(file.file_type, crate::FileType::Tsv);
+        assert!(file.gz);
+        let file = crate::File::from_path("tests/test.json.gz").unwrap();
+        assert_eq!(file.file_type, crate::FileType::Json);
+        assert!(file.gz);
+        let file = crate::File::from_path("tests/test.txt.gz").unwrap();
+        assert_eq!(file.file_type, crate::FileType::Txt);
+        assert!(file.gz);
+        let file = crate::File::from_path("tests/test.rdata.gz").unwrap();
+        assert_eq!(file.file_type, crate::FileType::Rdata);
+        assert!(file.gz);
+        let file = crate::File::from_path("tests/test.rkyv.gz").unwrap();
+        assert_eq!(file.file_type, crate::FileType::Rkyv);
+        assert!(file.gz);
+        let file = crate::File::from_path("tests/test.cbor.gz").unwrap();
+        assert_eq!(file.file_type, crate::FileType::Cbor);
+        assert!(file.gz);
+    }
+
+    #[test]
+    fn test_from_path_invalid() {
+        assert!(matches!(
+            crate::File::from_path("tests/test").unwrap_err(),
+            crate::Error::NoFileExtension
+        ));
+        assert!(matches!(
+            crate::File::from_path("tests/test.").unwrap_err(),
+            crate::Error::NoFileExtension
+        ));
+        assert!(matches!(
+            crate::File::from_path("tests/test.invalid").unwrap_err(),
+            crate::Error::UnsupportedFileType(_)
+        ));
+    }
+
+    #[test]
+    fn test_gz() {
+        let mut mat = Matrix::Owned(OwnedMatrix::new(
+            3,
+            2,
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            Some(vec!["a".to_string(), "b".to_string()]),
+        ));
+        let file = crate::File::new("tests/test.csv.gz", crate::FileType::Csv, true);
+        file.write(&mut mat).unwrap();
+        let mat2 = file.read().unwrap();
+        assert_eq!(mat, mat2);
+    }
+
+    #[test]
+    fn test_csv_nan() {
+        let mut mat = Matrix::Owned(OwnedMatrix::new(
+            3,
+            2,
+            vec![1.0, 2.0, f64::NAN, 4.0, 5.0, 6.0],
+            Some(vec!["a".to_string(), "b".to_string()]),
+        ));
+        let file = crate::File::new("tests/mat.csv", crate::FileType::Csv, false);
+        let mat2 = file.read().unwrap();
+        assert_eq!(mat, mat2);
+    }
+
+    #[test]
+    fn test_file_not_found() {
+        let file = crate::File::new("tests/does_not_exist.csv", crate::FileType::Csv, false);
+        assert!(matches!(file.read(), Err(crate::Error::Io(_))));
+    }
 }

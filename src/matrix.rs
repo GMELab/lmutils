@@ -8,7 +8,7 @@ use extendr_api::{
 };
 use faer::{linalg::qr, MatMut, MatRef};
 use rayon::prelude::*;
-use tracing::{debug, trace};
+use tracing::{debug, error, trace};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Join {
@@ -41,6 +41,20 @@ pub enum Matrix<'a> {
         Vec<Box<dyn for<'b> FnOnce(&'b mut Matrix<'a>) -> Result<&'b mut Matrix<'a>, Error> + 'a>>,
         Box<Matrix<'a>>,
     ),
+}
+
+impl<'a> PartialEq for Matrix<'a> {
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Matrix::R(a), Matrix::R(b)) => a == b,
+            (Matrix::Owned(a), Matrix::Owned(b)) => a == b,
+            (Matrix::File(a), Matrix::File(b)) => a == b,
+            (Matrix::Ref(a), Matrix::Ref(b)) => a == b,
+            (Matrix::Transform(_, a), Matrix::Transform(_, b)) => a == b,
+            _ => false,
+        }
+    }
 }
 
 impl<'a> std::fmt::Debug for Matrix<'a> {
@@ -260,13 +274,13 @@ impl<'a> Matrix<'a> {
                 let data = vec![MaybeUninit::<f64>::uninit(); m.nrows() * m.ncols()];
                 m.as_ref().par_col_chunks(1).enumerate().for_each(|(i, c)| {
                     // SAFETY: No two threads will write to the same location
-                    let data = unsafe {
+                    let slice = unsafe {
                         std::slice::from_raw_parts_mut(
                             data.as_ptr().add(i * m.nrows()).cast::<f64>().cast_mut(),
-                            data.len(),
+                            m.nrows(),
                         )
                     };
-                    data.copy_from_slice(c.col(0).try_as_slice().expect("could not get slice"));
+                    slice.copy_from_slice(c.col(0).try_as_slice().expect("could not get slice"));
                 });
                 *self = Matrix::Owned(OwnedMatrix::new(
                     m.nrows(),
@@ -659,7 +673,7 @@ impl<'a> Matrix<'a> {
     ) -> Result<&mut Self, crate::Error> {
         match self.remove_column_by_name(name) {
             Ok(_) => Ok(self),
-            Err(crate::Error::ColumnNameNotFound(_)) => Ok(self),
+            Err(crate::Error::ColumnNameNotFound(_) | crate::Error::MissingColumnNames) => Ok(self),
             Err(e) => Err(e),
         }
     }
@@ -1407,6 +1421,21 @@ pub struct OwnedMatrix {
     pub(crate) ncols: usize,
     pub(crate) colnames: Option<Vec<String>>,
     pub(crate) data: Vec<f64>,
+}
+
+impl PartialEq for OwnedMatrix {
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    fn eq(&self, other: &Self) -> bool {
+        self.nrows == other.nrows
+            && self.ncols == other.ncols
+            && self.colnames == other.colnames
+            && self.data.len() == other.data.len()
+            && self
+                .data
+                .iter()
+                .zip(other.data.iter())
+                .all(|(a, b)| a.to_bits() == b.to_bits())
+    }
 }
 
 impl OwnedMatrix {

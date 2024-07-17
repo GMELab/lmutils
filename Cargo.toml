@@ -28,6 +28,7 @@ tracing = { version = "0.1.40", features = ["log"] }
 [dev-dependencies]
 rand = "0.8.5"
 test-log = "0.2.16"
+assert_float_eq = "1.1.3"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)'] }

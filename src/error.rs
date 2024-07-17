@@ -61,12 +61,14 @@ pub enum Error {
 }
 
 impl From<extendr_api::Error> for Error {
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn from(err: extendr_api::Error) -> Self {
         Error::R(err.to_string())
     }
 }
 
 impl From<Error> for extendr_api::Error {
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn from(e: Error) -> Self {
         extendr_api::Error::Other(e.to_string())
     }

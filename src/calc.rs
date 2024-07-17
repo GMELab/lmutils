@@ -22,46 +22,55 @@ pub struct R2 {
 
 impl R2 {
     #[inline]
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn r2(&self) -> f64 {
         self.r2
     }
 
     #[inline]
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn adj_r2(&self) -> f64 {
         self.adj_r2
     }
 
     #[inline]
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn predicted(&self) -> &[f64] {
         &self.predicted
     }
 
     #[inline]
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn data(&self) -> Option<&str> {
         self.data.as_deref()
     }
 
     #[inline]
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn set_data(&mut self, data: String) {
         self.data = Some(data);
     }
 
     #[inline]
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn outcome(&self) -> Option<&str> {
         self.outcome.as_deref()
     }
 
     #[inline]
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn set_outcome(&mut self, outcome: String) {
         self.outcome = Some(outcome);
     }
 
     #[inline]
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn n(&self) -> u32 {
         self.n
     }
 
     #[inline]
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn m(&self) -> u32 {
         self.m
     }
@@ -116,36 +125,43 @@ pub struct PValue {
 
 impl PValue {
     #[inline]
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn p_value(&self) -> f64 {
         self.p_value
     }
 
     #[inline]
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn data(&self) -> Option<&str> {
         self.data.as_deref()
     }
 
     #[inline]
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn set_data(&mut self, data: String) {
         self.data = Some(data);
     }
 
     #[inline]
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn data_column(&self) -> Option<u32> {
         self.data_column
     }
 
     #[inline]
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn set_data_column(&mut self, data_column: u32) {
         self.data_column = Some(data_column);
     }
 
     #[inline]
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn outcome(&self) -> Option<&str> {
         self.outcome.as_deref()
     }
 
     #[inline]
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn set_outcome(&mut self, outcome: String) {
         self.outcome = Some(outcome);
     }
@@ -251,13 +267,44 @@ pub fn standardize(x: &mut [f64]) {
     }
 }
 
-#[non_exhaustive]
 pub struct LinearModel {
-    pub slopes: Vec<f64>,
-    pub intercept: f64,
-    pub residuals: Vec<f64>,
-    pub r2: f64,
-    pub adj_r2: f64,
+    slopes: Vec<f64>,
+    intercept: f64,
+    residuals: Vec<f64>,
+    r2: f64,
+    adj_r2: f64,
+}
+
+impl LinearModel {
+    #[inline]
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn slopes(&self) -> &[f64] {
+        &self.slopes
+    }
+
+    #[inline]
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn intercept(&self) -> f64 {
+        self.intercept
+    }
+
+    #[inline]
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn residuals(&self) -> &[f64] {
+        &self.residuals
+    }
+
+    #[inline]
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn r2(&self) -> f64 {
+        self.r2
+    }
+
+    #[inline]
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn adj_r2(&self) -> f64 {
+        self.adj_r2
+    }
 }
 
 pub fn linear_regression(xs: MatRef<'_, f64>, ys: &[f64]) -> LinearModel {
@@ -303,5 +350,112 @@ pub fn linear_regression(xs: MatRef<'_, f64>, ys: &[f64]) -> LinearModel {
         residuals,
         r2,
         adj_r2,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assert_float_eq::*;
+    use test_log::test;
+
+    macro_rules! float_eq {
+        ($a:expr, $b:expr) => {
+            assert_float_absolute_eq!($a, $b, 0.0000001);
+        };
+    }
+
+    #[test]
+    fn test_variance() {
+        let data = [1.0, 2.0, 3.0, 4.0, 5.0];
+        assert_eq!(variance(&data), 2.5);
+    }
+
+    #[test]
+    fn test_mean() {
+        let data = [1.0, 2.0, 3.0, 4.0, 5.0];
+        assert_eq!(mean(&data), 3.0);
+    }
+
+    #[test]
+    fn test_standardize() {
+        let mut data = [1.0, 2.0, 3.0];
+        standardize(&mut data);
+        assert_eq!(data, [-1.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn test_get_r2s() {
+        let data = faer::mat::from_column_major_slice::<f64>(
+            &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 9.0],
+            4,
+            2,
+        );
+        let outcomes = faer::mat::from_column_major_slice::<f64>(
+            &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+            4,
+            2,
+        );
+        let r2s = get_r2s(data.as_mat_ref(), outcomes.as_mat_ref());
+        assert_eq!(r2s.len(), 2);
+        float_eq!(r2s[0].r2(), 1.6666666666666);
+        float_eq!(r2s[0].adj_r2(), 2.9999999999999999);
+        let pred: [f64; 4] = [1.0, 2.0, 3.0, 4.0];
+        assert_eq!(r2s[0].predicted().len(), 4);
+        for (a, b) in r2s[0].predicted().iter().copied().zip(pred.iter().copied()) {
+            float_eq!(a, b);
+        }
+        assert_eq!(r2s[0].n(), 4);
+        assert_eq!(r2s[0].m(), 2);
+        assert!(r2s[0].data().is_none());
+        assert!(r2s[0].outcome().is_none());
+        assert_eq!(r2s[1].r2(), 1.8575631074638974);
+        float_eq!(r2s[1].adj_r2(), 3.5726893223916925);
+        let pred: [f64; 4] = [
+            5.0478087649402426,
+            5.6334661354581685,
+            7.334661354581674,
+            7.9203187250996,
+        ];
+        assert_eq!(r2s[1].predicted().len(), 4);
+        for (a, b) in r2s[1].predicted().iter().copied().zip(pred.iter().copied()) {
+            float_eq!(a, b);
+        }
+        assert_eq!(r2s[1].n(), 4);
+        assert_eq!(r2s[1].m(), 2);
+        assert!(r2s[1].data().is_none());
+        assert!(r2s[1].outcome().is_none());
+    }
+
+    #[test]
+    fn test_p_value() {
+        let xs = [1.0, 2.0, 3.0, 4.0, 5.0];
+        let ys = [1.0, 2.0, 3.0, 4.0, 5.0];
+        let p_value = p_value(&xs, &ys);
+        float_eq!(p_value.p_value(), 0.0);
+        assert!(p_value.data().is_none());
+        assert!(p_value.outcome().is_none());
+    }
+
+    #[test]
+    fn test_linear_regression() {
+        let xs = faer::mat::from_column_major_slice::<f64>(&[1.0, 2.0, 3.0, 4.0, 5.0], 5, 1);
+        let ys = [1.0, 2.0, 3.0, 4.0, 5.0];
+        let model = linear_regression(xs.as_mat_ref(), &ys);
+        assert_eq!(model.slopes().len(), 1);
+        float_eq!(model.slopes()[0], 1.0);
+        float_eq!(model.intercept(), 0.0);
+        assert_eq!(model.residuals().len(), 5);
+        let residuals = [0.0, 0.0, 0.0, 0.0, 0.0];
+        for (a, b) in model
+            .residuals()
+            .iter()
+            .copied()
+            .zip(residuals.iter().copied())
+        {
+            float_eq!(a, b);
+        }
+        float_eq!(model.r2(), 1.0);
+        float_eq!(model.adj_r2(), 1.0);
     }
 }
