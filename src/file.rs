@@ -38,7 +38,7 @@ impl File {
         self.gz
     }
 
-    pub fn read<'a>(&self) -> Result<Matrix<'a>, crate::Error> {
+    pub fn read<'b, 'a: 'b>(&self) -> Result<Matrix<'b, 'a>, crate::Error> {
         let file = std::fs::File::open(&self.path)?;
         if self.gz || self.file_type == FileType::Rdata {
             let decoder = flate2::read::GzDecoder::new(std::io::BufReader::new(
@@ -53,10 +53,10 @@ impl File {
 
     #[cfg_attr(coverage_nightly, coverage(off))] // We can't test RData, so we exclude this from
                                                  // coverage even though everything else is tested
-    pub fn read_from_reader<'a>(
+    pub fn read_from_reader<'b, 'a: 'b>(
         &self,
         mut reader: impl std::io::Read,
-    ) -> Result<Matrix<'a>, crate::Error> {
+    ) -> Result<Matrix<'b, 'a>, crate::Error> {
         Ok(match self.file_type {
             FileType::Csv => Self::read_text_file(reader, b',')?,
             FileType::Tsv => Self::read_text_file(reader, b'\t')?,
@@ -72,7 +72,10 @@ impl File {
         })
     }
 
-    fn read_text_file<'a>(reader: impl std::io::Read, sep: u8) -> Result<Matrix<'a>, crate::Error> {
+    fn read_text_file<'b, 'a: 'a>(
+        reader: impl std::io::Read,
+        sep: u8,
+    ) -> Result<Matrix<'b, 'a>, crate::Error> {
         let mut data = vec![];
         let mut reader = csv::ReaderBuilder::new().delimiter(sep).from_reader(reader);
         let headers = reader.headers()?;
@@ -94,12 +97,12 @@ impl File {
         }
         let mut mat = OwnedMatrix::new(cols, data.len() / cols, data, None).into_matrix();
         mat.transpose();
-        let mut mat = mat.to_owned()?;
+        let mut mat = mat.to_owned_loaded();
         mat.colnames = colnames;
         Ok(mat.into_matrix())
     }
 
-    pub fn write(&self, mat: &mut Matrix<'_>) -> Result<(), crate::Error> {
+    pub fn write(&self, mat: &mut Matrix<'_, '_>) -> Result<(), crate::Error> {
         let file = std::fs::File::create(&self.path)?;
         if self.gz || self.file_type == FileType::Rdata {
             let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
@@ -114,7 +117,7 @@ impl File {
     pub fn write_matrix_to_writer(
         &self,
         mut writer: impl std::io::Write,
-        mat: &mut Matrix<'_>,
+        mat: &mut Matrix<'_, '_>,
     ) -> Result<(), crate::Error> {
         match self.file_type {
             FileType::Csv => Self::write_text_file(writer, mat, b',')?,
@@ -143,7 +146,7 @@ impl File {
 
     fn write_text_file(
         writer: impl std::io::Write,
-        mat: &mut Matrix<'_>,
+        mat: &mut Matrix<'_, '_>,
         sep: u8,
     ) -> Result<(), crate::Error> {
         let mat = mat.as_owned_ref()?;

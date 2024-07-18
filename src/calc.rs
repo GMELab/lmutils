@@ -2,7 +2,7 @@ use faer::{
     get_global_parallelism,
     mat::AsMatRef,
     solvers::{SpSolver, Svd},
-    ComplexField, Mat, MatRef, Side, SimpleEntity,
+    ColMut, ComplexField, Mat, MatRef, RowMut, Side, SimpleEntity,
 };
 use rayon::iter::IntoParallelIterator;
 use rayon::prelude::*;
@@ -242,19 +242,42 @@ pub fn mean<E: ComplexField + SimpleEntity>(x: &[E]) -> E {
     mean
 }
 
-#[tracing::instrument(skip(x))]
-pub fn standardize(x: &mut [f64]) {
+pub fn standardize_column(mut x: ColMut<f64>) {
     let mut mean = 0.0;
     let mut std: f64 = 0.0;
     faer::stats::row_mean(
         faer::row::from_mut(&mut mean),
-        faer::mat::from_column_major_slice(&*x, x.len(), 1).as_ref(),
+        x.as_ref().as_2d(),
         faer::stats::NanHandling::Ignore,
     );
     faer::stats::row_varm(
         faer::row::from_mut(&mut std),
-        faer::mat::from_column_major_slice(&*x, x.len(), 1).as_ref(),
+        x.as_ref().as_2d(),
         faer::row::from_ref(&mean),
+        faer::stats::NanHandling::Ignore,
+    );
+    let std = std.sqrt();
+    if std == 0.0 {
+        x.fill(0.0);
+        return;
+    }
+    for x in x.iter_mut() {
+        *x = (*x - mean) / std;
+    }
+}
+
+pub fn standardize_row(mut x: RowMut<f64>) {
+    let mut mean = 0.0;
+    let mut std: f64 = 0.0;
+    faer::stats::col_mean(
+        faer::col::from_mut(&mut mean),
+        x.as_ref().as_2d(),
+        faer::stats::NanHandling::Ignore,
+    );
+    faer::stats::col_varm(
+        faer::col::from_mut(&mut std),
+        x.as_ref().as_2d(),
+        faer::col::from_ref(&mean),
         faer::stats::NanHandling::Ignore,
     );
     let std = std.sqrt();
@@ -378,9 +401,16 @@ mod tests {
     }
 
     #[test]
-    fn test_standardize() {
+    fn test_standardize_column() {
         let mut data = [1.0, 2.0, 3.0];
-        standardize(&mut data);
+        standardize_column(faer::col::from_slice_mut(&mut data));
+        assert_eq!(data, [-1.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn test_standardize_row() {
+        let mut data = [1.0, 2.0, 3.0];
+        standardize_row(faer::row::from_slice_mut(&mut data));
         assert_eq!(data, [-1.0, 0.0, 1.0]);
     }
 
