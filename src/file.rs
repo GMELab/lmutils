@@ -52,7 +52,7 @@ impl File {
                 std::process::Command::new("Rscript")
                     .arg("-e")
                     .arg(format!(
-                        "devtools::load_all('.');lmutils::internal_lmutils_file_into_fd('{}', {})",
+                        "lmutils::internal_lmutils_file_into_fd('{}', {})",
                         self.path.to_string_lossy(),
                         new_fd
                     ))
@@ -149,7 +149,7 @@ impl File {
                 std::process::Command::new("Rscript")
                     .arg("-e")
                     .arg(format!(
-                        "devtools::load_all('.');lmutils::internal_lmutils_fd_into_file('{}', {})",
+                        "lmutils::internal_lmutils_fd_into_file('{}', {})",
                         self.path.to_string_lossy(),
                         new_fd,
                     ))

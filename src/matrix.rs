@@ -8,8 +8,8 @@ use std::{
 
 use crate::{file::File, mean, standardize_column, standardize_row, Error};
 use extendr_api::{
-    io::Load, single_threaded, wrapper, AsStrIter, Attributes, Conversions, IntoRobj,
-    MatrixConversions, RMatrix, Rinternals, Robj, Rtype,
+    io::Load, scalar::Scalar, single_threaded, wrapper, AsStrIter, Attributes, Conversions,
+    FromRobj, IntoRobj, MatrixConversions, RMatrix, Rinternals, Robj, Rtype,
 };
 use faer::{linalg::qr, Mat, MatMut, MatRef};
 use rayon::prelude::*;
@@ -23,6 +23,29 @@ pub enum Join {
     Left = 1,
     /// Right join, all rows from the right matrix must be matched
     Right = 2,
+}
+
+const INVALID_JOIN_TYPE: &str = "invalid join type, must be one of 0, 1, or 2";
+
+impl FromRobj<'_> for Join {
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    fn from_robj(obj: &Robj) -> Result<Self, &'static str> {
+        let val = if obj.is_integer() {
+            obj.as_integer().unwrap()
+        } else if obj.is_real() {
+            obj.as_real().unwrap() as i32
+        } else if obj.is_logical() {
+            obj.as_logical().unwrap().inner()
+        } else {
+            return Err(INVALID_JOIN_TYPE);
+        };
+        match val {
+            0 => Ok(Join::Inner),
+            1 => Ok(Join::Left),
+            2 => Ok(Join::Right),
+            _ => Err(INVALID_JOIN_TYPE),
+        }
+    }
 }
 
 impl std::fmt::Display for Join {
@@ -888,27 +911,27 @@ impl Matrix {
         }
     }
 
-    pub fn t_match_to(&mut self, other: Vec<f64>, col: usize, join: Join) -> &mut Self {
-        self.transform(move |m| m.match_to(&other, col, join))
+    pub fn t_match_to(&mut self, with: Vec<f64>, by: usize, join: Join) -> &mut Self {
+        self.transform(move |m| m.match_to(&with, by, join))
     }
 
-    #[tracing::instrument(skip(self, other))]
+    #[tracing::instrument(skip(self, with))]
     pub fn match_to(
         &mut self,
-        other: &[f64],
-        col: usize,
+        with: &[f64],
+        by: usize,
         join: Join,
     ) -> Result<&mut Self, crate::Error> {
-        if col >= self.ncols()? {
-            return Err(crate::Error::ColumnIndexOutOfBounds(col));
+        if by >= self.ncols()? {
+            return Err(crate::Error::ColumnIndexOutOfBounds(by));
         }
         let col = self
-            .col(col)?
+            .col(by)?
             .unwrap()
             .iter()
             .enumerate()
             .collect::<Vec<_>>();
-        let mut other = other.iter().enumerate().collect::<Vec<_>>();
+        let mut other = with.iter().enumerate().collect::<Vec<_>>();
         other.sort_by(|a, b| a.1.partial_cmp(b.1).expect("could not compare"));
         let mut order = Vec::with_capacity(match join {
             Join::Inner => col.len().min(other.len()),

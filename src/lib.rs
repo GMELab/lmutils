@@ -13,7 +13,8 @@ use tracing::{debug, debug_span, error, info, trace};
 pub use crate::{calc::*, error::*, file::*, matrix::*};
 
 #[cfg_attr(coverage_nightly, coverage(off))]
-fn main_scope<T, F, R>(data: Vec<T>, out: Option<usize>, f: F) -> Vec<R>
+#[doc(hidden)]
+pub fn core_parallelize<T, F, R>(data: Vec<T>, out: Option<usize>, f: F) -> Vec<R>
 where
     T: Send + Sync,
     for<'a> F: (Fn(usize, &'a mut T) -> Vec<R>) + Send + Sync,
@@ -21,6 +22,7 @@ where
 {
     let core_parallelism = std::env::var("LMUTILS_CORE_PARALLELISM")
         .ok()
+        .or_else(|| std::env::var("LMUTILS_NUM_MAIN_THREADS").ok())
         .and_then(|x| x.parse::<usize>().ok())
         .unwrap_or(16)
         .clamp(1, data.len());
@@ -82,13 +84,13 @@ where
                             {
                                 let duration = std::time::Duration::from_secs(4u64.pow(tries));
                                 error!(
-                                    "Error in main scope, retrying in {} seconds",
+                                    "Error in core scope, retrying in {} seconds",
                                     duration.as_secs_f64()
                                 );
                                 std::thread::sleep(duration);
                                 tries += 1;
                                 if tries > 5 {
-                                    panic!("Error in main scope, too many retries");
+                                    panic!("Error in core scope, too many retries");
                                 }
                             }
                         })
@@ -130,7 +132,7 @@ pub fn calculate_r2s(
     // let ndata = data.lock().unwrap().len();
     // let mut results: Vec<MaybeUninit<R2>> = Vec::with_capacity(or.ncols() * ndata);
     // results.extend((0..(or.ncols() * ndata)).map(|_| MaybeUninit::uninit()));
-    let results = main_scope(data, Some(or.ncols()), |i, mat| {
+    let results = core_parallelize(data, Some(or.ncols()), |i, mat| {
         info!(
             "Calculating R^2 for data set {}",
             if let Some(data_names) = &data_names {
@@ -193,7 +195,7 @@ pub fn column_p_values(
     // let ndata = or.nrows();
     // let mut results: Vec<MaybeUninit<PValue>> = Vec::with_capacity(or.ncols() * ndata);
     // results.extend((0..(or.ncols() * ndata)).map(|_| MaybeUninit::uninit()));
-    let results = main_scope(data, None, |i, data| {
+    let results = core_parallelize(data, None, |i, data| {
         info!(
             "Calculating p-values for data set {}",
             if let Some(data_names) = &data_names {
