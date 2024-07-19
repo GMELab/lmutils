@@ -50,6 +50,8 @@ pub enum Error {
     Json(#[from] serde_json::Error),
     #[error("r error: {0}")]
     R(String),
+    #[error("rscript error: {0}")]
+    Rscript(i32),
     #[error("rkyv deserialize error: {0}")]
     RkyvDeserialize(#[from] SharedDeserializeMapError),
     #[error("rkyv serialize error: {0}")]

@@ -1,6 +1,7 @@
-use std::{path::PathBuf, str::FromStr};
+use std::{io::Read, os::fd::AsRawFd, path::PathBuf, str::FromStr};
 
 use extendr_api::{io::Save, pairlist, Pairlist};
+use tracing::info;
 
 use crate::{IntoMatrix, Matrix, OwnedMatrix};
 
@@ -38,7 +39,41 @@ impl File {
         self.gz
     }
 
-    pub fn read<'b, 'a: 'b>(&self) -> Result<Matrix<'b, 'a>, crate::Error> {
+    pub fn read(&self) -> Result<Matrix, crate::Error> {
+        #[cfg(unix)]
+        if self.file_type == FileType::Rdata && std::env::var("LMUTILS_FD").is_err() {
+            use std::io::Seek;
+            use std::os::unix::process::CommandExt;
+
+            let mut file = memfile::MemFile::create_default(&self.path.to_string_lossy())?;
+            let fd = file.as_fd().as_raw_fd();
+            let new_fd = unsafe { libc::dup(fd) };
+            let output = unsafe {
+                std::process::Command::new("Rscript")
+                    .arg("-e")
+                    .arg(format!(
+                        "devtools::load_all('.');lmutils::internal_lmutils_file_into_fd('{}', {})",
+                        self.path.to_string_lossy(),
+                        new_fd
+                    ))
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped())
+                    .pre_exec(move || unsafe {
+                        libc::dup2(fd, new_fd);
+                        Ok(())
+                    })
+                    .output()?
+            };
+            if output.status.code().is_none() || output.status.code().unwrap() != 0 {
+                tracing::error!("failed to read {}", self.path.display());
+                tracing::error!("STDOUT: {}", String::from_utf8_lossy(&output.stdout));
+                tracing::error!("STDERR: {}", String::from_utf8_lossy(&output.stderr));
+                return Err(crate::Error::Rscript(output.status.code().unwrap_or(0)));
+            }
+            file.rewind()?;
+            let mat = Self::new("", FileType::Rkyv, false).read_from_reader(file);
+            return mat;
+        }
         let file = std::fs::File::open(&self.path)?;
         if self.gz || self.file_type == FileType::Rdata {
             let decoder = flate2::read::GzDecoder::new(std::io::BufReader::new(
@@ -53,10 +88,7 @@ impl File {
 
     #[cfg_attr(coverage_nightly, coverage(off))] // We can't test RData, so we exclude this from
                                                  // coverage even though everything else is tested
-    pub fn read_from_reader<'b, 'a: 'b>(
-        &self,
-        mut reader: impl std::io::Read,
-    ) -> Result<Matrix<'b, 'a>, crate::Error> {
+    pub fn read_from_reader(&self, mut reader: impl std::io::Read) -> Result<Matrix, crate::Error> {
         Ok(match self.file_type {
             FileType::Csv => Self::read_text_file(reader, b',')?,
             FileType::Tsv => Self::read_text_file(reader, b'\t')?,
@@ -72,10 +104,7 @@ impl File {
         })
     }
 
-    fn read_text_file<'b, 'a: 'a>(
-        reader: impl std::io::Read,
-        sep: u8,
-    ) -> Result<Matrix<'b, 'a>, crate::Error> {
+    fn read_text_file(reader: impl std::io::Read, sep: u8) -> Result<Matrix, crate::Error> {
         let mut data = vec![];
         let mut reader = csv::ReaderBuilder::new().delimiter(sep).from_reader(reader);
         let headers = reader.headers()?;
@@ -102,7 +131,44 @@ impl File {
         Ok(mat.into_matrix())
     }
 
-    pub fn write(&self, mat: &mut Matrix<'_, '_>) -> Result<(), crate::Error> {
+    pub fn write(&self, mat: &mut Matrix) -> Result<(), crate::Error> {
+        #[cfg(any(unix, target_os = "wasi"))]
+        if self.file_type == FileType::Rdata && std::env::var("LMUTILS_FD").is_err() {
+            use std::io::Seek;
+            use std::os::fd::FromRawFd;
+            use std::os::unix::process::CommandExt;
+
+            let mut file = memfile::MemFile::create_default(&self.path.to_string_lossy())?;
+            let fd = file.as_fd().as_raw_fd();
+            Self::new("", FileType::Rkyv, false).write_matrix_to_writer(&mut file, mat)?;
+            let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
+            file.rewind()?;
+            let new_fd = unsafe { libc::dup(fd) };
+            // std::thread::sleep(std::time::Duration::from_secs(60));
+            let output = unsafe {
+                std::process::Command::new("Rscript")
+                    .arg("-e")
+                    .arg(format!(
+                        "devtools::load_all('.');lmutils::internal_lmutils_fd_into_file('{}', {})",
+                        self.path.to_string_lossy(),
+                        new_fd,
+                    ))
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped())
+                    .pre_exec(move || unsafe {
+                        libc::dup2(fd, new_fd);
+                        Ok(())
+                    })
+                    .output()?
+            };
+            if output.status.code().is_none() || output.status.code().unwrap() != 0 {
+                tracing::error!("failed to read {}", self.path.display());
+                tracing::error!("STDOUT: {}", String::from_utf8_lossy(&output.stdout));
+                tracing::error!("STDERR: {}", String::from_utf8_lossy(&output.stderr));
+                return Err(crate::Error::Rscript(output.status.code().unwrap_or(0)));
+            }
+            return Ok(());
+        }
         let file = std::fs::File::create(&self.path)?;
         if self.gz || self.file_type == FileType::Rdata {
             let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
@@ -117,7 +183,7 @@ impl File {
     pub fn write_matrix_to_writer(
         &self,
         mut writer: impl std::io::Write,
-        mat: &mut Matrix<'_, '_>,
+        mat: &mut Matrix,
     ) -> Result<(), crate::Error> {
         match self.file_type {
             FileType::Csv => Self::write_text_file(writer, mat, b',')?,
@@ -146,7 +212,7 @@ impl File {
 
     fn write_text_file(
         writer: impl std::io::Write,
-        mat: &mut Matrix<'_, '_>,
+        mat: &mut Matrix,
         sep: u8,
     ) -> Result<(), crate::Error> {
         let mat = mat.as_owned_ref()?;
@@ -183,16 +249,7 @@ impl File {
         }
         let gz = extension[extension.len() - 1] == "gz";
         let extension = extension[extension.len() - if gz { 2 } else { 1 }];
-        let file_type = match extension {
-            "csv" => FileType::Csv,
-            "tsv" => FileType::Tsv,
-            "json" => FileType::Json,
-            "txt" => FileType::Txt,
-            "rdata" | "RData" => FileType::Rdata,
-            "rkyv" => FileType::Rkyv,
-            "cbor" => FileType::Cbor,
-            _ => return Err(crate::Error::UnsupportedFileType(extension.to_string())),
-        };
+        let file_type = FileType::from_str(extension)?;
         Ok(Self {
             path,
             file_type,
@@ -229,6 +286,24 @@ pub enum FileType {
     Rkyv,
     /// Serialied matrix type.
     Cbor,
+}
+
+impl FromStr for FileType {
+    type Err = crate::Error;
+
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
+            "csv" => Self::Csv,
+            "tsv" => Self::Tsv,
+            "json" => Self::Json,
+            "txt" => Self::Txt,
+            "rdata" | "RData" => Self::Rdata,
+            "rkyv" => Self::Rkyv,
+            "cbor" => Self::Cbor,
+            _ => return Err(crate::Error::UnsupportedFileType(s.to_string())),
+        })
+    }
 }
 
 #[cfg(test)]

@@ -1,14 +1,19 @@
 use core::panic;
-use std::{collections::HashSet, mem::MaybeUninit, str::FromStr};
+use std::{
+    collections::HashSet,
+    mem::MaybeUninit,
+    ops::{Deref, DerefMut},
+    str::FromStr,
+};
 
 use crate::{file::File, mean, standardize_column, standardize_row, Error};
 use extendr_api::{
     io::Load, single_threaded, wrapper, AsStrIter, Attributes, Conversions, IntoRobj,
     MatrixConversions, RMatrix, Rinternals, Robj, Rtype,
 };
-use faer::{linalg::qr, MatMut, MatRef};
+use faer::{linalg::qr, Mat, MatMut, MatRef};
 use rayon::prelude::*;
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info, trace};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Join {
@@ -31,55 +36,55 @@ impl std::fmt::Display for Join {
     }
 }
 
-pub enum Matrix<'b, 'a: 'b> {
+#[doc(hidden)]
+pub trait DerefMatrix: Deref<Target = Matrix> + DerefMut + std::fmt::Debug {}
+
+impl<T> DerefMatrix for T where T: Deref<Target = Matrix> + DerefMut + std::fmt::Debug {}
+
+pub enum Matrix {
     R(RMatrix<f64>),
     Owned(OwnedMatrix),
     File(File),
-    Ref(&'b mut Matrix<'b, 'a>),
+    Dyn(Box<dyn DerefMatrix>),
     Transform(
         #[allow(clippy::type_complexity)]
-        Vec<
-            Box<
-                dyn for<'c> FnOnce(&'c mut Matrix<'b, 'a>) -> Result<&'c mut Matrix<'b, 'a>, Error>
-                    + 'b,
-            >,
-        >,
-        Box<Matrix<'b, 'a>>,
+        Vec<Box<dyn for<'a> FnOnce(&'a mut Matrix) -> Result<&'a mut Matrix, Error>>>,
+        Box<Matrix>,
     ),
 }
 
-impl<'b, 'a> PartialEq for Matrix<'b, 'a> {
+impl PartialEq for Matrix {
     #[cfg_attr(coverage_nightly, coverage(off))]
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Matrix::R(a), Matrix::R(b)) => a == b,
             (Matrix::Owned(a), Matrix::Owned(b)) => a == b,
             (Matrix::File(a), Matrix::File(b)) => a == b,
-            (Matrix::Ref(a), Matrix::Ref(b)) => a == b,
+            (Matrix::Dyn(a), Matrix::Dyn(b)) => ***a == ***b,
             (Matrix::Transform(_, a), Matrix::Transform(_, b)) => a == b,
             _ => false,
         }
     }
 }
 
-impl<'b, 'a> std::fmt::Debug for Matrix<'b, 'a> {
+impl std::fmt::Debug for Matrix {
     #[cfg_attr(coverage_nightly, coverage(off))]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Matrix::R(m) => write!(f, "Matrix::R({:?})", m),
             Matrix::Owned(m) => write!(f, "Matrix::Owned({:?})", m),
             Matrix::File(m) => write!(f, "Matrix::File({:?})", m),
-            Matrix::Ref(m) => write!(f, "Matrix::Ref({:?})", m),
+            Matrix::Dyn(m) => write!(f, "Matrix::Ref({:?})", m),
             Matrix::Transform(t, m) => write!(f, "Matrix::Transform({:?}, {:?})", t.len(), m),
         }
     }
 }
 
 // SAFETY: This is always safe except when calling into R, for example by loading an .RData file
-unsafe impl<'b, 'a> Send for Matrix<'b, 'a> {}
-unsafe impl<'b, 'a> Sync for Matrix<'b, 'a> {}
+unsafe impl Send for Matrix {}
+unsafe impl Sync for Matrix {}
 
-impl<'b, 'a> Matrix<'b, 'a> {
+impl Matrix {
     #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn as_mat_ref(&mut self) -> Result<MatRef<'_, f64>, crate::Error> {
         Ok(match self {
@@ -97,7 +102,7 @@ impl<'b, 'a> Matrix<'b, 'a> {
                 faer::mat::from_column_major_slice(m.data.as_slice(), m.nrows, m.ncols)
             },
             Matrix::File(_) => panic!("cannot call this function on a file"),
-            Matrix::Ref(m) => m.as_mat_ref_loaded(),
+            Matrix::Dyn(m) => m.as_mat_ref_loaded(),
             Matrix::Transform(_, _) => panic!("cannot call this function on a transform"),
         }
     }
@@ -119,24 +124,28 @@ impl<'b, 'a> Matrix<'b, 'a> {
                 faer::mat::from_column_major_slice_mut(m.data.as_mut(), m.nrows, m.ncols)
             },
             m @ (Matrix::File(_) | Matrix::Transform(_, _)) => m.into_owned()?.as_mat_mut()?,
-            Matrix::Ref(m) => m.as_mat_mut()?,
+            Matrix::Dyn(m) => m.as_mat_mut()?,
         })
     }
 
     #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn as_owned_ref(&mut self) -> Result<&OwnedMatrix, crate::Error> {
-        self.into_owned().map(|m| match m {
-            Matrix::Owned(m) => &*m,
+        self.into_owned()?;
+        match self {
+            Matrix::Owned(m) => Ok(&*m),
+            Matrix::Dyn(m) => m.as_owned_ref(),
             _ => unreachable!(),
-        })
+        }
     }
 
     #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn as_owned_mut(&mut self) -> Result<&mut OwnedMatrix, crate::Error> {
-        self.into_owned().map(|m| match m {
-            Matrix::Owned(m) => m,
+        self.into_owned()?;
+        match self {
+            Matrix::Owned(m) => Ok(m),
+            Matrix::Dyn(m) => m.as_owned_mut(),
             _ => unreachable!(),
-        })
+        }
     }
 
     #[cfg_attr(coverage_nightly, coverage(off))]
@@ -161,7 +170,7 @@ impl<'b, 'a> Matrix<'b, 'a> {
                 mat
             },
             m @ (Matrix::File(_) | Matrix::Transform(_, _)) => m.into_owned()?.to_rmatrix()?,
-            Matrix::Ref(m) => m.to_rmatrix()?,
+            Matrix::Dyn(m) => m.to_rmatrix()?,
         })
     }
 
@@ -177,9 +186,8 @@ impl<'b, 'a> Matrix<'b, 'a> {
         if buf != *b"RDX3\n" {
             return Err(crate::Error::InvalidRdataFile);
         }
-        let obj = single_threaded(|| {
-            Robj::from_reader(&mut reader, extendr_api::io::PstreamFormat::XdrFormat, None)
-        })?;
+        let obj = Robj::from_reader(&mut reader, extendr_api::io::PstreamFormat::XdrFormat, None)?;
+        info!("{:?}", obj);
         let mat = obj
             .as_pairlist()
             .ok_or(crate::Error::InvalidRdataFile)?
@@ -247,9 +255,17 @@ impl<'b, 'a> Matrix<'b, 'a> {
     #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn into_owned(&mut self) -> Result<&mut Self, crate::Error> {
         match self {
-            Matrix::R(m) => {
-                let m = std::mem::replace(m, RMatrix::new_matrix(0, 0, |_, _| 0.0));
-                *self = Matrix::from_robj(m.into_robj())?;
+            Matrix::R(_) => {
+                let colnames = self
+                    .colnames()?
+                    .map(|x| x.into_iter().map(|x| x.to_string()).collect());
+                let Matrix::R(m) = self else { unreachable!() };
+                *self = Matrix::Owned(OwnedMatrix::new(
+                    m.nrows(),
+                    m.ncols(),
+                    m.data().to_vec(),
+                    colnames,
+                ));
                 Ok(self)
             },
             Matrix::Owned(_) => Ok(self),
@@ -257,7 +273,7 @@ impl<'b, 'a> Matrix<'b, 'a> {
                 *self = m.read()?;
                 Ok(self)
             },
-            Matrix::Ref(m) => {
+            Matrix::Dyn(m) => {
                 m.into_owned()?;
                 Ok(self)
             },
@@ -291,20 +307,19 @@ impl<'b, 'a> Matrix<'b, 'a> {
     #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn colnames(&mut self) -> Result<Option<Vec<&str>>, crate::Error> {
         Ok(match self {
-            Matrix::R(m) => m.dimnames().map(|mut dimnames| {
+            Matrix::R(m) => m.dimnames().and_then(|mut dimnames| {
                 dimnames
                     .nth(1)
                     .unwrap()
                     .as_str_iter()
-                    .unwrap()
-                    .collect::<Vec<_>>()
+                    .map(|x| x.collect::<Vec<_>>())
             }),
             Matrix::Owned(m) => m
                 .colnames
                 .as_deref()
                 .map(|x| x.iter().map(|x| x.as_str()).collect()),
             m @ (Matrix::File(_) | Matrix::Transform(_, _)) => m.into_owned()?.colnames()?,
-            Matrix::Ref(_) => None,
+            Matrix::Dyn(_) => None,
         })
     }
 
@@ -329,13 +344,41 @@ impl<'b, 'a> Matrix<'b, 'a> {
     }
 
     #[cfg_attr(coverage_nightly, coverage(off))]
-    pub fn from_mut(m: &'b mut Matrix<'b, 'a>) -> Matrix<'b, 'a> {
-        Matrix::Ref(m)
+    pub fn from_deref(m: impl DerefMatrix + 'static) -> Matrix {
+        Matrix::Dyn(Box::new(m))
+    }
+
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn from_mat_ref(m: faer::MatRef<'_, f64>) -> Self {
+        let data = vec![MaybeUninit::<f64>::uninit(); m.nrows() * m.ncols()];
+        m.par_col_chunks(1).enumerate().for_each(|(i, c)| {
+            let col = c.col(0);
+            let slice = unsafe {
+                std::slice::from_raw_parts_mut(
+                    data.as_ptr().add(i * m.nrows()).cast::<f64>().cast_mut(),
+                    m.nrows(),
+                )
+            };
+            for (i, x) in col.iter().enumerate() {
+                slice[i] = *x;
+            }
+        });
+        Matrix::Owned(OwnedMatrix::new(
+            m.nrows(),
+            m.ncols(),
+            // SAFETY: The data is initialized now
+            unsafe {
+                std::mem::transmute::<std::vec::Vec<std::mem::MaybeUninit<f64>>, std::vec::Vec<f64>>(
+                    data,
+                )
+            },
+            None,
+        ))
     }
 
     fn transform(
         &mut self,
-        f: impl for<'c> FnOnce(&'c mut Matrix<'b, 'a>) -> Result<&'c mut Matrix<'b, 'a>, Error> + 'b,
+        f: impl for<'a> FnOnce(&'a mut Matrix) -> Result<&'a mut Matrix, Error> + 'static,
     ) -> &mut Self {
         match self {
             Matrix::Transform(fns, _) => fns.push(Box::new(f)),
@@ -938,7 +981,7 @@ impl<'b, 'a> Matrix<'b, 'a> {
     #[tracing::instrument(skip(self, other))]
     pub fn join(
         &mut self,
-        other: &mut Matrix<'b, 'a>,
+        other: &mut Matrix,
         self_by: usize,
         other_by: usize,
         join: Join,
@@ -1063,12 +1106,7 @@ impl<'b, 'a> Matrix<'b, 'a> {
         Ok(self)
     }
 
-    pub fn t_join_by_column_name(
-        &mut self,
-        mut other: Matrix<'b, 'a>,
-        by: &str,
-        join: Join,
-    ) -> &mut Self {
+    pub fn t_join_by_column_name(&mut self, mut other: Matrix, by: &str, join: Join) -> &mut Self {
         let by = by.to_string();
         self.transform(move |m| m.join_by_column_name(&mut other, &by, join))
     }
@@ -1076,7 +1114,7 @@ impl<'b, 'a> Matrix<'b, 'a> {
     #[tracing::instrument(skip(self, other))]
     pub fn join_by_column_name(
         &mut self,
-        other: &mut Matrix<'b, 'a>,
+        other: &mut Matrix,
         by: &str,
         join: Join,
     ) -> Result<&mut Self, crate::Error> {
@@ -1372,7 +1410,7 @@ impl<'b, 'a> Matrix<'b, 'a> {
     }
 }
 
-impl FromStr for Matrix<'_, '_> {
+impl FromStr for Matrix {
     type Err = crate::Error;
 
     #[cfg_attr(coverage_nightly, coverage(off))]
@@ -1428,77 +1466,98 @@ impl OwnedMatrix {
     }
 }
 
-pub trait IntoMatrix<'b, 'a: 'b> {
-    fn into_matrix(self) -> Matrix<'b, 'a>;
+pub trait IntoMatrix {
+    fn into_matrix(self) -> Matrix;
 }
 
-impl<'b, 'a: 'b> IntoMatrix<'b, 'a> for RMatrix<f64> {
+impl IntoMatrix for RMatrix<f64> {
     #[cfg_attr(coverage_nightly, coverage(off))]
-    fn into_matrix(self) -> Matrix<'b, 'a> {
+    fn into_matrix(self) -> Matrix {
         Matrix::R(self)
     }
 }
 
-impl<'b, 'a: 'b> IntoMatrix<'b, 'a> for RMatrix<i32> {
+impl IntoMatrix for RMatrix<i32> {
     #[cfg_attr(coverage_nightly, coverage(off))]
-    fn into_matrix(self) -> Matrix<'b, 'a> {
+    fn into_matrix(self) -> Matrix {
         Matrix::from_robj(self.into_robj()).unwrap()
     }
 }
 
-impl<'b, 'a: 'b> IntoMatrix<'b, 'a> for OwnedMatrix {
+impl IntoMatrix for OwnedMatrix {
     #[cfg_attr(coverage_nightly, coverage(off))]
-    fn into_matrix(self) -> Matrix<'b, 'a> {
+    fn into_matrix(self) -> Matrix {
         Matrix::Owned(self)
     }
 }
 
-impl<'b, 'a: 'b> IntoMatrix<'b, 'a> for File {
+impl IntoMatrix for File {
     #[cfg_attr(coverage_nightly, coverage(off))]
-    fn into_matrix(self) -> Matrix<'b, 'a> {
+    fn into_matrix(self) -> Matrix {
         Matrix::File(self)
     }
 }
 
-pub trait TryIntoMatrix<'b, 'a> {
-    type Err;
-
-    fn try_into_matrix(self) -> Result<Matrix<'b, 'a>, Self::Err>;
+impl IntoMatrix for MatRef<'_, f64> {
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    fn into_matrix(self) -> Matrix {
+        Matrix::from_mat_ref(self)
+    }
 }
 
-impl<'b, 'a> TryIntoMatrix<'b, 'a> for Robj {
+impl IntoMatrix for MatMut<'_, f64> {
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    fn into_matrix(self) -> Matrix {
+        Matrix::from_mat_ref(self.as_ref())
+    }
+}
+
+impl IntoMatrix for Mat<f64> {
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    fn into_matrix(self) -> Matrix {
+        Matrix::from_mat_ref(self.as_ref())
+    }
+}
+
+pub trait TryIntoMatrix {
+    type Err;
+
+    fn try_into_matrix(self) -> Result<Matrix, Self::Err>;
+}
+
+impl TryIntoMatrix for Robj {
     type Err = crate::Error;
 
     #[cfg_attr(coverage_nightly, coverage(off))]
-    fn try_into_matrix(self) -> Result<Matrix<'b, 'a>, Self::Err> {
+    fn try_into_matrix(self) -> Result<Matrix, Self::Err> {
         Matrix::from_robj(self)
     }
 }
 
-impl<'b, 'a: 'b> TryIntoMatrix<'b, 'a> for &str {
+impl TryIntoMatrix for &str {
     type Err = crate::Error;
 
     #[cfg_attr(coverage_nightly, coverage(off))]
-    fn try_into_matrix(self) -> Result<Matrix<'b, 'a>, Self::Err> {
+    fn try_into_matrix(self) -> Result<Matrix, Self::Err> {
         Ok(Matrix::File(self.parse()?))
     }
 }
 
-impl<'b, 'a: 'b, T> TryIntoMatrix<'b, 'a> for T
+impl<T> TryIntoMatrix for T
 where
-    T: IntoMatrix<'b, 'a>,
+    T: IntoMatrix,
 {
     type Err = ();
 
     #[cfg_attr(coverage_nightly, coverage(off))]
-    fn try_into_matrix(self) -> Result<Matrix<'b, 'a>, Self::Err> {
+    fn try_into_matrix(self) -> Result<Matrix, Self::Err> {
         Ok(self.into_matrix())
     }
 }
 
-impl<'b, 'a: 'b, T> From<T> for Matrix<'b, 'a>
+impl<T> From<T> for Matrix
 where
-    T: IntoMatrix<'b, 'a>,
+    T: IntoMatrix,
 {
     #[cfg_attr(coverage_nightly, coverage(off))]
     fn from(t: T) -> Self {

@@ -110,9 +110,9 @@ where
 
 // Calculate R^2 and adjusted R^2 for a list of data and outcomes.
 #[tracing::instrument(skip(data, outcomes, data_names))]
-pub fn calculate_r2s<'b, 'a: 'b>(
-    data: Vec<&mut Matrix<'b, 'a>>,
-    outcomes: &mut Matrix<'b, 'a>,
+pub fn calculate_r2s(
+    mut data: Vec<Matrix>,
+    mut outcomes: Matrix,
     data_names: Option<Vec<&str>>,
 ) -> Result<Vec<R2>, crate::Error> {
     outcomes.remove_column_by_name_if_exists("eid");
@@ -173,9 +173,9 @@ pub fn calculate_r2s<'b, 'a: 'b>(
 }
 
 #[tracing::instrument(skip(data, outcomes, data_names))]
-pub fn column_p_values<'b, 'a: 'b>(
-    data: Vec<&mut Matrix<'b, 'a>>,
-    outcomes: &mut Matrix<'b, 'a>,
+pub fn column_p_values(
+    mut data: Vec<Matrix>,
+    mut outcomes: Matrix,
     data_names: Option<Vec<&str>>,
 ) -> Result<Vec<PValue>, crate::Error> {
     outcomes.remove_column_by_name_if_exists("eid");
@@ -267,7 +267,7 @@ mod tests {
             vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
             None,
         ));
-        let results = calculate_r2s(vec![&mut m1, &mut m2], &mut m3, None).unwrap();
+        let results = calculate_r2s(vec![m1, m2], m3, None).unwrap();
         assert_eq!(results.len(), 6);
     }
 
@@ -291,7 +291,7 @@ mod tests {
             vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
             Some(vec!["g".to_string(), "h".to_string(), "i".to_string()]),
         ));
-        let results = calculate_r2s(vec![&mut m1, &mut m2], &mut m3, Some(vec!["j", "k"])).unwrap();
+        let results = calculate_r2s(vec![m1, m2], m3, Some(vec!["j", "k"])).unwrap();
         assert_eq!(results.len(), 6);
     }
 
@@ -315,7 +315,7 @@ mod tests {
             vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
             None,
         ));
-        let results = column_p_values(vec![&mut m1, &mut m2], &mut m3, None).unwrap();
+        let results = column_p_values(vec![m1, m2], m3, None).unwrap();
         assert_eq!(results.len(), 18);
     }
 
@@ -339,8 +339,7 @@ mod tests {
             vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
             Some(vec!["g".to_string(), "h".to_string(), "i".to_string()]),
         ));
-        let results =
-            column_p_values(vec![&mut m1, &mut m2], &mut m3, Some(vec!["j", "k"])).unwrap();
+        let results = column_p_values(vec![m1, m2], m3, Some(vec!["j", "k"])).unwrap();
         assert_eq!(results.len(), 18);
     }
 }
