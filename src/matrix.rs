@@ -271,7 +271,7 @@ impl Matrix {
                 Ok(Matrix::Owned(OwnedMatrix::new(
                     nrows,
                     ncols,
-                    data.into_iter().flat_map(|x| x).collect(),
+                    data.concat(),
                     Some(names.into_iter().map(|x| x.to_string()).collect()),
                 )))
             } else {
