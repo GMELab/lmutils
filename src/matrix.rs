@@ -229,10 +229,51 @@ impl Matrix {
             {
                 use extendr_api::prelude::*;
 
-                return Ok(single_threaded(|| {
-                    extendr_api::R!("as.matrix(sapply({{r}}, as.double))")
-                        .map(|x| x.as_matrix::<f64>().unwrap().into_matrix())
-                })?);
+                let df = r.as_list().expect("data is a list");
+                struct Par(pub Robj);
+                unsafe impl Send for Par {}
+                let mut names = df.iter().map(|(n, r)| (n, Par(r))).collect::<Vec<_>>();
+                let (names, data) = names.into_iter().unzip::<_, _, Vec<_>, Vec<_>>();
+                let data = data
+                    .into_par_iter()
+                    .map(|Par(r)| {
+                        if r.is_string() {
+                            Ok(r.as_str_iter()
+                                .unwrap()
+                                .map(|x| x.parse::<f64>())
+                                .collect::<std::result::Result<Vec<_>, _>>()?)
+                        } else if r.is_integer() {
+                            Ok(r.as_integer_slice()
+                                .unwrap()
+                                .iter()
+                                .map(|x| *x as f64)
+                                .collect())
+                        } else if r.is_real() {
+                            Ok(r.as_real_vector().unwrap().to_vec())
+                        } else if r.is_logical() {
+                            Ok(r.as_logical_slice()
+                                .unwrap()
+                                .iter()
+                                .map(|x| x.inner() as f64)
+                                .collect())
+                        } else {
+                            Err(crate::Error::InvalidItemType)
+                        }
+                    })
+                    .collect::<std::result::Result<Vec<_>, crate::Error>>()?;
+                let ncols = data.len();
+                let nrows = data[0].len();
+                for i in data.iter().skip(1) {
+                    if i.len() != nrows {
+                        return Err(crate::Error::UnequalColumnLengths);
+                    }
+                }
+                Ok(Matrix::Owned(OwnedMatrix::new(
+                    nrows,
+                    ncols,
+                    data.into_iter().flat_map(|x| x).collect(),
+                    Some(names.into_iter().map(|x| x.to_string()).collect()),
+                )))
             } else {
                 Err(crate::Error::InvalidItemType)
             }

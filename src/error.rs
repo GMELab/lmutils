@@ -42,6 +42,8 @@ pub enum Error {
     InvalidItemType,
     #[error("invalid rdata file")]
     InvalidRdataFile,
+    #[error("unequal column lengths")]
+    UnequalColumnLengths,
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
     #[error("csv error: {0}")]
