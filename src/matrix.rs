@@ -1,6 +1,6 @@
 use core::panic;
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     mem::MaybeUninit,
     ops::{Deref, DerefMut},
     str::FromStr,

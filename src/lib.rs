@@ -132,6 +132,10 @@ pub fn calculate_r2s(
     // let ndata = data.lock().unwrap().len();
     // let mut results: Vec<MaybeUninit<R2>> = Vec::with_capacity(or.ncols() * ndata);
     // results.extend((0..(or.ncols() * ndata)).map(|_| MaybeUninit::uninit()));
+    let data_names = match data_names {
+        Some(data_names) if data_names.iter().all(|x| *x == "NA") => None,
+        x => x,
+    };
     let results = core_parallelize(data, Some(or.ncols()), |i, mat| {
         info!(
             "Calculating R^2 for data set {}",
