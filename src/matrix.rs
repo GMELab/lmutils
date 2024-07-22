@@ -1532,6 +1532,22 @@ impl Matrix {
             Some(unsafe { *self.as_mat_ref_loaded().get_unchecked(row, col) })
         }
     }
+
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn column_index(&mut self, name: &str) -> Result<usize, crate::Error> {
+        let colnames = self.colnames()?;
+        if colnames.is_none() {
+            return Err(crate::Error::MissingColumnNames);
+        }
+        let idx = colnames
+            .expect("colnames should be present")
+            .iter()
+            .position(|x| *x == name);
+        match idx {
+            Some(i) => Ok(i),
+            None => Err(crate::Error::ColumnNameNotFound(name.to_string())),
+        }
+    }
 }
 
 impl FromStr for Matrix {
