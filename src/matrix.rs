@@ -1387,6 +1387,66 @@ impl Matrix {
     }
 
     #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn t_rename_column(&mut self, old: &str, new: &str) -> &mut Self {
+        let old = old.to_string();
+        let new = new.to_string();
+        self.transform(move |m| m.rename_column(&old, &new))
+    }
+
+    #[tracing::instrument(skip(self))]
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn rename_column(&mut self, old: &str, new: &str) -> Result<&mut Self, crate::Error> {
+        let colnames = self.colnames()?;
+        if colnames.is_none() {
+            return Err(crate::Error::MissingColumnNames);
+        }
+        let idx = colnames
+            .as_ref()
+            .expect("colnames should be present")
+            .iter()
+            .position(|x| *x == old);
+        if let Some(i) = idx {
+            let mut colnames = colnames
+                .expect("colnames should be present")
+                .into_iter()
+                .map(|x| {
+                    if x == old {
+                        new.to_string()
+                    } else {
+                        x.to_string()
+                    }
+                })
+                .collect::<Vec<_>>();
+            self.into_owned()?;
+            self.as_owned_mut()?.colnames = Some(colnames);
+            Ok(self)
+        } else {
+            Err(crate::Error::ColumnNameNotFound(old.to_string()))
+        }
+    }
+
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn t_rename_column_if_exists(&mut self, old: &str, new: &str) -> &mut Self {
+        let old = old.to_string();
+        let new = new.to_string();
+        self.transform(move |m| m.rename_column_if_exists(&old, &new))
+    }
+
+    #[tracing::instrument(skip(self))]
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn rename_column_if_exists(
+        &mut self,
+        old: &str,
+        new: &str,
+    ) -> Result<&mut Self, crate::Error> {
+        match self.rename_column(old, new) {
+            Ok(_) => Ok(self),
+            Err(crate::Error::ColumnNameNotFound(_) | crate::Error::MissingColumnNames) => Ok(self),
+            Err(e) => Err(e),
+        }
+    }
+
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn nrows(&mut self) -> Result<usize, crate::Error> {
         self.as_mat_ref().map(|x| x.nrows())
     }
