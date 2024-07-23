@@ -172,6 +172,15 @@ impl Matrix {
     }
 
     #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn is_loaded(&self) -> bool {
+        match self {
+            Matrix::R(_) | Matrix::Owned(_) => true,
+            Matrix::File(_) | Matrix::Transform(_, _) => false,
+            Matrix::Dyn(m) => m.is_loaded(),
+        }
+    }
+
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn to_rmatrix(&mut self) -> Result<RMatrix<f64>, crate::Error> {
         Ok(match self {
             Matrix::R(m) => m.clone().into_robj().clone().as_matrix().unwrap(),
@@ -385,6 +394,26 @@ impl Matrix {
             m @ (Matrix::File(_) | Matrix::Transform(_, _)) => m.into_owned()?.colnames()?,
             Matrix::Dyn(_) => None,
         })
+    }
+
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn colnames_loaded(&self) -> Option<Vec<&str>> {
+        match self {
+            Matrix::R(m) => m.dimnames().and_then(|mut dimnames| {
+                dimnames
+                    .nth(1)
+                    .unwrap()
+                    .as_str_iter()
+                    .map(|x| x.collect::<Vec<_>>())
+            }),
+            Matrix::Owned(m) => m
+                .colnames
+                .as_deref()
+                .map(|x| x.iter().map(|x| x.as_str()).collect()),
+            Matrix::File(_) => None,
+            Matrix::Dyn(_) => None,
+            Matrix::Transform(_, _) => None,
+        }
     }
 
     #[cfg_attr(coverage_nightly, coverage(off))]
@@ -1547,6 +1576,21 @@ impl Matrix {
             Some(i) => Ok(i),
             None => Err(crate::Error::ColumnNameNotFound(name.to_string())),
         }
+    }
+
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn has_column(&mut self, name: &str) -> Result<bool, crate::Error> {
+        self.column_index(name).map(|_| true).or_else(|e| match e {
+            crate::Error::ColumnNameNotFound(_) => Ok(false),
+            e => Err(e),
+        })
+    }
+
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn has_column_loaded(&self, name: &str) -> bool {
+        self.colnames_loaded()
+            .map(|x| x.iter().any(|x| *x == name))
+            .unwrap_or(false)
     }
 }
 

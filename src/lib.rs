@@ -145,9 +145,14 @@ pub fn calculate_r2s(
                 (i + 1).to_string()
             }
         );
-        mat.remove_column_by_name_if_exists("eid").unwrap();
-        mat.remove_column_by_name_if_exists("IID").unwrap();
-        let r = mat.as_mat_ref().unwrap();
+        if !mat.is_loaded() {
+            mat.into_owned().unwrap();
+        }
+        if mat.has_column_loaded("eid") || mat.has_column_loaded("IID") {
+            mat.remove_column_by_name_if_exists("eid").unwrap();
+            mat.remove_column_by_name_if_exists("IID").unwrap();
+        }
+        let r = mat.as_mat_ref_loaded();
         let r2s = get_r2s(r, or)
             .into_iter()
             .enumerate()
@@ -199,7 +204,7 @@ pub fn column_p_values(
     // let ndata = or.nrows();
     // let mut results: Vec<MaybeUninit<PValue>> = Vec::with_capacity(or.ncols() * ndata);
     // results.extend((0..(or.ncols() * ndata)).map(|_| MaybeUninit::uninit()));
-    let results = core_parallelize(data, None, |i, data| {
+    let results = core_parallelize(data, None, |i, mat| {
         info!(
             "Calculating p-values for data set {}",
             if let Some(data_names) = &data_names {
@@ -208,10 +213,14 @@ pub fn column_p_values(
                 (i + 1).to_string()
             }
         );
-        let mut mat = data.into_owned().unwrap();
-        mat.remove_column_by_name_if_exists("eid").unwrap();
-        mat.remove_column_by_name_if_exists("IID").unwrap();
-        let data = mat.as_mat_ref().unwrap();
+        if !mat.is_loaded() {
+            mat.into_owned().unwrap();
+        }
+        if mat.has_column_loaded("eid") || mat.has_column_loaded("IID") {
+            mat.remove_column_by_name_if_exists("eid").unwrap();
+            mat.remove_column_by_name_if_exists("IID").unwrap();
+        }
+        let data = mat.as_mat_ref_loaded();
         let p_values = (0..data.ncols())
             .into_par_iter()
             .flat_map(|x| {
