@@ -373,6 +373,10 @@ impl Matrix {
                 *self = f.read()?;
                 Ok(self)
             },
+            Matrix::Transform(_, _) => {
+                self.into_owned()?;
+                Ok(self)
+            },
             _ => Ok(self),
         }
     }
@@ -1038,7 +1042,7 @@ impl Matrix {
         self.transform(move |m| m.match_to_by_column_name(&other, &col, join))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self, other))]
     pub fn match_to_by_column_name(
         &mut self,
         other: &[f64],
@@ -1473,6 +1477,27 @@ impl Matrix {
             Err(crate::Error::ColumnNameNotFound(_) | crate::Error::MissingColumnNames) => Ok(self),
             Err(e) => Err(e),
         }
+    }
+
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn t_remove_identical_columns(&mut self) -> &mut Self {
+        self.transform(move |m| m.remove_identical_columns())
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn remove_identical_columns(&mut self) -> Result<&mut Self, crate::Error> {
+        self.load()?;
+        let ncols = self.ncols()?;
+        let cols = (0..ncols)
+            .into_par_iter()
+            .map(|x| self.col_loaded(x))
+            .collect::<Vec<_>>();
+        let cols = (0..ncols)
+            .into_par_iter()
+            .flat_map(|i| ((i + 1)..ncols).into_par_iter().map(move |j| (i, j)))
+            .filter_map(|(i, j)| if cols[i] == cols[j] { Some(j) } else { None })
+            .collect::<HashSet<_>>();
+        self.remove_columns(&cols)
     }
 
     #[cfg_attr(coverage_nightly, coverage(off))]
@@ -2972,6 +2997,25 @@ mod tests {
         let m = m.t_max_row_sum(7.0);
         assert_eq!(m.data().unwrap(), &[1.0, 2.0, 4.0, 5.0]);
         assert_eq!(m.nrows().unwrap(), 2);
+        assert_eq!(m.ncols().unwrap(), 2);
+        assert_eq!(
+            m.colnames().unwrap().unwrap(),
+            &["a".to_string(), "b".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_remove_identical_columns() {
+        let mut m = OwnedMatrix::new(
+            3,
+            3,
+            vec![1.0, 2.0, 1.0, 4.0, 5.0, 6.0, 1.0, 2.0, 1.0],
+            Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]),
+        )
+        .into_matrix();
+        let m = m.t_remove_identical_columns();
+        assert_eq!(m.data().unwrap(), &[1.0, 2.0, 1.0, 4.0, 5.0, 6.0]);
+        assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 2);
         assert_eq!(
             m.colnames().unwrap().unwrap(),
