@@ -242,7 +242,11 @@ pub fn mean<E: ComplexField + SimpleEntity>(x: &[E]) -> E {
         faer::mat::from_column_major_slice(x, x.len(), 1).as_ref(),
         faer::stats::NanHandling::Ignore,
     );
-    mean
+    if mean.faer_is_nan() {
+        E::faer_zero()
+    } else {
+        mean
+    }
 }
 
 pub fn standardize_column(mut x: ColMut<f64>) {

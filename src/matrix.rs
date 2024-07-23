@@ -626,7 +626,7 @@ impl Matrix {
         self.add_transformation(move |m| m.remove_rows(&removing))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self, removing))]
     pub fn remove_rows(&mut self, removing: &HashSet<usize>) -> Result<&mut Self, crate::Error> {
         if removing.is_empty() {
             return Ok(self);
@@ -676,7 +676,7 @@ impl Matrix {
         self.add_transformation(move |m| m.remove_columns(&removing))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self, removing))]
     pub fn remove_columns(&mut self, removing: &HashSet<usize>) -> Result<&mut Self, crate::Error> {
         if removing.is_empty() {
             return Ok(self);
@@ -845,7 +845,7 @@ impl Matrix {
         self.add_transformation(move |m| m.sort_by_order(&order))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self, order))]
     pub fn sort_by_order(&mut self, order: &[usize]) -> Result<&mut Self, crate::Error> {
         if order.len() != self.nrows()? {
             return Err(crate::Error::OrderLengthMismatch(order.len()));
@@ -2880,6 +2880,16 @@ mod tests {
             m.colnames().unwrap().unwrap(),
             &["a".to_string(), "b".to_string()]
         );
+    }
+
+    #[test]
+    fn test_nan_to_column_mean_all_nan() {
+        let mut m = OwnedMatrix::new(3, 2, vec![f64::NAN; 6], None).into_matrix();
+        let m = m.t_nan_to_column_mean();
+        assert_eq!(m.data().unwrap(), &[0.0; 6]);
+        assert_eq!(m.nrows().unwrap(), 3);
+        assert_eq!(m.ncols().unwrap(), 2);
+        assert!(m.colnames().unwrap().is_none());
     }
 
     #[test]
