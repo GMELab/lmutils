@@ -446,7 +446,7 @@ impl Matrix {
         ))
     }
 
-    fn transform(&mut self) -> Result<&mut Self, crate::Error> {
+    pub fn transform(&mut self) -> Result<&mut Self, crate::Error> {
         if let Matrix::Transform(fns, mat) = self {
             let slf = std::mem::replace(self, Matrix::Owned(OwnedMatrix::new(0, 0, vec![], None)));
             if let Matrix::Transform(fns, mat) = slf {
