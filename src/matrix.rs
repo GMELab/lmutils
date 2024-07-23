@@ -350,18 +350,7 @@ impl Matrix {
                 m.into_owned()?;
                 Ok(self)
             },
-            m @ Matrix::Transform(_, _) => {
-                let slf = std::mem::replace(m, Matrix::Owned(OwnedMatrix::new(0, 0, vec![], None)));
-                if let Matrix::Transform(fns, mat) = slf {
-                    let mut mat = *mat;
-                    debug!("{:?}", mat);
-                    for f in fns {
-                        f(&mut mat)?;
-                    }
-                    *m = mat;
-                }
-                Ok(m)
-            },
+            Matrix::Transform(_, _) => self.transform(),
         }
     }
 
@@ -457,7 +446,22 @@ impl Matrix {
         ))
     }
 
-    fn transform(
+    fn transform(&mut self) -> Result<&mut Self, crate::Error> {
+        if let Matrix::Transform(fns, mat) = self {
+            let slf = std::mem::replace(self, Matrix::Owned(OwnedMatrix::new(0, 0, vec![], None)));
+            if let Matrix::Transform(fns, mat) = slf {
+                let mut mat = *mat;
+                debug!("{:?}", mat);
+                for f in fns {
+                    f(&mut mat)?;
+                }
+                *self = mat;
+            }
+        }
+        Ok(self)
+    }
+
+    fn add_transformation(
         &mut self,
         f: impl for<'a> FnOnce(&'a mut Matrix) -> Result<&'a mut Matrix, Error> + 'static,
     ) -> &mut Self {
@@ -467,14 +471,14 @@ impl Matrix {
                 let m =
                     std::mem::replace(self, Matrix::Owned(OwnedMatrix::new(0, 0, vec![], None)));
                 *self = Matrix::Transform(vec![], Box::new(m));
-                self.transform(f);
+                self.add_transformation(f);
             },
         }
         self
     }
 
     pub fn t_combine_columns(&mut self, mut others: Vec<Self>) -> &mut Self {
-        self.transform(move |m| m.combine_columns(others.as_mut_slice()))
+        self.add_transformation(move |m| m.combine_columns(others.as_mut_slice()))
     }
 
     #[tracing::instrument(skip(self, others))]
@@ -553,7 +557,7 @@ impl Matrix {
     }
 
     pub fn t_combine_rows(&mut self, mut others: Vec<Self>) -> &mut Self {
-        self.transform(move |m| m.combine_rows(others.as_mut_slice()))
+        self.add_transformation(move |m| m.combine_rows(others.as_mut_slice()))
     }
 
     #[tracing::instrument(skip(self, others))]
@@ -619,7 +623,7 @@ impl Matrix {
     }
 
     pub fn t_remove_rows(&mut self, removing: HashSet<usize>) -> &mut Self {
-        self.transform(move |m| m.remove_rows(&removing))
+        self.add_transformation(move |m| m.remove_rows(&removing))
     }
 
     #[tracing::instrument(skip(self))]
@@ -669,7 +673,7 @@ impl Matrix {
     }
 
     pub fn t_remove_columns(&mut self, removing: HashSet<usize>) -> &mut Self {
-        self.transform(move |m| m.remove_columns(&removing))
+        self.add_transformation(move |m| m.remove_columns(&removing))
     }
 
     #[tracing::instrument(skip(self))]
@@ -725,7 +729,7 @@ impl Matrix {
 
     pub fn t_remove_column_by_name(&mut self, name: &str) -> &mut Self {
         let name = name.to_string();
-        self.transform(move |m| m.remove_column_by_name(&name))
+        self.add_transformation(move |m| m.remove_column_by_name(&name))
     }
 
     #[tracing::instrument(skip(self))]
@@ -748,7 +752,7 @@ impl Matrix {
 
     pub fn t_remove_column_by_name_if_exists(&mut self, name: &str) -> &mut Self {
         let name = name.to_string();
-        self.transform(move |m| m.remove_column_by_name_if_exists(&name))
+        self.add_transformation(move |m| m.remove_column_by_name_if_exists(&name))
     }
 
     #[tracing::instrument(skip(self))]
@@ -764,7 +768,7 @@ impl Matrix {
     }
 
     pub fn t_transpose(&mut self) -> &mut Self {
-        self.transform(|m| m.transpose())
+        self.add_transformation(|m| m.transpose())
     }
 
     #[tracing::instrument(skip(self))]
@@ -794,7 +798,7 @@ impl Matrix {
     }
 
     pub fn t_sort_by_column(&mut self, by: usize) -> &mut Self {
-        self.transform(move |m| m.sort_by_column(by))
+        self.add_transformation(move |m| m.sort_by_column(by))
     }
 
     #[tracing::instrument(skip(self))]
@@ -816,7 +820,7 @@ impl Matrix {
 
     pub fn t_sort_by_column_name(&mut self, by: &str) -> &mut Self {
         let by = by.to_string();
-        self.transform(move |m| m.sort_by_column_name(&by))
+        self.add_transformation(move |m| m.sort_by_column_name(&by))
     }
 
     #[tracing::instrument(skip(self))]
@@ -838,7 +842,7 @@ impl Matrix {
     }
 
     pub fn t_sort_by_order(&mut self, order: Vec<usize>) -> &mut Self {
-        self.transform(move |m| m.sort_by_order(&order))
+        self.add_transformation(move |m| m.sort_by_order(&order))
     }
 
     #[tracing::instrument(skip(self))]
@@ -881,7 +885,7 @@ impl Matrix {
     }
 
     pub fn t_dedup_by_column(&mut self, by: usize) -> &mut Self {
-        self.transform(move |m| m.dedup_by_column(by))
+        self.add_transformation(move |m| m.dedup_by_column(by))
     }
 
     #[tracing::instrument(skip(self))]
@@ -907,7 +911,7 @@ impl Matrix {
 
     pub fn t_dedup_by_column_name(&mut self, by: &str) -> &mut Self {
         let by = by.to_string();
-        self.transform(move |m| m.dedup_by_column_name(&by))
+        self.add_transformation(move |m| m.dedup_by_column_name(&by))
     }
 
     #[tracing::instrument(skip(self))]
@@ -929,7 +933,7 @@ impl Matrix {
     }
 
     pub fn t_match_to(&mut self, with: Vec<f64>, by: usize, join: Join) -> &mut Self {
-        self.transform(move |m| m.match_to(&with, by, join))
+        self.add_transformation(move |m| m.match_to(&with, by, join))
     }
 
     #[tracing::instrument(skip(self, with))]
@@ -1023,7 +1027,7 @@ impl Matrix {
         join: Join,
     ) -> &mut Self {
         let col = col.to_string();
-        self.transform(move |m| m.match_to_by_column_name(&other, &col, join))
+        self.add_transformation(move |m| m.match_to_by_column_name(&other, &col, join))
     }
 
     #[tracing::instrument(skip(self, other))]
@@ -1056,7 +1060,7 @@ impl Matrix {
         other_by: usize,
         join: Join,
     ) -> &mut Self {
-        self.transform(move |m| m.join(&mut other, self_by, other_by, join))
+        self.add_transformation(move |m| m.join(&mut other, self_by, other_by, join))
     }
 
     #[tracing::instrument(skip(self, other))]
@@ -1189,7 +1193,7 @@ impl Matrix {
 
     pub fn t_join_by_column_name(&mut self, mut other: Matrix, by: &str, join: Join) -> &mut Self {
         let by = by.to_string();
-        self.transform(move |m| m.join_by_column_name(&mut other, &by, join))
+        self.add_transformation(move |m| m.join_by_column_name(&mut other, &by, join))
     }
 
     #[tracing::instrument(skip(self, other))]
@@ -1221,7 +1225,7 @@ impl Matrix {
     }
 
     pub fn t_standardize_columns(&mut self) -> &mut Self {
-        self.transform(|m| m.standardize_columns())
+        self.add_transformation(|m| m.standardize_columns())
     }
 
     #[tracing::instrument(skip(self))]
@@ -1235,7 +1239,7 @@ impl Matrix {
     }
 
     pub fn t_standardize_rows(&mut self) -> &mut Self {
-        self.transform(|m| m.standardize_rows())
+        self.add_transformation(|m| m.standardize_rows())
     }
 
     #[tracing::instrument(skip(self))]
@@ -1249,7 +1253,7 @@ impl Matrix {
     }
 
     pub fn t_remove_nan_rows(&mut self) -> &mut Self {
-        self.transform(|m| m.remove_nan_rows())
+        self.add_transformation(|m| m.remove_nan_rows())
     }
 
     #[tracing::instrument(skip(self))]
@@ -1266,7 +1270,7 @@ impl Matrix {
     }
 
     pub fn t_remove_nan_columns(&mut self) -> &mut Self {
-        self.transform(|m| m.remove_nan_columns())
+        self.add_transformation(|m| m.remove_nan_columns())
     }
 
     #[tracing::instrument(skip(self))]
@@ -1283,7 +1287,7 @@ impl Matrix {
     }
 
     pub fn t_nan_to_value(&mut self, val: f64) -> &mut Self {
-        self.transform(move |m| m.nan_to_value(val))
+        self.add_transformation(move |m| m.nan_to_value(val))
     }
 
     #[tracing::instrument(skip(self))]
@@ -1299,7 +1303,7 @@ impl Matrix {
     }
 
     pub fn t_nan_to_column_mean(&mut self) -> &mut Self {
-        self.transform(move |m| m.nan_to_column_mean())
+        self.add_transformation(move |m| m.nan_to_column_mean())
     }
 
     #[tracing::instrument(skip(self))]
@@ -1317,7 +1321,7 @@ impl Matrix {
     }
 
     pub fn t_nan_to_row_mean(&mut self) -> &mut Self {
-        self.transform(move |m| m.nan_to_row_mean())
+        self.add_transformation(move |m| m.nan_to_row_mean())
     }
 
     #[tracing::instrument(skip(self))]
@@ -1340,7 +1344,7 @@ impl Matrix {
     }
 
     pub fn t_min_column_sum(&mut self, sum: f64) -> &mut Self {
-        self.transform(move |m| m.min_column_sum(sum))
+        self.add_transformation(move |m| m.min_column_sum(sum))
     }
 
     #[tracing::instrument(skip(self))]
@@ -1356,7 +1360,7 @@ impl Matrix {
     }
 
     pub fn t_max_column_sum(&mut self, sum: f64) -> &mut Self {
-        self.transform(move |m| m.max_column_sum(sum))
+        self.add_transformation(move |m| m.max_column_sum(sum))
     }
 
     #[tracing::instrument(skip(self))]
@@ -1372,7 +1376,7 @@ impl Matrix {
     }
 
     pub fn t_min_row_sum(&mut self, sum: f64) -> &mut Self {
-        self.transform(move |m| m.min_row_sum(sum))
+        self.add_transformation(move |m| m.min_row_sum(sum))
     }
 
     #[tracing::instrument(skip(self))]
@@ -1388,7 +1392,7 @@ impl Matrix {
     }
 
     pub fn t_max_row_sum(&mut self, sum: f64) -> &mut Self {
-        self.transform(move |m| m.max_row_sum(sum))
+        self.add_transformation(move |m| m.max_row_sum(sum))
     }
 
     #[tracing::instrument(skip(self))]
@@ -1407,7 +1411,7 @@ impl Matrix {
     pub fn t_rename_column(&mut self, old: &str, new: &str) -> &mut Self {
         let old = old.to_string();
         let new = new.to_string();
-        self.transform(move |m| m.rename_column(&old, &new))
+        self.add_transformation(move |m| m.rename_column(&old, &new))
     }
 
     #[tracing::instrument(skip(self))]
@@ -1446,7 +1450,7 @@ impl Matrix {
     pub fn t_rename_column_if_exists(&mut self, old: &str, new: &str) -> &mut Self {
         let old = old.to_string();
         let new = new.to_string();
-        self.transform(move |m| m.rename_column_if_exists(&old, &new))
+        self.add_transformation(move |m| m.rename_column_if_exists(&old, &new))
     }
 
     #[tracing::instrument(skip(self))]
@@ -1465,7 +1469,7 @@ impl Matrix {
 
     #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn t_remove_identical_columns(&mut self) -> &mut Self {
-        self.transform(move |m| m.remove_identical_columns())
+        self.add_transformation(move |m| m.remove_identical_columns())
     }
 
     #[tracing::instrument(skip(self))]
