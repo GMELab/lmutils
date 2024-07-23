@@ -1648,6 +1648,12 @@ impl OwnedMatrix {
             colnames,
         }
     }
+
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    #[doc(hidden)]
+    pub fn into_data(self) -> Vec<f64> {
+        self.data
+    }
 }
 
 pub trait IntoMatrix {
