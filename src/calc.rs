@@ -97,13 +97,16 @@ pub fn get_r2s(data: MatRef<f64>, outcomes: MatRef<f64>) -> Vec<R2> {
     let r2s = (0..outcomes.ncols())
         .into_par_iter()
         .map(|i| {
-            let predicted = data * betas.get(.., i);
+            let mut predicted = (data * betas.get(.., i)).as_slice().to_vec();
             let r2 = variance(predicted.as_slice());
             let adj_r2 = 1.0 - (1.0 - r2) * (n as f64 - 1.0) / (n as f64 - m as f64 - 1.0);
+            if std::env::var("LMUTILS_DISABLE_PREDICTED").is_ok() {
+                predicted = Vec::new();
+            }
             R2 {
                 r2,
                 adj_r2,
-                predicted: predicted.as_slice().to_vec(),
+                predicted,
                 outcome: None,
                 data: None,
                 n: n as u32,
