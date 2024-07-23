@@ -1604,6 +1604,12 @@ impl Matrix {
             .map(|x| x.iter().any(|x| *x == name))
             .unwrap_or(false)
     }
+
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn column_by_name(&mut self, name: &str) -> Result<Option<&[f64]>, crate::Error> {
+        let col = self.column_index(name)?;
+        self.col(col)
+    }
 }
 
 impl FromStr for Matrix {
