@@ -365,22 +365,6 @@ impl Matrix {
         }
     }
 
-    #[tracing::instrument(skip(self))]
-    #[cfg_attr(coverage_nightly, coverage(off))]
-    pub fn load(&mut self) -> Result<&mut Self, crate::Error> {
-        match self {
-            Matrix::File(f) => {
-                *self = f.read()?;
-                Ok(self)
-            },
-            Matrix::Transform(_, _) => {
-                self.into_owned()?;
-                Ok(self)
-            },
-            _ => Ok(self),
-        }
-    }
-
     #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn colnames(&mut self) -> Result<Option<Vec<&str>>, crate::Error> {
         Ok(match self {
@@ -1486,7 +1470,6 @@ impl Matrix {
 
     #[tracing::instrument(skip(self))]
     pub fn remove_identical_columns(&mut self) -> Result<&mut Self, crate::Error> {
-        self.load()?;
         let ncols = self.ncols()?;
         let cols = (0..ncols)
             .into_par_iter()
