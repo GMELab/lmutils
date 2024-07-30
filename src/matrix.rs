@@ -1467,13 +1467,12 @@ impl Matrix {
         }
     }
 
-    #[cfg_attr(coverage_nightly, coverage(off))]
-    pub fn t_remove_identical_columns(&mut self) -> &mut Self {
-        self.add_transformation(move |m| m.remove_identical_columns())
+    pub fn t_remove_duplicate_columns(&mut self) -> &mut Self {
+        self.add_transformation(move |m| m.remove_duplicate_columns())
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn remove_identical_columns(&mut self) -> Result<&mut Self, crate::Error> {
+    pub fn remove_duplicate_columns(&mut self) -> Result<&mut Self, crate::Error> {
         let ncols = self.ncols()?;
         let cols = (0..ncols)
             .into_par_iter()
@@ -1483,6 +1482,33 @@ impl Matrix {
             .into_par_iter()
             .flat_map(|i| ((i + 1)..ncols).into_par_iter().map(move |j| (i, j)))
             .filter_map(|(i, j)| if cols[i] == cols[j] { Some(j) } else { None })
+            .collect::<HashSet<_>>();
+        self.remove_columns(&cols)
+    }
+
+    pub fn t_remove_identical_columns(&mut self) -> &mut Self {
+        self.add_transformation(move |m| m.remove_identical_columns())
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn remove_identical_columns(&mut self) -> Result<&mut Self, crate::Error> {
+        let ncols = self.ncols()?;
+        let cols = (0..ncols)
+            .into_par_iter()
+            .map(|x| self.col_loaded(x).unwrap())
+            .collect::<Vec<_>>();
+        let cols = (0..ncols)
+            .into_par_iter()
+            .filter_map(|i| {
+                let col = cols[i];
+                let first = col[0];
+                for i in 1..col.len() {
+                    if col[i] != first {
+                        return None;
+                    }
+                }
+                Some(i)
+            })
             .collect::<HashSet<_>>();
         self.remove_columns(&cols)
     }
@@ -3008,7 +3034,7 @@ mod tests {
     }
 
     #[test]
-    fn test_remove_identical_columns() {
+    fn test_remove_duplicate_columns() {
         let mut m = OwnedMatrix::new(
             3,
             3,
@@ -3016,13 +3042,32 @@ mod tests {
             Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]),
         )
         .into_matrix();
-        let m = m.t_remove_identical_columns();
+        let m = m.t_remove_duplicate_columns();
         assert_eq!(m.data().unwrap(), &[1.0, 2.0, 1.0, 4.0, 5.0, 6.0]);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 2);
         assert_eq!(
             m.colnames().unwrap().unwrap(),
             &["a".to_string(), "b".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_remove_identical_columns() {
+        let mut m = OwnedMatrix::new(
+            3,
+            3,
+            vec![1.0, 1.0, 1.0, 4.0, 5.0, 6.0, 1.0, 2.0, 1.0],
+            Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]),
+        )
+        .into_matrix();
+        let m = m.t_remove_identical_columns();
+        assert_eq!(m.data().unwrap(), &[4.0, 5.0, 6.0, 1.0, 2.0, 1.0]);
+        assert_eq!(m.nrows().unwrap(), 3);
+        assert_eq!(m.ncols().unwrap(), 2);
+        assert_eq!(
+            m.colnames().unwrap().unwrap(),
+            &["b".to_string(), "c".to_string()]
         );
     }
 }
