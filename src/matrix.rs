@@ -6,21 +6,34 @@ use std::{
     str::FromStr,
 };
 
-use crate::{file::File, mean, standardize_column, standardize_row, Error};
 use extendr_api::{
-    io::Load, scalar::Scalar, single_threaded, wrapper, AsStrIter, Attributes, Conversions,
-    FromRobj, IntoRobj, MatrixConversions, RMatrix, Rinternals, Robj, Rtype,
+    io::Load,
+    scalar::Scalar,
+    single_threaded,
+    wrapper,
+    AsStrIter,
+    Attributes,
+    Conversions,
+    FromRobj,
+    IntoRobj,
+    MatrixConversions,
+    RMatrix,
+    Rinternals,
+    Robj,
+    Rtype,
 };
 use faer::{linalg::qr, Mat, MatMut, MatRef};
 use rayon::prelude::*;
 use tracing::{debug, error, info, trace};
+
+use crate::{file::File, mean, standardize_column, standardize_row, Error};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Join {
     /// Inner join, only rows that are present in both matrices are kept
     Inner = 0,
     /// Left join, all rows from the left matrix must be matched
-    Left = 1,
+    Left  = 1,
     /// Right join, all rows from the right matrix must be matched
     Right = 2,
 }
@@ -103,7 +116,8 @@ impl std::fmt::Debug for Matrix {
     }
 }
 
-// SAFETY: This is always safe except when calling into R, for example by loading an .RData file
+// SAFETY: This is always safe except when calling into R, for example by
+// loading an .RData file
 unsafe impl Send for Matrix {}
 unsafe impl Sync for Matrix {}
 
@@ -111,7 +125,7 @@ impl Matrix {
     #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn as_mat_ref(&mut self) -> Result<MatRef<'_, f64>, crate::Error> {
         Ok(match self {
-            m @ (Matrix::File(_) | Matrix::Transform(_, _)) => m.into_owned()?,
+            m @ (Matrix::File(_) | Matrix::Transform(..)) => m.into_owned()?,
             m => m,
         }
         .as_mat_ref_loaded())
@@ -126,7 +140,7 @@ impl Matrix {
             },
             Matrix::File(_) => panic!("cannot call this function on a file"),
             Matrix::Dyn(m) => m.as_mat_ref_loaded(),
-            Matrix::Transform(_, _) => panic!("cannot call this function on a transform"),
+            Matrix::Transform(..) => panic!("cannot call this function on a transform"),
         }
     }
 
@@ -146,7 +160,7 @@ impl Matrix {
             Matrix::Owned(m) => {
                 faer::mat::from_column_major_slice_mut(m.data.as_mut(), m.nrows, m.ncols)
             },
-            m @ (Matrix::File(_) | Matrix::Transform(_, _)) => m.into_owned()?.as_mat_mut()?,
+            m @ (Matrix::File(_) | Matrix::Transform(..)) => m.into_owned()?.as_mat_mut()?,
             Matrix::Dyn(m) => m.as_mat_mut()?,
         })
     }
@@ -175,7 +189,7 @@ impl Matrix {
     pub fn is_loaded(&self) -> bool {
         match self {
             Matrix::R(_) | Matrix::Owned(_) => true,
-            Matrix::File(_) | Matrix::Transform(_, _) => false,
+            Matrix::File(_) | Matrix::Transform(..) => false,
             Matrix::Dyn(m) => m.is_loaded(),
         }
     }
@@ -201,7 +215,7 @@ impl Matrix {
                     .unwrap();
                 mat
             },
-            m @ (Matrix::File(_) | Matrix::Transform(_, _)) => m.into_owned()?.to_rmatrix()?,
+            m @ (Matrix::File(_) | Matrix::Transform(..)) => m.into_owned()?.to_rmatrix()?,
             Matrix::Dyn(m) => m.to_rmatrix()?,
         })
     }
@@ -350,25 +364,28 @@ impl Matrix {
                 m.into_owned()?;
                 Ok(self)
             },
-            Matrix::Transform(_, _) => self.transform(),
+            Matrix::Transform(..) => self.transform(),
         }
     }
 
     #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn colnames(&mut self) -> Result<Option<Vec<&str>>, crate::Error> {
         Ok(match self {
-            Matrix::R(m) => m.dimnames().and_then(|mut dimnames| {
-                dimnames
-                    .nth(1)
-                    .unwrap()
-                    .as_str_iter()
-                    .map(|x| x.collect::<Vec<_>>())
-            }),
-            Matrix::Owned(m) => m
-                .colnames
-                .as_deref()
-                .map(|x| x.iter().map(|x| x.as_str()).collect()),
-            m @ (Matrix::File(_) | Matrix::Transform(_, _)) => m.into_owned()?.colnames()?,
+            Matrix::R(m) => {
+                m.dimnames().and_then(|mut dimnames| {
+                    dimnames
+                        .nth(1)
+                        .unwrap()
+                        .as_str_iter()
+                        .map(|x| x.collect::<Vec<_>>())
+                })
+            },
+            Matrix::Owned(m) => {
+                m.colnames
+                    .as_deref()
+                    .map(|x| x.iter().map(|x| x.as_str()).collect())
+            },
+            m @ (Matrix::File(_) | Matrix::Transform(..)) => m.into_owned()?.colnames()?,
             Matrix::Dyn(_) => None,
         })
     }
@@ -376,20 +393,23 @@ impl Matrix {
     #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn colnames_loaded(&self) -> Option<Vec<&str>> {
         match self {
-            Matrix::R(m) => m.dimnames().and_then(|mut dimnames| {
-                dimnames
-                    .nth(1)
-                    .unwrap()
-                    .as_str_iter()
-                    .map(|x| x.collect::<Vec<_>>())
-            }),
-            Matrix::Owned(m) => m
-                .colnames
-                .as_deref()
-                .map(|x| x.iter().map(|x| x.as_str()).collect()),
+            Matrix::R(m) => {
+                m.dimnames().and_then(|mut dimnames| {
+                    dimnames
+                        .nth(1)
+                        .unwrap()
+                        .as_str_iter()
+                        .map(|x| x.collect::<Vec<_>>())
+                })
+            },
+            Matrix::Owned(m) => {
+                m.colnames
+                    .as_deref()
+                    .map(|x| x.iter().map(|x| x.as_str()).collect())
+            },
             Matrix::File(_) => None,
             Matrix::Dyn(_) => None,
-            Matrix::Transform(_, _) => None,
+            Matrix::Transform(..) => None,
         }
     }
 
@@ -451,7 +471,6 @@ impl Matrix {
             let slf = std::mem::replace(self, Matrix::Owned(OwnedMatrix::new(0, 0, vec![], None)));
             if let Matrix::Transform(fns, mat) = slf {
                 let mut mat = *mat;
-                debug!("{:?}", mat);
                 for f in fns {
                     f(&mut mat)?;
                 }
@@ -1542,9 +1561,11 @@ impl Matrix {
     pub fn as_mut_slice(&mut self) -> Result<&mut [f64], crate::Error> {
         match self {
             Matrix::Owned(m) => Ok(&mut m.data),
-            Matrix::R(m) => Ok(unsafe {
-                std::slice::from_raw_parts_mut(m.data().as_ptr().cast_mut(), m.data().len())
-            }),
+            Matrix::R(m) => {
+                Ok(unsafe {
+                    std::slice::from_raw_parts_mut(m.data().as_ptr().cast_mut(), m.data().len())
+                })
+            },
             ref m => self.into_owned()?.as_mut_slice(),
         }
     }
@@ -1618,9 +1639,11 @@ impl Matrix {
 
     #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn has_column(&mut self, name: &str) -> Result<bool, crate::Error> {
-        self.column_index(name).map(|_| true).or_else(|e| match e {
-            crate::Error::ColumnNameNotFound(_) => Ok(false),
-            e => Err(e),
+        self.column_index(name).map(|_| true).or_else(|e| {
+            match e {
+                crate::Error::ColumnNameNotFound(_) => Ok(false),
+                e => Err(e),
+            }
         })
     }
 
@@ -1658,10 +1681,10 @@ impl FromStr for Matrix {
 )]
 #[archive(check_bytes)]
 pub struct OwnedMatrix {
-    pub(crate) nrows: usize,
-    pub(crate) ncols: usize,
+    pub(crate) nrows:    usize,
+    pub(crate) ncols:    usize,
     pub(crate) colnames: Option<Vec<String>>,
-    pub(crate) data: Vec<f64>,
+    pub(crate) data:     Vec<f64>,
 }
 
 impl PartialEq for OwnedMatrix {
@@ -1778,8 +1801,7 @@ impl TryIntoMatrix for &str {
 }
 
 impl<T> TryIntoMatrix for T
-where
-    T: IntoMatrix,
+where T: IntoMatrix
 {
     type Err = ();
 
@@ -1790,8 +1812,7 @@ where
 }
 
 impl<T> From<T> for Matrix
-where
-    T: IntoMatrix,
+where T: IntoMatrix
 {
     #[cfg_attr(coverage_nightly, coverage(off))]
     fn from(t: T) -> Self {
@@ -1801,8 +1822,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use test_log::test;
+
+    use super::*;
 
     #[test]
     fn test_combine_columns_success() {
@@ -1828,24 +1850,18 @@ mod tests {
         )
         .into_matrix();
         let m = m1.t_combine_columns(vec![m2, m3]);
-        assert_eq!(
-            m.data().unwrap(),
-            &[
-                1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
-                16.0, 17.0, 18.0
-            ],
-        );
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &[
-                "a".to_string(),
-                "b".to_string(),
-                "c".to_string(),
-                "d".to_string(),
-                "e".to_string(),
-                "f".to_string()
-            ]
-        );
+        assert_eq!(m.data().unwrap(), &[
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
+            17.0, 18.0
+        ],);
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+            "d".to_string(),
+            "e".to_string(),
+            "f".to_string()
+        ]);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 6);
     }
@@ -1870,10 +1886,9 @@ mod tests {
         let m2 =
             OwnedMatrix::new(3, 2, vec![19.0, 20.0, 21.0, 22.0, 23.0, 24.0], None).into_matrix();
         let m = m1.t_combine_columns(vec![m2]);
-        assert_eq!(
-            m.data().unwrap(),
-            &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0]
-        );
+        assert_eq!(m.data().unwrap(), &[
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0
+        ]);
         assert!(m.colnames().unwrap().is_none());
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 4);
@@ -1903,17 +1918,14 @@ mod tests {
         )
         .into_matrix();
         let m = m1.t_combine_rows(vec![m2, m3]);
-        assert_eq!(
-            m.data().unwrap(),
-            &[
-                1.0, 2.0, 3.0, 7.0, 8.0, 9.0, 13.0, 14.0, 15.0, 4.0, 5.0, 6.0, 10.0, 11.0, 12.0,
-                16.0, 17.0, 18.0
-            ],
-        );
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string()]
-        );
+        assert_eq!(m.data().unwrap(), &[
+            1.0, 2.0, 3.0, 7.0, 8.0, 9.0, 13.0, 14.0, 15.0, 4.0, 5.0, 6.0, 10.0, 11.0, 12.0, 16.0,
+            17.0, 18.0
+        ],);
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string()
+        ]);
         assert_eq!(m.nrows().unwrap(), 9);
         assert_eq!(m.ncols().unwrap(), 2);
     }
@@ -1959,10 +1971,10 @@ mod tests {
         removing.insert(1);
         let m = m.t_remove_rows(removing);
         assert_eq!(m.data().unwrap(), &[1.0, 3.0, 4.0, 6.0]);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string()
+        ]);
         assert_eq!(m.nrows().unwrap(), 2);
         assert_eq!(m.ncols().unwrap(), 2);
     }
@@ -2093,10 +2105,10 @@ mod tests {
         .into_matrix();
         let m = m.t_remove_column_by_name_if_exists("c");
         assert_eq!(m.data().unwrap(), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string()
+        ]);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 2);
     }
@@ -2130,10 +2142,10 @@ mod tests {
         assert_eq!(m.data().unwrap(), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 2);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string()
+        ]);
     }
 
     #[test]
@@ -2149,10 +2161,10 @@ mod tests {
         assert_eq!(m.data().unwrap(), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 2);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string()
+        ]);
     }
 
     #[test]
@@ -2181,10 +2193,10 @@ mod tests {
         assert_eq!(m.data().unwrap(), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 2);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string()
+        ]);
     }
 
     #[test]
@@ -2220,10 +2232,10 @@ mod tests {
         assert_eq!(m.data().unwrap(), &[1.0, 3.0, 2.0, 4.0, 6.0, 5.0]);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 2);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string()
+        ]);
     }
 
     #[test]
@@ -2265,10 +2277,10 @@ mod tests {
         assert_eq!(m.data().unwrap(), &[1.0, 2.0, 4.0, 5.0]);
         assert_eq!(m.nrows().unwrap(), 2);
         assert_eq!(m.ncols().unwrap(), 2);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string()
+        ]);
     }
 
     #[test]
@@ -2297,10 +2309,10 @@ mod tests {
         assert_eq!(m.data().unwrap(), &[1.0, 2.0, 4.0, 5.0]);
         assert_eq!(m.nrows().unwrap(), 2);
         assert_eq!(m.ncols().unwrap(), 2);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string()
+        ]);
     }
 
     #[test]
@@ -2337,10 +2349,10 @@ mod tests {
         assert_eq!(m.data().unwrap(), &[5.0, 1.0, 2.0, 5.0, 1.0, 2.0]);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 2);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string()
+        ]);
     }
 
     #[test]
@@ -2354,16 +2366,15 @@ mod tests {
         .into_matrix();
         let other = vec![5.0, 1.0, 6.0, 2.0, 3.0, 4.0, 5.0, 7.0];
         let m = m1.t_match_to(other, 0, Join::Left);
-        assert_eq!(
-            m.data().unwrap(),
-            &[5.0, 1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 3.0, 4.0],
-        );
+        assert_eq!(m.data().unwrap(), &[
+            5.0, 1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 3.0, 4.0
+        ],);
         assert_eq!(m.nrows().unwrap(), 5);
         assert_eq!(m.ncols().unwrap(), 2);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string()
+        ]);
     }
 
     #[test]
@@ -2380,10 +2391,10 @@ mod tests {
         assert_eq!(m.data().unwrap(), &[5.0, 1.0, 2.0, 5.0, 1.0, 2.0],);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 2);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string()
+        ]);
     }
 
     #[test]
@@ -2400,10 +2411,10 @@ mod tests {
         assert!(m.data().unwrap().is_empty());
         assert_eq!(m.nrows().unwrap(), 0);
         assert_eq!(m.ncols().unwrap(), 2);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string()
+        ]);
     }
 
     #[test]
@@ -2462,10 +2473,10 @@ mod tests {
         assert_eq!(m.data().unwrap(), &[5.0, 1.0, 2.0, 5.0, 1.0, 2.0]);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 2);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string()
+        ]);
     }
 
     #[test]
@@ -2479,16 +2490,15 @@ mod tests {
         .into_matrix();
         let other = vec![5.0, 1.0, 6.0, 2.0, 3.0, 4.0, 5.0, 7.0];
         let m = m1.t_match_to_by_column_name(other, "a", Join::Left);
-        assert_eq!(
-            m.data().unwrap(),
-            &[5.0, 1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 3.0, 4.0],
-        );
+        assert_eq!(m.data().unwrap(), &[
+            5.0, 1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 3.0, 4.0
+        ],);
         assert_eq!(m.nrows().unwrap(), 5);
         assert_eq!(m.ncols().unwrap(), 2);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string()
+        ]);
     }
 
     #[test]
@@ -2505,10 +2515,10 @@ mod tests {
         assert_eq!(m.data().unwrap(), &[5.0, 1.0, 2.0, 5.0, 1.0, 2.0],);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 2);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string()
+        ]);
     }
 
     #[test]
@@ -2525,10 +2535,10 @@ mod tests {
         assert!(m.data().unwrap().is_empty());
         assert_eq!(m.nrows().unwrap(), 0);
         assert_eq!(m.ncols().unwrap(), 2);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string()
+        ]);
     }
 
     #[test]
@@ -2574,16 +2584,16 @@ mod tests {
         )
         .into_matrix();
         let m = m1.t_join(m2, 0, 0, Join::Inner);
-        assert_eq!(
-            m.data().unwrap(),
-            &[6.0, 2.0, 5.0, 6.0, 2.0, 5.0, 3.0, 4.0, 7.0]
-        );
+        assert_eq!(m.data().unwrap(), &[
+            6.0, 2.0, 5.0, 6.0, 2.0, 5.0, 3.0, 4.0, 7.0
+        ]);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 3);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string(), "c".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string()
+        ]);
     }
 
     #[test]
@@ -2605,16 +2615,16 @@ mod tests {
         )
         .into_matrix();
         let m = m1.t_join(m2, 0, 0, Join::Left);
-        assert_eq!(
-            m.data().unwrap(),
-            &[6.0, 2.0, 3.0, 4.0, 5.0, 6.0, 2.0, 3.0, 4.0, 5.0, 6.0, 2.0, 3.0, 4.0, 5.0]
-        );
+        assert_eq!(m.data().unwrap(), &[
+            6.0, 2.0, 3.0, 4.0, 5.0, 6.0, 2.0, 3.0, 4.0, 5.0, 6.0, 2.0, 3.0, 4.0, 5.0
+        ]);
         assert_eq!(m.nrows().unwrap(), 5);
         assert_eq!(m.ncols().unwrap(), 3);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string(), "c".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string()
+        ]);
     }
 
     #[test]
@@ -2634,16 +2644,16 @@ mod tests {
         )
         .into_matrix();
         let m = m1.t_join(m2, 0, 0, Join::Right);
-        assert_eq!(
-            m.data().unwrap(),
-            &[6.0, 2.0, 5.0, 6.0, 2.0, 5.0, 3.0, 4.0, 7.0]
-        );
+        assert_eq!(m.data().unwrap(), &[
+            6.0, 2.0, 5.0, 6.0, 2.0, 5.0, 3.0, 4.0, 7.0
+        ]);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 3);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string(), "c".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string()
+        ]);
     }
 
     #[test]
@@ -2725,16 +2735,16 @@ mod tests {
         )
         .into_matrix();
         let m = m1.t_join_by_column_name(m2, "a", Join::Inner);
-        assert_eq!(
-            m.data().unwrap(),
-            &[6.0, 2.0, 5.0, 6.0, 2.0, 5.0, 3.0, 4.0, 7.0]
-        );
+        assert_eq!(m.data().unwrap(), &[
+            6.0, 2.0, 5.0, 6.0, 2.0, 5.0, 3.0, 4.0, 7.0
+        ]);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 3);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string(), "c".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string()
+        ]);
     }
 
     #[test]
@@ -2756,16 +2766,16 @@ mod tests {
         )
         .into_matrix();
         let m = m1.t_join_by_column_name(m2, "a", Join::Left);
-        assert_eq!(
-            m.data().unwrap(),
-            &[6.0, 2.0, 3.0, 4.0, 5.0, 6.0, 2.0, 3.0, 4.0, 5.0, 6.0, 2.0, 3.0, 4.0, 5.0]
-        );
+        assert_eq!(m.data().unwrap(), &[
+            6.0, 2.0, 3.0, 4.0, 5.0, 6.0, 2.0, 3.0, 4.0, 5.0, 6.0, 2.0, 3.0, 4.0, 5.0
+        ]);
         assert_eq!(m.nrows().unwrap(), 5);
         assert_eq!(m.ncols().unwrap(), 3);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string(), "c".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string()
+        ]);
     }
 
     #[test]
@@ -2785,16 +2795,16 @@ mod tests {
         )
         .into_matrix();
         let m = m1.t_join_by_column_name(m2, "a", Join::Right);
-        assert_eq!(
-            m.data().unwrap(),
-            &[6.0, 2.0, 5.0, 6.0, 2.0, 5.0, 3.0, 4.0, 7.0]
-        );
+        assert_eq!(m.data().unwrap(), &[
+            6.0, 2.0, 5.0, 6.0, 2.0, 5.0, 3.0, 4.0, 7.0
+        ]);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 3);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string(), "c".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string()
+        ]);
     }
 
     #[test]
@@ -2810,10 +2820,10 @@ mod tests {
         assert_eq!(m.data().unwrap(), &[-1.0, 0.0, 1.0, -1.0, 0.0, 1.0]);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 2);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string()
+        ]);
     }
 
     #[test]
@@ -2829,10 +2839,11 @@ mod tests {
         assert_eq!(m.data().unwrap(), &[-1.0, -1.0, 0.0, 0.0, 1.0, 1.0]);
         assert_eq!(m.nrows().unwrap(), 2);
         assert_eq!(m.ncols().unwrap(), 3);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string(), "c".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string()
+        ]);
     }
 
     #[test]
@@ -2848,10 +2859,10 @@ mod tests {
         assert_eq!(m.data().unwrap(), &[1.0, 2.0, 4.0, 5.0]);
         assert_eq!(m.nrows().unwrap(), 2);
         assert_eq!(m.ncols().unwrap(), 2);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string()
+        ]);
     }
 
     #[test]
@@ -2883,10 +2894,10 @@ mod tests {
         assert_eq!(m.data().unwrap(), &[1.0, 2.0, 0.0, 4.0, 5.0, 6.0]);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 2);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string()
+        ]);
     }
 
     #[test]
@@ -2902,10 +2913,10 @@ mod tests {
         assert_eq!(m.data().unwrap(), &[1.0, 2.0, 1.5, 4.0, 5.0, 6.0]);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 2);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string()
+        ]);
     }
 
     #[test]
@@ -2946,21 +2957,17 @@ mod tests {
         )
         .into_matrix();
         let m = m.t_nan_to_row_mean();
-        assert_eq!(
-            m.data().unwrap(),
-            &[1.0, 2.0, 9.0, 4.0, 5.0, 6.0, 7.0, 6.0, 9.0, 11.0, 11.0, 12.0]
-        );
+        assert_eq!(m.data().unwrap(), &[
+            1.0, 2.0, 9.0, 4.0, 5.0, 6.0, 7.0, 6.0, 9.0, 11.0, 11.0, 12.0
+        ]);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 4);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &[
-                "a".to_string(),
-                "b".to_string(),
-                "c".to_string(),
-                "d".to_string()
-            ]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+            "d".to_string()
+        ]);
     }
 
     #[test]
@@ -3008,10 +3015,10 @@ mod tests {
         assert_eq!(m.data().unwrap(), &[2.0, 3.0, 5.0, 6.0]);
         assert_eq!(m.nrows().unwrap(), 2);
         assert_eq!(m.ncols().unwrap(), 2);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string()
+        ]);
     }
 
     #[test]
@@ -3027,10 +3034,10 @@ mod tests {
         assert_eq!(m.data().unwrap(), &[1.0, 2.0, 4.0, 5.0]);
         assert_eq!(m.nrows().unwrap(), 2);
         assert_eq!(m.ncols().unwrap(), 2);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string()
+        ]);
     }
 
     #[test]
@@ -3046,10 +3053,10 @@ mod tests {
         assert_eq!(m.data().unwrap(), &[1.0, 2.0, 1.0, 4.0, 5.0, 6.0]);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 2);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["a".to_string(), "b".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string()
+        ]);
     }
 
     #[test]
@@ -3065,9 +3072,9 @@ mod tests {
         assert_eq!(m.data().unwrap(), &[4.0, 5.0, 6.0, 1.0, 2.0, 1.0]);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 2);
-        assert_eq!(
-            m.colnames().unwrap().unwrap(),
-            &["b".to_string(), "c".to_string()]
-        );
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "b".to_string(),
+            "c".to_string()
+        ]);
     }
 }
