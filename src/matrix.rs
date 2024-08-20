@@ -965,12 +965,13 @@ impl Matrix {
         if by >= self.ncols()? {
             return Err(crate::Error::ColumnIndexOutOfBounds(by));
         }
-        let col = self
+        let mut col = self
             .col(by)?
             .unwrap()
             .iter()
             .enumerate()
             .collect::<Vec<_>>();
+        col.sort_by(|a, b| a.1.partial_cmp(b.1).expect("could not compare"));
         let mut other = with.iter().enumerate().collect::<Vec<_>>();
         other.sort_by(|a, b| a.1.partial_cmp(b.1).expect("could not compare"));
         let mut order = Vec::with_capacity(match join {
@@ -2348,6 +2349,28 @@ mod tests {
         let m = m1.t_match_to(other, 0, Join::Inner);
         assert_eq!(m.data().unwrap(), &[5.0, 1.0, 2.0, 5.0, 1.0, 2.0]);
         assert_eq!(m.nrows().unwrap(), 3);
+        assert_eq!(m.ncols().unwrap(), 2);
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "b".to_string()
+        ]);
+    }
+
+    #[test]
+    fn test_match_to_success_not_sorted() {
+        let mut m1 = OwnedMatrix::new(
+            5,
+            2,
+            vec![5.0, 2.0, 1.0, 4.0, 3.0, 5.0, 2.0, 1.0, 4.0, 3.0],
+            Some(vec!["a".to_string(), "b".to_string()]),
+        )
+        .into_matrix();
+        let other = vec![5.0, 1.0, 6.0, 2.0, 3.0, 4.0, 5.0, 7.0];
+        let m = m1.t_match_to(other, 0, Join::Inner);
+        assert_eq!(m.data().unwrap(), &[
+            5.0, 1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 3.0, 4.0
+        ]);
+        assert_eq!(m.nrows().unwrap(), 5);
         assert_eq!(m.ncols().unwrap(), 2);
         assert_eq!(m.colnames().unwrap().unwrap(), &[
             "a".to_string(),
