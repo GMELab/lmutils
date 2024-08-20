@@ -146,8 +146,15 @@ impl File {
                 os::{fd::FromRawFd, unix::process::CommandExt},
             };
 
-            let mut file = memfile::MemFile::create_default(&self.path.to_string_lossy())?;
-            let fd = file.as_fd().as_raw_fd();
+            cfg_if!(
+                if #[cfg(libc_2_27)] {
+                    let mut file = memfile::MemFile::create_default(&self.path.to_string_lossy())?;
+                    let fd = file.as_fd().as_raw_fd();
+                } else {
+                    let mut file = std::fs::File::create(&self.path)?;
+                    let fd = file.as_raw_fd();
+                }
+            );
             Self::new("", FileType::Rkyv, false).write_matrix_to_writer(&mut file, mat)?;
             let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
             file.rewind()?;
