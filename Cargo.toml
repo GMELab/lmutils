@@ -26,11 +26,15 @@ serde_json = "1.0.117"
 statrs = "0.17.1"
 thiserror = "1.0.61"
 tracing = { version = "0.1.40", features = ["log"] }
+cfg-if = "1.0"
 
 [dev-dependencies]
 rand = "0.8.5"
 test-log = "0.2.16"
 assert_float_eq = "1.1.3"
+
+[build-dependencies]
+libc = "0.2.155"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)'] }

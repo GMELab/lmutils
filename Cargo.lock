@@ -664,6 +664,7 @@ name = "lmutils"
 version = "0.2.9"
 dependencies = [
  "assert_float_eq",
+ "cfg-if",
  "csv",
  "extendr-api",
  "faer",

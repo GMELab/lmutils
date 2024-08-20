@@ -1,5 +1,6 @@
 use std::{io::Read, os::fd::AsRawFd, path::PathBuf, str::FromStr};
 
+use cfg_if::cfg_if;
 use extendr_api::{io::Save, pairlist, Pairlist};
 use tracing::info;
 
@@ -7,9 +8,9 @@ use crate::{IntoMatrix, Matrix, OwnedMatrix};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct File {
-    path: PathBuf,
+    path:      PathBuf,
     file_type: FileType,
-    gz: bool,
+    gz:        bool,
 }
 
 impl File {
@@ -42,11 +43,17 @@ impl File {
     pub fn read(&self) -> Result<Matrix, crate::Error> {
         #[cfg(unix)]
         if self.file_type == FileType::Rdata && std::env::var("LMUTILS_FD").is_err() {
-            use std::io::Seek;
-            use std::os::unix::process::CommandExt;
+            use std::{io::Seek, os::unix::process::CommandExt};
 
-            let mut file = memfile::MemFile::create_default(&self.path.to_string_lossy())?;
-            let fd = file.as_fd().as_raw_fd();
+            cfg_if!(
+                if #[cfg(libc_2_27)] {
+                    let mut file = memfile::MemFile::create_default(&self.path.to_string_lossy())?;
+                    let fd = file.as_fd().as_raw_fd();
+                } else {
+                    let mut file = std::fs::File::open(&self.path)?;
+                    let fd = file.as_raw_fd();
+                }
+            );
             let new_fd = unsafe { libc::dup(fd) };
             let output = unsafe {
                 std::process::Command::new("Rscript")
@@ -134,9 +141,10 @@ impl File {
     pub fn write(&self, mat: &mut Matrix) -> Result<(), crate::Error> {
         #[cfg(any(unix, target_os = "wasi"))]
         if self.file_type == FileType::Rdata && std::env::var("LMUTILS_FD").is_err() {
-            use std::io::Seek;
-            use std::os::fd::FromRawFd;
-            use std::os::unix::process::CommandExt;
+            use std::{
+                io::Seek,
+                os::{fd::FromRawFd, unix::process::CommandExt},
+            };
 
             let mut file = memfile::MemFile::create_default(&self.path.to_string_lossy())?;
             let fd = file.as_fd().as_raw_fd();
@@ -308,8 +316,9 @@ impl FromStr for FileType {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use test_log::test;
+
+    use super::*;
 
     #[test]
     fn test_csv() {

@@ -28,7 +28,8 @@ where
         .clamp(1, data.len());
 
     let mut results_uninit = if let Some(out) = out {
-        // if there's a known output size, we can preallocate the results and guarantee an order
+        // if there's a known output size, we can preallocate the results and guarantee
+        // an order
         let mut results: Vec<MaybeUninit<R>> = Vec::with_capacity(out * data.len());
         results.extend((0..(out * data.len())).map(|_| MaybeUninit::uninit()));
         Some(results)
@@ -46,57 +47,59 @@ where
 
     std::thread::scope(|s| {
         for _ in 0..core_parallelism {
-            s.spawn(|| loop {
-                let mut guard = data.lock().unwrap();
-                let d = guard.pop();
-                drop(guard);
-                if let Some((i, mut d)) = d {
-                    rayon::scope(|s| {
-                        s.spawn(|_| {
-                            let s = debug_span!("main_scope");
-                            let _e = s.enter();
-                            let mut tries = 1;
-                            #[allow(clippy::blocks_in_conditions)]
-                            while std::panic::catch_unwind(AssertUnwindSafe(|| {
-                                let r = f(i, &mut d);
-                                if let Some(out) = out {
-                                    let results = unsafe {
-                                        std::slice::from_raw_parts_mut(
-                                            results_uninit
-                                                .as_ref()
-                                                .unwrap()
-                                                .as_ptr()
-                                                .add(i * out)
-                                                .cast_mut(),
-                                            out,
-                                        )
-                                    };
-                                    for (i, p) in r.into_iter().enumerate() {
-                                        results[i].write(p);
+            s.spawn(|| {
+                loop {
+                    let mut guard = data.lock().unwrap();
+                    let d = guard.pop();
+                    drop(guard);
+                    if let Some((i, mut d)) = d {
+                        rayon::scope(|s| {
+                            s.spawn(|_| {
+                                let s = debug_span!("main_scope");
+                                let _e = s.enter();
+                                let mut tries = 1;
+                                #[allow(clippy::blocks_in_conditions)]
+                                while std::panic::catch_unwind(AssertUnwindSafe(|| {
+                                    let r = f(i, &mut d);
+                                    if let Some(out) = out {
+                                        let results = unsafe {
+                                            std::slice::from_raw_parts_mut(
+                                                results_uninit
+                                                    .as_ref()
+                                                    .unwrap()
+                                                    .as_ptr()
+                                                    .add(i * out)
+                                                    .cast_mut(),
+                                                out,
+                                            )
+                                        };
+                                        for (i, p) in r.into_iter().enumerate() {
+                                            results[i].write(p);
+                                        }
+                                    } else {
+                                        let mut results =
+                                            results_push.as_ref().unwrap().lock().unwrap();
+                                        results.extend(r);
                                     }
-                                } else {
-                                    let mut results =
-                                        results_push.as_ref().unwrap().lock().unwrap();
-                                    results.extend(r);
+                                }))
+                                .is_err()
+                                {
+                                    let duration = std::time::Duration::from_secs(4u64.pow(tries));
+                                    error!(
+                                        "Error in core scope, retrying in {} seconds",
+                                        duration.as_secs_f64()
+                                    );
+                                    std::thread::sleep(duration);
+                                    tries += 1;
+                                    if tries > 5 {
+                                        panic!("Error in core scope, too many retries");
+                                    }
                                 }
-                            }))
-                            .is_err()
-                            {
-                                let duration = std::time::Duration::from_secs(4u64.pow(tries));
-                                error!(
-                                    "Error in core scope, retrying in {} seconds",
-                                    duration.as_secs_f64()
-                                );
-                                std::thread::sleep(duration);
-                                tries += 1;
-                                if tries > 5 {
-                                    panic!("Error in core scope, too many retries");
-                                }
-                            }
+                            })
                         })
-                    })
-                } else {
-                    break;
+                    } else {
+                        break;
+                    }
                 }
             });
         }
@@ -130,8 +133,9 @@ pub fn calculate_r2s(
     //         .collect::<Result<Vec<_>, _>>()?,
     // );
     // let ndata = data.lock().unwrap().len();
-    // let mut results: Vec<MaybeUninit<R2>> = Vec::with_capacity(or.ncols() * ndata);
-    // results.extend((0..(or.ncols() * ndata)).map(|_| MaybeUninit::uninit()));
+    // let mut results: Vec<MaybeUninit<R2>> = Vec::with_capacity(or.ncols() *
+    // ndata); results.extend((0..(or.ncols() * ndata)).map(|_|
+    // MaybeUninit::uninit()));
     let data_names = match data_names {
         Some(data_names) if data_names.iter().all(|x| *x == "NA") => None,
         x => x,
@@ -202,8 +206,9 @@ pub fn column_p_values(
     //         .collect::<Result<Vec<_>, _>>()?,
     // );
     // let ndata = or.nrows();
-    // let mut results: Vec<MaybeUninit<PValue>> = Vec::with_capacity(or.ncols() * ndata);
-    // results.extend((0..(or.ncols() * ndata)).map(|_| MaybeUninit::uninit()));
+    // let mut results: Vec<MaybeUninit<PValue>> = Vec::with_capacity(or.ncols() *
+    // ndata); results.extend((0..(or.ncols() * ndata)).map(|_|
+    // MaybeUninit::uninit()));
     let results = core_parallelize(data, None, |i, mat| {
         info!(
             "Calculating p-values for data set {}",
@@ -259,8 +264,9 @@ pub fn column_p_values(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use test_log::test;
+
+    use super::*;
 
     #[test]
     fn test_calculate_r2s() {
