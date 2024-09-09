@@ -262,6 +262,10 @@ pub fn column_p_values(
     Ok(results)
 }
 
+pub fn compute_r2(actual: &[f64], predicted: &[f64]) -> f64 {
+    R2Simd::new(actual, predicted).calculate()
+}
+
 #[cfg(test)]
 mod tests {
     use test_log::test;
