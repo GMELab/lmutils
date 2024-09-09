@@ -23,6 +23,7 @@ use extendr_api::{
     Rtype,
 };
 use faer::{linalg::qr, Mat, MatMut, MatRef};
+use rand_distr::Distribution;
 use rayon::prelude::*;
 use tracing::{debug, error, info, trace};
 
@@ -466,6 +467,21 @@ impl Matrix {
         ))
     }
 
+    pub fn generate_normal_matrix(rows: usize, cols: usize, mean: f64, std_dev: f64) -> Self {
+        let data = rand_distr::Normal::new(mean, std_dev)
+            .unwrap()
+            .sample_iter(rand::thread_rng())
+            .take(rows * cols)
+            .collect::<Vec<_>>();
+        Matrix::Owned(OwnedMatrix::new(rows, cols, data, None))
+    }
+
+    pub fn generate_standard_normal_matrix(rows: usize, cols: usize) -> Self {
+        Self::generate_normal_matrix(rows, cols, 0.0, 1.0)
+    }
+}
+
+impl Matrix {
     pub fn transform(&mut self) -> Result<&mut Self, crate::Error> {
         if let Matrix::Transform(fns, mat) = self {
             let slf = std::mem::replace(self, Matrix::Owned(OwnedMatrix::new(0, 0, vec![], None)));

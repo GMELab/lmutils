@@ -1067,6 +1067,7 @@ dependencies = [
  "memfile",
  "pulp",
  "rand",
+ "rand_distr",
  "rayon",
  "rkyv",
  "serde",
