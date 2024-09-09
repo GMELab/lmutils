@@ -1054,7 +1054,7 @@ dependencies = [
 
 [[package]]
 name = "lmutils"
-version = "0.2.12"
+version = "0.2.13"
 dependencies = [
  "assert_float_eq",
  "cfg-if",
