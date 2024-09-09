@@ -389,7 +389,13 @@ pub fn linear_regression(xs: MatRef<'_, f64>, ys: &[f64]) -> LinearModel {
         1.0,
         get_global_parallelism(),
     );
-    let betas = c_matrix.cholesky(Side::Lower).unwrap().solve(c_all);
+    let betas = match c_matrix.cholesky(Side::Lower) {
+        Ok(chol) => chol.solve(c_all),
+        Err(_) => {
+            warn!("Using pseudo inverse");
+            Svd::new(c_matrix.as_mat_ref()).pseudoinverse() * &c_all
+        },
+    };
     let betas = betas.col(0).try_as_slice().unwrap();
     let intercept = betas[ncols];
     let predicted = (0..ys.len())
