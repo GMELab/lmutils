@@ -315,6 +315,7 @@ pub fn standardize_row(mut x: RowMut<f64>) {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct LinearModel {
     slopes:    Vec<f64>,
     intercept: f64,
@@ -352,6 +353,16 @@ impl LinearModel {
     #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn adj_r2(&self) -> f64 {
         self.adj_r2
+    }
+
+    pub fn predict(&self, x: &[f64]) -> f64 {
+        self.intercept
+            + self
+                .slopes
+                .iter()
+                .zip(x.iter())
+                .map(|(a, b)| a * b)
+                .sum::<f64>()
     }
 }
 
@@ -658,6 +669,22 @@ mod tests {
         }
         float_eq!(model.r2(), 1.0);
         float_eq!(model.adj_r2(), 1.0);
+    }
+
+    #[test]
+    fn test_linear_regression_predict() {
+        let xs = faer::mat::from_column_major_slice::<f64>(&[1.0, 2.0, 3.0, 4.0, 5.0], 5, 1);
+        let ys = [1.0, 2.0, 3.0, 4.0, 5.0];
+        let model = linear_regression(xs.as_mat_ref(), &ys);
+        float_eq!(model.predict(&[6.0]), 6.0);
+        let xs = faer::mat::from_column_major_slice::<f64>(
+            &[1.0, 2.0, 3.0, 4.0, 1.0, 2.0, 3.0, 4.0],
+            4,
+            2,
+        );
+        let ys = [2.0, 4.0, 6.0, 8.0];
+        let model = linear_regression(xs.as_mat_ref(), &ys);
+        float_eq!(model.predict(&[1.0, 1.0]), 2.0);
     }
 
     #[test]
