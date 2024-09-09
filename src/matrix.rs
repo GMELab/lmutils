@@ -1522,8 +1522,8 @@ impl Matrix {
             .filter_map(|i| {
                 let col = cols[i];
                 let first = col[0];
-                for i in 1..col.len() {
-                    if col[i] != first {
+                for i in col.iter().skip(1) {
+                    if *i != first {
                         return None;
                     }
                 }
