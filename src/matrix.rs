@@ -1549,6 +1549,40 @@ impl Matrix {
         self.remove_columns(&cols)
     }
 
+    pub fn t_min_non_nan(&mut self, val: usize) -> &mut Self {
+        self.add_transformation(move |m| m.min_non_nan(val))
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn min_non_nan(&mut self, val: usize) -> Result<&mut Self, crate::Error> {
+        let removing = self
+            .as_mat_mut()?
+            .par_col_chunks_mut(1)
+            .enumerate()
+            .filter(|(_, c)| c.as_ref().col(0).iter().filter(|x| x.is_finite()).count() < val)
+            .map(|(i, _)| i)
+            .collect();
+        self.remove_columns(&removing)
+    }
+
+    pub fn t_max_non_nan(&mut self, val: usize) -> &mut Self {
+        self.add_transformation(move |m| m.max_non_nan(val))
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn max_non_nan(&mut self, val: usize) -> Result<&mut Self, crate::Error> {
+        let removing = self
+            .as_mat_mut()?
+            .par_col_chunks_mut(1)
+            .enumerate()
+            .filter(|(_, c)| c.as_ref().col(0).iter().filter(|x| x.is_finite()).count() > val)
+            .map(|(i, _)| i)
+            .collect();
+        self.remove_columns(&removing)
+    }
+}
+
+impl Matrix {
     #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn nrows(&mut self) -> Result<usize, crate::Error> {
         self.as_mat_ref().map(|x| x.nrows())
@@ -3115,5 +3149,36 @@ mod tests {
             "b".to_string(),
             "c".to_string()
         ]);
+    }
+
+    #[test]
+    fn test_min_non_nan() {
+        let mut m = OwnedMatrix::new(
+            3,
+            2,
+            vec![1.0, f64::NAN, f64::NAN, 4.0, 5.0, 6.0],
+            Some(vec!["a".to_string(), "b".to_string()]),
+        )
+        .into_matrix();
+        let m = m.t_min_non_nan(2);
+        assert_eq!(m.data().unwrap(), &[4.0, 5.0, 6.0]);
+        assert_eq!(m.nrows().unwrap(), 3);
+        assert_eq!(m.ncols().unwrap(), 1);
+        assert_eq!(m.colnames().unwrap().unwrap(), &["b".to_string()]);
+    }
+
+    #[test]
+    fn test_max_non_nan() {
+        let mut m = OwnedMatrix::new(
+            3,
+            2,
+            vec![1.0, f64::NAN, f64::NAN, 4.0, 5.0, 6.0],
+            Some(vec!["a".to_string(), "b".to_string()]),
+        )
+        .into_matrix();
+        let m = m.t_max_non_nan(2);
+        assert_eq!(m.nrows().unwrap(), 3);
+        assert_eq!(m.ncols().unwrap(), 1);
+        assert_eq!(m.colnames().unwrap().unwrap(), &["a".to_string()]);
     }
 }
