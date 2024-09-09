@@ -377,18 +377,7 @@ pub fn linear_regression(xs: MatRef<'_, f64>, ys: &[f64]) -> LinearModel {
     );
     let y: MatRef<'_, f64> = faer::mat::from_column_major_slice(ys, ys.len(), 1);
     let c_all = x.transpose() * y;
-    let mut c_matrix = faer::Mat::zeros(ncols + 1, ncols + 1);
-    faer::linalg::matmul::triangular::matmul(
-        c_matrix.as_mut(),
-        faer::linalg::matmul::triangular::BlockStructure::TriangularLower,
-        x.transpose(),
-        faer::linalg::matmul::triangular::BlockStructure::Rectangular,
-        &x,
-        faer::linalg::matmul::triangular::BlockStructure::Rectangular,
-        None,
-        1.0,
-        get_global_parallelism(),
-    );
+    let c_matrix = x.transpose() * &x;
     let betas = match c_matrix.cholesky(Side::Lower) {
         Ok(chol) => chol.solve(c_all),
         Err(_) => {
