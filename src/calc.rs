@@ -671,4 +671,16 @@ mod tests {
             float_eq!(r2, r2_no_simd);
         }
     }
+
+    #[test]
+    fn test_r2() {
+        let actual = [1.0, 2.0, 3.0, 4.0, 5.0];
+        let predicted = [1.0, 2.0, 3.0, 4.0, 5.0];
+        let r2 = R2Simd::new(&actual, &predicted).calculate();
+        float_eq!(r2, 1.0);
+        let actual = [1.0, 2.0, 3.0, 5.0, 6.0];
+        let predicted = [1.0, 2.0, 3.0, 4.0, 5.0];
+        let r2 = R2Simd::new(&actual, &predicted).calculate();
+        float_eq!(r2, 0.8837209302325582);
+    }
 }
