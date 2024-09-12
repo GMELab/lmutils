@@ -116,7 +116,9 @@ pub fn get_r2s(data: MatRef<f64>, outcomes: MatRef<f64>) -> Vec<R2> {
             let r2 = R2Simd::new(actual, &predicted).calculate();
             let adj_r2 = 1.0 - (1.0 - r2) * (n as f64 - 1.0) / (n as f64 - m as f64 - 1.0);
             let mut betas = betas.try_as_slice().unwrap().to_vec();
-            if std::env::var("LMUTILS_DISABLE_PREDICTED").is_ok() {
+            if std::env::var("LMUTILS_ENABLE_PREDICTED").is_err()
+                && std::env::var("LMUTILS_DISABLE_PREDICTED").is_ok()
+            {
                 predicted = Vec::new();
                 betas = Vec::new();
             }
