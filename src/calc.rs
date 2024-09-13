@@ -2,18 +2,35 @@ use faer::{
     get_global_parallelism,
     mat::AsMatRef,
     solvers::{SpSolver, Svd},
+    Col,
     ColMut,
     ComplexField,
     Mat,
+    MatMut,
     MatRef,
     RowMut,
     Side,
     SimpleEntity,
 };
 use pulp::{Arch, Simd, WithSimd};
+use rand_distr::{Distribution, StandardNormal};
 use rayon::{iter::IntoParallelIterator, prelude::*};
 use statrs::distribution::{ContinuousCDF, StudentsT};
 use tracing::{debug, warn};
+
+fn should_disable_predicted() -> bool {
+    let enabled = std::env::var("LMUTILS_ENABLE_PREDICTED").is_ok();
+    let disabled = std::env::var("LMUTILS_DISABLE_PREDICTED").is_ok();
+    // disabled overrides
+    if disabled {
+        return true;
+    }
+    // only if enabled is set do we enable predicted
+    if enabled {
+        return false;
+    }
+    true
+}
 
 #[derive(Debug, Clone)]
 pub struct R2 {
@@ -116,9 +133,7 @@ pub fn get_r2s(data: MatRef<f64>, outcomes: MatRef<f64>) -> Vec<R2> {
             let r2 = R2Simd::new(actual, &predicted).calculate();
             let adj_r2 = 1.0 - (1.0 - r2) * (n as f64 - 1.0) / (n as f64 - m as f64 - 1.0);
             let mut betas = betas.try_as_slice().unwrap().to_vec();
-            if std::env::var("LMUTILS_ENABLE_PREDICTED").is_err()
-                && std::env::var("LMUTILS_DISABLE_PREDICTED").is_ok()
-            {
+            if should_disable_predicted() {
                 predicted = Vec::new();
                 betas = Vec::new();
             }
@@ -140,10 +155,12 @@ pub fn get_r2s(data: MatRef<f64>, outcomes: MatRef<f64>) -> Vec<R2> {
 
 #[derive(Debug, Clone)]
 pub struct PValue {
-    p_value:                f64,
-    pub(crate) data:        Option<String>,
+    p_value: f64,
+    beta: f64,
+    intercept: f64,
+    pub(crate) data: Option<String>,
     pub(crate) data_column: Option<u32>,
-    pub(crate) outcome:     Option<String>,
+    pub(crate) outcome: Option<String>,
 }
 
 impl PValue {
@@ -151,6 +168,18 @@ impl PValue {
     #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn p_value(&self) -> f64 {
         self.p_value
+    }
+
+    #[inline]
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn beta(&self) -> f64 {
+        self.beta
+    }
+
+    #[inline]
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn intercept(&self) -> f64 {
+        self.intercept
     }
 
     #[inline]
@@ -232,6 +261,8 @@ pub fn p_value(xs: &[f64], ys: &[f64]) -> PValue {
     let t_distr = StudentsT::new(0.0, 1.0, (xs.len() - 2) as f64).unwrap();
     PValue {
         p_value:     2.0 * (1.0 - t_distr.cdf(t.abs())),
+        beta:        *m,
+        intercept:   *intercept,
         data:        None,
         data_column: None,
         outcome:     None,
