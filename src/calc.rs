@@ -581,6 +581,7 @@ mod tests {
 
     #[test]
     fn test_get_r2s_normalized() {
+        std::env::set_var("LMUTILS_ENABLE_PREDICTED", "1");
         let mut data = OwnedMatrix::new(4, 2, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 9.0], None)
             .into_matrix();
         data.standardize_columns();
@@ -626,6 +627,7 @@ mod tests {
 
     #[test]
     fn test_get_r2s_not_normalized() {
+        std::env::set_var("LMUTILS_ENABLE_PREDICTED", "1");
         let data = faer::mat::from_column_major_slice::<f64>(
             &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 9.0],
             4,
