@@ -16,6 +16,8 @@ pub enum Error {
     InvalidFileName,
     #[error("No file extension")]
     NoFileExtension,
+    #[error("incomplete file")]
+    IncompleteFile,
     #[error("unsupported file type: {0}")]
     UnsupportedFileType(String),
     #[error("invalid file extension: {0}")]
@@ -46,8 +48,6 @@ pub enum Error {
     UnequalColumnLengths,
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
-    #[error("csv error: {0}")]
-    Csv(#[from] csv::Error),
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
     #[error("r error: {0}")]

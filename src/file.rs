@@ -1,7 +1,20 @@
-use std::{io::Read, os::fd::AsRawFd, path::PathBuf, str::FromStr};
+use core::str;
+use std::{
+    io::{Read, Write},
+    mem::MaybeUninit,
+    num::ParseFloatError,
+    os::fd::AsRawFd,
+    path::PathBuf,
+    str::FromStr,
+};
 
 use cfg_if::cfg_if;
 use extendr_api::{io::Save, pairlist, Pairlist};
+use rayon::{
+    iter::IntoParallelIterator,
+    prelude::{IndexedParallelIterator, ParallelIterator},
+    str::ParallelString,
+};
 use tracing::info;
 
 use crate::{IntoMatrix, Matrix, OwnedMatrix};
@@ -111,31 +124,120 @@ impl File {
         })
     }
 
-    fn read_text_file(reader: impl std::io::Read, sep: u8) -> Result<Matrix, crate::Error> {
-        let mut data = vec![];
-        let mut reader = csv::ReaderBuilder::new().delimiter(sep).from_reader(reader);
-        let headers = reader.headers()?;
-        // Check if headers are numeric.
-        let colnames = Some(headers.iter().map(|x| x.to_string()).collect());
-        let cols = headers.len();
-        let _ = headers;
-        for result in reader.records() {
-            let record = result?;
-            for field in record.iter() {
-                data.push({
-                    if field == "NA" {
-                        Ok(f64::NAN)
-                    } else {
-                        field.parse().map_err(crate::Error::from)
-                    }
-                }?);
+    #[doc(hidden)]
+    pub fn read_text_file(mut reader: impl std::io::Read, sep: u8) -> Result<Matrix, crate::Error> {
+        let mut file = vec![];
+        reader.read_to_end(&mut file)?;
+        let mut nrows = 0;
+        let file = file.trim_ascii();
+        for b in file {
+            if *b == b'\n' {
+                nrows += 1;
             }
         }
-        let mut mat = OwnedMatrix::new(cols, data.len() / cols, data, None).into_matrix();
-        mat.transpose();
-        let mut mat = mat.to_owned_loaded();
-        mat.colnames = colnames;
-        Ok(mat.into_matrix())
+
+        let mut header = vec![];
+        let mut header_start = 0;
+        for (i, b) in file.iter().enumerate() {
+            if *b == b'\r' {
+                continue;
+            }
+            if *b == sep || *b == b'\n' {
+                header
+                    .push(unsafe { str::from_utf8_unchecked(&file[header_start..i]).to_string() });
+                header_start = i + 1;
+                if *b == b'\n' {
+                    break;
+                }
+            }
+        }
+
+        let ncols = header.len();
+
+        let mut data = vec![MaybeUninit::<f64>::uninit(); nrows * ncols];
+        let file = file[header_start..].trim_ascii();
+        let mut lines = vec![MaybeUninit::uninit(); nrows];
+        let mut start = 0;
+        let mut next = 0;
+        for (i, b) in file.iter().enumerate() {
+            if *b == b'\n' {
+                lines[next].write(file[start..i].trim_ascii());
+                next += 1;
+                start = i + 1;
+            }
+        }
+        lines[next].write(file[start..].trim_ascii());
+
+        let lines = unsafe { std::mem::transmute::<Vec<MaybeUninit<&[u8]>>, Vec<&[u8]>>(lines) };
+
+        lines
+            .into_par_iter()
+            .enumerate()
+            .map(|(row, line)| {
+                let mut col = 0;
+                let mut data_start = 0;
+                for (i, b) in line.iter().enumerate() {
+                    if *b == sep {
+                        let field = unsafe { str::from_utf8_unchecked(&line[data_start..i]) };
+                        if field == "NA" || field.is_empty() {
+                            unsafe {
+                                *data
+                                    .as_ptr()
+                                    .add(col * nrows + row)
+                                    .cast_mut()
+                                    .cast::<f64>() = f64::NAN;
+                            }
+                        } else {
+                            let field = field.parse()?;
+                            unsafe {
+                                *data
+                                    .as_ptr()
+                                    .add(col * nrows + row)
+                                    .cast_mut()
+                                    .cast::<f64>() = field;
+                            }
+                        }
+                        data_start = i + 1;
+                        col += 1;
+                    }
+                }
+                let field = unsafe { str::from_utf8_unchecked(&line[data_start..]) };
+                if field == "NA" || field.is_empty() {
+                    unsafe {
+                        *data
+                            .as_ptr()
+                            .add(col * nrows + row)
+                            .cast_mut()
+                            .cast::<f64>() = f64::NAN;
+                    }
+                } else {
+                    let field = field.parse()?;
+                    unsafe {
+                        *data
+                            .as_ptr()
+                            .add(col * nrows + row)
+                            .cast_mut()
+                            .cast::<f64>() = field;
+                    }
+                }
+                col += 1;
+                if col != ncols {
+                    return Err(crate::Error::IncompleteFile);
+                }
+                Ok(())
+            })
+            .collect::<Result<(), _>>()?;
+
+        Ok(Matrix::Owned(OwnedMatrix::new(
+            nrows,
+            ncols,
+            unsafe {
+                std::mem::transmute::<std::vec::Vec<std::mem::MaybeUninit<f64>>, std::vec::Vec<f64>>(
+                    data,
+                )
+            },
+            Some(header),
+        )))
     }
 
     pub fn write(&self, mat: &mut Matrix) -> Result<(), crate::Error> {
@@ -225,26 +327,41 @@ impl File {
         Ok(())
     }
 
-    fn write_text_file(
-        writer: impl std::io::Write,
+    #[doc(hidden)]
+    pub fn write_text_file(
+        mut writer: impl std::io::Write,
         mat: &mut Matrix,
         sep: u8,
     ) -> Result<(), crate::Error> {
+        let mut writer = std::io::BufWriter::with_capacity(128 * 1024, writer);
         let mat = mat.as_owned_ref()?;
-        let mut writer = csv::WriterBuilder::new().delimiter(sep).from_writer(writer);
         if let Some(colnames) = &mat.colnames {
-            writer.write_record(colnames)?;
+            for (i, colname) in colnames.iter().enumerate() {
+                writer.write_all(colname.as_bytes())?;
+                if i != colnames.len() - 1 {
+                    writer.write_all(&[sep])?;
+                }
+            }
+            writer.write_all(b"\n")?;
         }
-        for i in 0..mat.nrows {
-            writer.write_record(
-                mat.data
-                    .iter()
-                    .skip(i)
-                    .step_by(mat.nrows)
-                    .take(mat.ncols)
-                    .map(|x| x.to_string())
-                    .collect::<Vec<String>>(),
-            )?;
+        let rows = (0..mat.nrows)
+            .into_par_iter()
+            .map(|i| {
+                let mut buf = vec![];
+                for j in 0..mat.ncols {
+                    buf.extend_from_slice(mat.data[i + j * mat.nrows].to_string().as_bytes());
+                    if j != mat.ncols - 1 {
+                        buf.push(sep);
+                    }
+                }
+                if i != mat.nrows - 1 {
+                    buf.push(b'\n');
+                }
+                Ok(buf)
+            })
+            .collect::<Result<Vec<Vec<u8>>, crate::Error>>()?;
+        for row in rows {
+            writer.write_all(&row)?;
         }
         Ok(())
     }
