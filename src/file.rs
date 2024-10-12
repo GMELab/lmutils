@@ -258,8 +258,8 @@ impl File {
                 }
             );
             Self::new("", FileType::Rkyv, false).write_matrix_to_writer(&mut file, mat)?;
-            let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
-            file.rewind()?;
+            // let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
+             file.rewind()?;
             let new_fd = unsafe { libc::dup(fd) };
             // std::thread::sleep(std::time::Duration::from_secs(60));
             let output = unsafe {
@@ -523,6 +523,20 @@ mod tests {
             Some(vec!["a".to_string(), "b".to_string()]),
         ));
         let file = crate::File::new("tests/test.cbor", crate::FileType::Cbor, false);
+        file.write(&mut mat).unwrap();
+        let mat2 = file.read().unwrap();
+        assert_eq!(mat, mat2);
+    }
+
+    #[test]
+    fn test_rdata() {
+        let mut mat = Matrix::Owned(OwnedMatrix::new(
+            3,
+            2,
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            Some(vec!["a".to_string(), "b".to_string()]),
+        ));
+        let file = crate::File::new("tests/mat-f64.rdata", crate::FileType::Rdata, false);
         file.write(&mut mat).unwrap();
         let mat2 = file.read().unwrap();
         assert_eq!(mat, mat2);
