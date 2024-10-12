@@ -259,7 +259,7 @@ impl File {
             );
             Self::new("", FileType::Rkyv, false).write_matrix_to_writer(&mut file, mat)?;
             // let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
-             file.rewind()?;
+            file.rewind()?;
             let new_fd = unsafe { libc::dup(fd) };
             // std::thread::sleep(std::time::Duration::from_secs(60));
             let output = unsafe {
