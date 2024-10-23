@@ -21,9 +21,9 @@ use crate::{IntoMatrix, Matrix, OwnedMatrix};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct File {
-    path:      PathBuf,
+    path: PathBuf,
     file_type: FileType,
-    gz:        bool,
+    gz: bool,
 }
 
 impl File {
@@ -58,12 +58,13 @@ impl File {
         if self.file_type == FileType::Rdata && std::env::var("LMUTILS_FD").is_err() {
             use std::{io::Seek, os::unix::process::CommandExt};
 
+            let tmp_path = std::env::temp_dir().join(rand::random::<u64>().to_string());
             cfg_if!(
                 if #[cfg(libc_2_27)] {
-                    let mut file = memfile::MemFile::create_default(&self.path.to_string_lossy())?;
+                    let mut file = memfile::MemFile::create_default(&tmp_path.to_string_lossy())?;
                     let fd = file.as_fd().as_raw_fd();
                 } else {
-                    let mut file = std::fs::File::open(&self.path)?;
+                    let mut file = std::fs::File::create(&tmp_path)?;
                     let fd = file.as_raw_fd();
                 }
             );
@@ -76,7 +77,7 @@ impl File {
                         self.path.to_string_lossy(),
                         new_fd
                     ))
-                    .stdout(std::process::Stdio::piped())
+                    .stdout(std::process::Stdio::inherit())
                     .stderr(std::process::Stdio::piped())
                     .pre_exec(move || unsafe {
                         libc::dup2(fd, new_fd);
@@ -92,6 +93,9 @@ impl File {
             }
             file.rewind()?;
             let mat = Self::new("", FileType::Rkyv, false).read_from_reader(file);
+            if std::fs::exists(&tmp_path)? {
+                std::fs::remove_file(tmp_path)?;
+            }
             return mat;
         }
         let file = std::fs::File::open(&self.path)?;
@@ -248,27 +252,27 @@ impl File {
                 os::{fd::FromRawFd, unix::process::CommandExt},
             };
 
+            let tmp_path = std::env::temp_dir().join(rand::random::<u64>().to_string());
             cfg_if!(
                 if #[cfg(libc_2_27)] {
-                    let mut file = memfile::MemFile::create_default(&self.path.to_string_lossy())?;
+                    let mut file = memfile::MemFile::create_default(&tmp_path.to_string_lossy())?;
                     let fd = file.as_fd().as_raw_fd();
                 } else {
-                    let mut file = std::fs::File::create(&self.path)?;
+                    let mut file = std::fs::File::create(&tmp_path)?;
                     let fd = file.as_raw_fd();
                 }
             );
             Self::new("", FileType::Rkyv, false).write_matrix_to_writer(&mut file, mat)?;
-            // let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
             file.rewind()?;
             let new_fd = unsafe { libc::dup(fd) };
-            // std::thread::sleep(std::time::Duration::from_secs(60));
             let output = unsafe {
                 std::process::Command::new("Rscript")
                     .arg("-e")
                     .arg(format!(
-                        "lmutils::internal_lmutils_fd_into_file('{}', {})",
+                        "lmutils::internal_lmutils_fd_into_file('{}', {}, {})",
                         self.path.to_string_lossy(),
                         new_fd,
+                        if (cfg!(libc_2_27)) { "TRUE" } else { "FALSE" }
                     ))
                     .stdout(std::process::Stdio::piped())
                     .stderr(std::process::Stdio::piped())
@@ -536,7 +540,7 @@ mod tests {
             vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
             Some(vec!["a".to_string(), "b".to_string()]),
         ));
-        let file = crate::File::new("tests/mat-f64.rdata", crate::FileType::Rdata, false);
+        let file = crate::File::new("tests/mat-f64.RData", crate::FileType::Rdata, false);
         file.write(&mut mat).unwrap();
         let mat2 = file.read().unwrap();
         assert_eq!(mat, mat2);
