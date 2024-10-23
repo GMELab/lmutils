@@ -63,25 +63,30 @@ impl File {
                 if #[cfg(libc_2_27)] {
                     let mut file = memfile::MemFile::create_default(&tmp_path.to_string_lossy())?;
                     let fd = file.as_fd().as_raw_fd();
-                } else {
-                    let mut file = std::fs::File::create(&tmp_path)?;
-                    let fd = file.as_raw_fd();
+                    let new_fd = unsafe { libc::dup(fd) };
                 }
             );
-            let new_fd = unsafe { libc::dup(fd) };
+            cfg_if!(
+                if #[cfg(libc_2_27)] {
+                    let p2 = new_fd.to_string();
+                } else {
+                    let p2 = format!("'{}'", tmp_path.to_string_lossy());
+                }
+            );
             let output = unsafe {
                 std::process::Command::new("Rscript")
                     .arg("-e")
                     .arg(format!(
-                        "lmutils::internal_lmutils_file_into_fd('{}', {}, {})",
+                        "devtools::load_all('../lmutils.r');lmutils::internal_lmutils_file_into_fd('{}', {})",
                         self.path.to_string_lossy(),
-                        new_fd,
-                        if (cfg!(libc_2_27)) { "TRUE" } else { "FALSE" }
+                        p2,
                     ))
                     .stdout(std::process::Stdio::inherit())
                     .stderr(std::process::Stdio::piped())
                     .pre_exec(move || unsafe {
-                        libc::dup2(fd, new_fd);
+                        cfg_if!(if #[cfg(libc_2_27)] {
+                            libc::dup2(fd, new_fd);
+                        });
                         Ok(())
                     })
                     .output()?
@@ -92,6 +97,11 @@ impl File {
                 tracing::error!("STDERR: {}", String::from_utf8_lossy(&output.stderr));
                 return Err(crate::Error::Rscript(output.status.code().unwrap_or(0)));
             }
+            cfg_if!(
+                if #[cfg(not(libc_2_27))] {
+                    let mut file = std::fs::File::open(&tmp_path)?;
+                }
+            );
             file.rewind()?;
             let mat = Self::new("", FileType::Rkyv, false).read_from_reader(file);
             if std::fs::exists(&tmp_path)? {
