@@ -77,11 +77,11 @@ impl File {
                 std::process::Command::new("Rscript")
                     .arg("-e")
                     .arg(format!(
-                        "devtools::load_all('../lmutils.r');lmutils::internal_lmutils_file_into_fd('{}', {})",
+                        "lmutils::internal_lmutils_file_into_fd('{}', {})",
                         self.path.to_string_lossy(),
                         p2,
                     ))
-                    .stdout(std::process::Stdio::inherit())
+                    .stdout(std::process::Stdio::piped())
                     .stderr(std::process::Stdio::piped())
                     .pre_exec(move || unsafe {
                         cfg_if!(if #[cfg(libc_2_27)] {
