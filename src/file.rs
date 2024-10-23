@@ -73,9 +73,10 @@ impl File {
                 std::process::Command::new("Rscript")
                     .arg("-e")
                     .arg(format!(
-                        "lmutils::internal_lmutils_file_into_fd('{}', {})",
+                        "lmutils::internal_lmutils_file_into_fd('{}', {}, {})",
                         self.path.to_string_lossy(),
-                        new_fd
+                        new_fd,
+                        if (cfg!(libc_2_27)) { "TRUE" } else { "FALSE" }
                     ))
                     .stdout(std::process::Stdio::inherit())
                     .stderr(std::process::Stdio::piped())
