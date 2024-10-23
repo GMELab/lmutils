@@ -95,7 +95,7 @@ impl File {
                 tracing::error!("failed to read {}", self.path.display());
                 tracing::error!("STDOUT: {}", String::from_utf8_lossy(&output.stdout));
                 tracing::error!("STDERR: {}", String::from_utf8_lossy(&output.stderr));
-                return Err(crate::Error::Rscript(output.status.code().unwrap_or(0)));
+                return Err(crate::Error::Rscript(output.status.code().unwrap_or(-1)));
             }
             cfg_if!(
                 if #[cfg(not(libc_2_27))] {
@@ -297,7 +297,7 @@ impl File {
                 tracing::error!("failed to read {}", self.path.display());
                 tracing::error!("STDOUT: {}", String::from_utf8_lossy(&output.stdout));
                 tracing::error!("STDERR: {}", String::from_utf8_lossy(&output.stderr));
-                return Err(crate::Error::Rscript(output.status.code().unwrap_or(0)));
+                return Err(crate::Error::Rscript(output.status.code().unwrap_or(-1)));
             }
             return Ok(());
         }
