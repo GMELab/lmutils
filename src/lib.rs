@@ -8,24 +8,33 @@ mod matrix;
 use std::{mem::MaybeUninit, panic::AssertUnwindSafe, sync::Mutex};
 
 use rayon::prelude::*;
-use tracing::{debug, debug_span, error, info, trace};
+use tracing::{debug, debug_span, error, info, trace, warn};
 
 pub use crate::{calc::*, error::*, file::*, matrix::*};
 
 #[cfg_attr(coverage_nightly, coverage(off))]
 #[doc(hidden)]
-pub fn core_parallelize<T, F, R>(data: Vec<T>, out: Option<usize>, f: F) -> Vec<R>
+pub fn core_parallelize<T, F, R, E = crate::Error>(
+    data: Vec<T>,
+    out: Option<usize>,
+    f: F,
+) -> Result<Vec<R>, E>
 where
     T: Send + Sync,
-    for<'a> F: (Fn(usize, &'a mut T) -> Vec<R>) + Send + Sync,
+    for<'a> F: (Fn(usize, &'a mut T) -> Result<Vec<R>, E>) + Send + Sync,
     R: Send + Sync,
+    E: std::error::Error,
 {
     let core_parallelism = std::env::var("LMUTILS_CORE_PARALLELISM")
         .ok()
         .or_else(|| std::env::var("LMUTILS_NUM_MAIN_THREADS").ok())
         .and_then(|x| x.parse::<usize>().ok())
         .unwrap_or(16)
-        .clamp(1, data.len());
+        .clamp(1, data.len().min(num_cpus::get()));
+    let ignore_errors = std::env::var("LMUTILS_IGNORE_CORE_PARALLEL_ERRORS")
+        .ok()
+        .map(|x| x == "1")
+        .unwrap_or(true);
 
     let mut results_uninit = if let Some(out) = out {
         // if there's a known output size, we can preallocate the results and guarantee
@@ -55,12 +64,12 @@ where
                     if let Some((i, mut d)) = d {
                         rayon::scope(|s| {
                             s.spawn(|_| {
-                                let s = debug_span!("main_scope");
+                                let s = debug_span!("core_scope");
                                 let _e = s.enter();
                                 let mut tries = 1;
                                 #[allow(clippy::blocks_in_conditions)]
                                 while std::panic::catch_unwind(AssertUnwindSafe(|| {
-                                    let r = f(i, &mut d);
+                                    let r = f(i, &mut d).unwrap();
                                     if let Some(out) = out {
                                         let results = unsafe {
                                             std::slice::from_raw_parts_mut(
@@ -85,14 +94,20 @@ where
                                 .is_err()
                                 {
                                     let duration = std::time::Duration::from_secs(4u64.pow(tries));
-                                    error!(
+                                    warn!(
                                         "Error in core scope, retrying in {} seconds",
                                         duration.as_secs_f64()
                                     );
                                     std::thread::sleep(duration);
                                     tries += 1;
                                     if tries > 5 {
-                                        panic!("Error in core scope, too many retries");
+                                        if ignore_errors {
+                                            error!("Error in core scope, ignoring");
+                                            break;
+                                        } else {
+                                            error!("Error in core scope, too many retries");
+                                            panic!("Error in core scope, too many retries");
+                                        }
                                     }
                                 }
                             })
@@ -105,12 +120,12 @@ where
         }
     });
 
-    if let Some(out) = out {
+    Ok(if let Some(out) = out {
         // SAFETY: We have initialized all elements of the array.
         unsafe { std::mem::transmute::<Vec<MaybeUninit<R>>, Vec<R>>(results_uninit.unwrap()) }
     } else {
         results_push.unwrap().into_inner().unwrap()
-    }
+    })
 }
 
 // Calculate R^2 and adjusted R^2 for a list of data and outcomes.
@@ -150,11 +165,11 @@ pub fn calculate_r2s(
             }
         );
         if !mat.is_loaded() {
-            mat.into_owned().unwrap();
+            mat.into_owned()?;
         }
         if mat.has_column_loaded("eid") || mat.has_column_loaded("IID") {
-            mat.remove_column_by_name_if_exists("eid").unwrap();
-            mat.remove_column_by_name_if_exists("IID").unwrap();
+            mat.remove_column_by_name_if_exists("eid")?;
+            mat.remove_column_by_name_if_exists("IID")?;
         }
         let r = mat.as_mat_ref_loaded();
         let r2s = get_r2s(r, or)
@@ -182,8 +197,8 @@ pub fn calculate_r2s(
                 i.to_string()
             }
         );
-        r2s
-    });
+        Ok(r2s)
+    })?;
     Ok(results)
 }
 
@@ -219,11 +234,11 @@ pub fn column_p_values(
             }
         );
         if !mat.is_loaded() {
-            mat.into_owned().unwrap();
+            mat.into_owned()?;
         }
         if mat.has_column_loaded("eid") || mat.has_column_loaded("IID") {
-            mat.remove_column_by_name_if_exists("eid").unwrap();
-            mat.remove_column_by_name_if_exists("IID").unwrap();
+            mat.remove_column_by_name_if_exists("eid")?;
+            mat.remove_column_by_name_if_exists("IID")?;
         }
         let data = mat.as_mat_ref_loaded();
         let p_values = (0..data.ncols())
@@ -257,8 +272,8 @@ pub fn column_p_values(
                 i.to_string()
             }
         );
-        p_values
-    });
+        Ok(p_values)
+    })?;
     Ok(results)
 }
 
