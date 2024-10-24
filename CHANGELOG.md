@@ -6,6 +6,8 @@
 
 ## [0.2.28] - 2024-10-24
 
+## [0.2.28] - 2024-10-24
+
 ## [0.2.27] - 2024-10-23
 
 ## [0.2.26] - 2024-10-23
@@ -139,6 +141,8 @@
 <!-- next-url -->
 
 [unreleased]: https://github.com/mrvillage/lmutils/compare/v0.2.28...HEAD
+
+[0.2.28]: https://github.com/mrvillage/lmutils/compare/v0.2.28...v0.2.28
 
 [0.2.28]: https://github.com/mrvillage/lmutils/compare/v0.2.27...v0.2.28
 
