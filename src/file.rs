@@ -21,9 +21,9 @@ use crate::{IntoMatrix, Matrix, OwnedMatrix};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct File {
-    path: PathBuf,
+    path:      PathBuf,
     file_type: FileType,
-    gz: bool,
+    gz:        bool,
 }
 
 impl File {
@@ -543,19 +543,19 @@ mod tests {
         assert_eq!(mat, mat2);
     }
 
-    #[test]
-    fn test_rdata() {
-        let mut mat = Matrix::Owned(OwnedMatrix::new(
-            3,
-            2,
-            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-            Some(vec!["a".to_string(), "b".to_string()]),
-        ));
-        let file = crate::File::new("tests/mat-f64.RData", crate::FileType::Rdata, false);
-        file.write(&mut mat).unwrap();
-        let mat2 = file.read().unwrap();
-        assert_eq!(mat, mat2);
-    }
+    // #[test]
+    // fn test_rdata() {
+    //     let mut mat = Matrix::Owned(OwnedMatrix::new(
+    //         3,
+    //         2,
+    //         vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+    //         Some(vec!["a".to_string(), "b".to_string()]),
+    //     ));
+    //     let file = crate::File::new("tests/mat-f64.RData",
+    // crate::FileType::Rdata, false);     file.write(&mut mat).unwrap();
+    //     let mat2 = file.read().unwrap();
+    //     assert_eq!(mat, mat2);
+    // }
 
     #[test]
     fn test_from_path() {

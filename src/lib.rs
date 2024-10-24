@@ -14,11 +14,7 @@ pub use crate::{calc::*, error::*, file::*, matrix::*};
 
 #[cfg_attr(coverage_nightly, coverage(off))]
 #[doc(hidden)]
-pub fn core_parallelize<T, F, R, E = crate::Error>(
-    data: Vec<T>,
-    out: Option<usize>,
-    f: F,
-) -> Result<Vec<R>, E>
+pub fn core_parallelize<T, F, R, E>(data: Vec<T>, out: Option<usize>, f: F) -> Result<Vec<R>, E>
 where
     T: Send + Sync,
     for<'a> F: (Fn(usize, &'a mut T) -> Result<Vec<R>, E>) + Send + Sync,
@@ -155,7 +151,7 @@ pub fn calculate_r2s(
         Some(data_names) if data_names.iter().all(|x| *x == "NA") => None,
         x => x,
     };
-    let results = core_parallelize(data, Some(or.ncols()), |i, mat| {
+    core_parallelize(data, Some(or.ncols()), |i, mat| {
         info!(
             "Calculating R^2 for data set {}",
             if let Some(data_names) = &data_names {
@@ -198,8 +194,7 @@ pub fn calculate_r2s(
             }
         );
         Ok(r2s)
-    })?;
-    Ok(results)
+    })
 }
 
 #[tracing::instrument(skip(data, outcomes, data_names))]
@@ -224,7 +219,7 @@ pub fn column_p_values(
     // let mut results: Vec<MaybeUninit<PValue>> = Vec::with_capacity(or.ncols() *
     // ndata); results.extend((0..(or.ncols() * ndata)).map(|_|
     // MaybeUninit::uninit()));
-    let results = core_parallelize(data, None, |i, mat| {
+    core_parallelize(data, None, |i, mat| {
         info!(
             "Calculating p-values for data set {}",
             if let Some(data_names) = &data_names {
@@ -273,8 +268,7 @@ pub fn column_p_values(
             }
         );
         Ok(p_values)
-    })?;
-    Ok(results)
+    })
 }
 
 pub fn compute_r2(actual: &[f64], predicted: &[f64]) -> f64 {
