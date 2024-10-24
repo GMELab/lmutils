@@ -29,6 +29,7 @@ cfg-if = "1.0"
 pulp = "0.18"
 rand = "0.8.5"
 rand_distr = "0.4.3"
+num_cpus = "1.16.0"
 
 [dev-dependencies]
 test-log = "0.2.16"

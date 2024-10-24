@@ -420,12 +420,15 @@ pub fn linear_regression(xs: MatRef<'_, f64>, ys: &[f64]) -> LinearModel {
     };
     let betas = betas.col(0).try_as_slice().unwrap();
     let intercept = betas[ncols];
-    let predicted = (0..ys.len())
+    let mut predicted = (0..ys.len())
         .map(|i| intercept + (0..ncols).map(|j| betas[j] * x[(i, j)]).sum::<f64>())
         .collect::<Vec<_>>();
     let r2 = R2Simd::new(ys, &predicted).calculate();
     let adj_r2 =
         1.0 - (1.0 - r2) * (ys.len() as f64 - 1.0) / (ys.len() as f64 - ncols as f64 - 1.0);
+    if should_disable_predicted() {
+        predicted = Vec::new();
+    }
     LinearModel {
         slopes: betas[..ncols].to_vec(),
         intercept,
