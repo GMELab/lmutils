@@ -788,6 +788,7 @@ impl Matrix {
         self.add_transformation(move |m| m.remove_columns_by_name(&names))
     }
 
+    #[tracing::instrument(skip(self, names))]
     pub fn remove_columns_by_name(
         &mut self,
         names: &HashSet<String>,
@@ -1601,6 +1602,54 @@ impl Matrix {
             .collect();
         self.remove_columns(&removing)
     }
+
+    pub fn t_subset_columns(&mut self, cols: Vec<usize>) -> &mut Self {
+        self.add_transformation(move |m| m.subset_columns(&cols))
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn subset_columns(&mut self, cols: &[usize]) -> Result<&mut Self, crate::Error> {
+        let ncols = self.ncols()?;
+        let removing = (0..ncols)
+            .into_par_iter()
+            .filter(|x| !cols.contains(x))
+            .collect::<HashSet<_>>();
+        self.remove_columns(&removing)
+    }
+
+    pub fn t_subset_columns_by_name(&mut self, cols: Vec<String>) -> &mut Self {
+        self.add_transformation(move |m| m.subset_columns_by_name(&cols))
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn subset_columns_by_name(&mut self, cols: &[String]) -> Result<&mut Self, crate::Error> {
+        let colnames = self.colnames()?;
+        if colnames.is_none() {
+            return Err(crate::Error::MissingColumnNames);
+        }
+        let cols = cols
+            .iter()
+            .map(|x| {
+                colnames
+                    .as_ref()
+                    .expect("colnames should be present")
+                    .iter()
+                    .position(|y| *y == *x)
+            })
+            .collect::<Vec<_>>();
+        if cols.iter().any(|x| x.is_none()) {
+            return Err(crate::Error::ColumnNameNotFound(
+                cols.iter()
+                    .find(|x| x.is_none())
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .to_string(),
+            ));
+        }
+        let cols = cols.into_iter().map(|x| x.unwrap()).collect::<Vec<_>>();
+        self.subset_columns(&cols)
+    }
 }
 
 impl Matrix {
@@ -2194,9 +2243,8 @@ mod tests {
             Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]),
         )
         .into_matrix();
-        let m = m.t_remove_columns_by_name(HashSet::from_iter(
-            vec!["a", "c"].iter().map(|x| x.to_string()),
-        ));
+        let m = m
+            .t_remove_columns_by_name(HashSet::from_iter(["a", "c"].iter().map(|x| x.to_string())));
         assert_eq!(m.data().unwrap(), &[4.0, 5.0, 6.0]);
         assert_eq!(m.colnames().unwrap().unwrap(), &["b".to_string()]);
         assert_eq!(m.nrows().unwrap(), 3);
@@ -3219,5 +3267,43 @@ mod tests {
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 1);
         assert_eq!(m.colnames().unwrap().unwrap(), &["a".to_string()]);
+    }
+
+    #[test]
+    fn test_subset_columns() {
+        let mut m = OwnedMatrix::new(
+            3,
+            3,
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+            Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]),
+        )
+        .into_matrix();
+        let m = m.t_subset_columns(vec![0, 2]);
+        assert_eq!(m.data().unwrap(), &[1.0, 2.0, 3.0, 7.0, 8.0, 9.0]);
+        assert_eq!(m.nrows().unwrap(), 3);
+        assert_eq!(m.ncols().unwrap(), 2);
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "c".to_string()
+        ]);
+    }
+
+    #[test]
+    fn test_subset_columns_by_name() {
+        let mut m = OwnedMatrix::new(
+            3,
+            3,
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+            Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]),
+        )
+        .into_matrix();
+        let m = m.t_subset_columns_by_name(vec!["a".to_string(), "c".to_string()]);
+        assert_eq!(m.data().unwrap(), &[1.0, 2.0, 3.0, 7.0, 8.0, 9.0]);
+        assert_eq!(m.nrows().unwrap(), 3);
+        assert_eq!(m.ncols().unwrap(), 2);
+        assert_eq!(m.colnames().unwrap().unwrap(), &[
+            "a".to_string(),
+            "c".to_string()
+        ]);
     }
 }
