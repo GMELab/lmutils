@@ -784,6 +784,28 @@ impl Matrix {
         Ok(self)
     }
 
+    pub fn t_remove_columns_by_name(&mut self, names: HashSet<String>) -> &mut Self {
+        self.add_transformation(move |m| m.remove_columns_by_name(&names))
+    }
+
+    pub fn remove_columns_by_name(
+        &mut self,
+        names: &HashSet<String>,
+    ) -> Result<&mut Self, crate::Error> {
+        let names = HashSet::<&str>::from_iter(names.iter().map(|x| x.as_str()));
+        let colnames = self.colnames()?;
+        if colnames.is_none() {
+            return Err(crate::Error::MissingColumnNames);
+        }
+        let colnames = colnames.expect("colnames should be present");
+        let removing = colnames
+            .iter()
+            .enumerate()
+            .filter_map(|(i, x)| if names.contains(x) { Some(i) } else { None })
+            .collect();
+        self.remove_columns(&removing)
+    }
+
     pub fn t_remove_column_by_name_if_exists(&mut self, name: &str) -> &mut Self {
         let name = name.to_string();
         self.add_transformation(move |m| m.remove_column_by_name_if_exists(&name))
@@ -2161,6 +2183,24 @@ mod tests {
         ]);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 2);
+    }
+
+    #[test]
+    fn test_remove_columns_by_name_success() {
+        let mut m = OwnedMatrix::new(
+            3,
+            3,
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+            Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]),
+        )
+        .into_matrix();
+        let m = m.t_remove_columns_by_name(HashSet::from_iter(
+            vec!["a", "c"].iter().map(|x| x.to_string()),
+        ));
+        assert_eq!(m.data().unwrap(), &[4.0, 5.0, 6.0]);
+        assert_eq!(m.colnames().unwrap().unwrap(), &["b".to_string()]);
+        assert_eq!(m.nrows().unwrap(), 3);
+        assert_eq!(m.ncols().unwrap(), 1);
     }
 
     #[test]
