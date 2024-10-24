@@ -1603,12 +1603,12 @@ impl Matrix {
         self.remove_columns(&removing)
     }
 
-    pub fn t_subset_columns(&mut self, cols: Vec<usize>) -> &mut Self {
+    pub fn t_subset_columns(&mut self, cols: HashSet<usize>) -> &mut Self {
         self.add_transformation(move |m| m.subset_columns(&cols))
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn subset_columns(&mut self, cols: &[usize]) -> Result<&mut Self, crate::Error> {
+    pub fn subset_columns(&mut self, cols: &HashSet<usize>) -> Result<&mut Self, crate::Error> {
         let ncols = self.ncols()?;
         let removing = (0..ncols)
             .into_par_iter()
@@ -1617,12 +1617,15 @@ impl Matrix {
         self.remove_columns(&removing)
     }
 
-    pub fn t_subset_columns_by_name(&mut self, cols: Vec<String>) -> &mut Self {
+    pub fn t_subset_columns_by_name(&mut self, cols: HashSet<String>) -> &mut Self {
         self.add_transformation(move |m| m.subset_columns_by_name(&cols))
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn subset_columns_by_name(&mut self, cols: &[String]) -> Result<&mut Self, crate::Error> {
+    pub fn subset_columns_by_name(
+        &mut self,
+        cols: &HashSet<String>,
+    ) -> Result<&mut Self, crate::Error> {
         let colnames = self.colnames()?;
         if colnames.is_none() {
             return Err(crate::Error::MissingColumnNames);
@@ -1647,7 +1650,7 @@ impl Matrix {
                     .to_string(),
             ));
         }
-        let cols = cols.into_iter().map(|x| x.unwrap()).collect::<Vec<_>>();
+        let cols = cols.into_iter().map(|x| x.unwrap()).collect::<HashSet<_>>();
         self.subset_columns(&cols)
     }
 }
@@ -3278,7 +3281,7 @@ mod tests {
             Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]),
         )
         .into_matrix();
-        let m = m.t_subset_columns(vec![0, 2]);
+        let m = m.t_subset_columns([0, 2].into_iter().collect::<HashSet<_>>());
         assert_eq!(m.data().unwrap(), &[1.0, 2.0, 3.0, 7.0, 8.0, 9.0]);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 2);
@@ -3297,7 +3300,7 @@ mod tests {
             Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]),
         )
         .into_matrix();
-        let m = m.t_subset_columns_by_name(vec!["a".to_string(), "c".to_string()]);
+        let m = m.t_subset_columns_by_name(["a", "c"].iter().map(|s| s.to_string()).collect());
         assert_eq!(m.data().unwrap(), &[1.0, 2.0, 3.0, 7.0, 8.0, 9.0]);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 2);
