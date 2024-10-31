@@ -1264,6 +1264,11 @@ impl Matrix {
         let self_colnames = self.colnames()?;
         let other_colnames = other.colnames()?;
         if self_colnames.is_none() || other_colnames.is_none() {
+            if self_colnames.is_none() {
+                debug!("self colnames are missing");
+            } else {
+                debug!("other colnames are missing");
+            }
             return Err(crate::Error::MissingColumnNames);
         }
         let self_by_col_idx = self_colnames
