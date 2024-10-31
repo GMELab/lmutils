@@ -60,7 +60,7 @@ impl File {
 
             let tmp_path = std::env::current_dir()
                 .unwrap_or_else(|_| std::env::temp_dir())
-                .join(format!("{}.tmp", rand::random::<u64>()));
+                .join(format!(".lmutils.{}.tmp", rand::random::<u64>()));
             cfg_if!(
                 if #[cfg(libc_2_27)] {
                     let mut file = memfile::MemFile::create_default(&tmp_path.to_string_lossy())?;
@@ -271,7 +271,7 @@ impl File {
 
             let tmp_path = std::env::current_dir()
                 .unwrap_or_else(|_| std::env::temp_dir())
-                .join(format!("{}.tmp", rand::random::<u64>()));
+                .join(format!(".lmutils.{}.tmp", rand::random::<u64>()));
             cfg_if!(
                 if #[cfg(libc_2_27)] {
                     let mut file = memfile::MemFile::create_default(&tmp_path.to_string_lossy())?;
