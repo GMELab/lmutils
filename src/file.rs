@@ -58,7 +58,9 @@ impl File {
         if self.file_type == FileType::Rdata && std::env::var("LMUTILS_FD").is_err() {
             use std::{io::Seek, os::unix::process::CommandExt};
 
-            let tmp_path = std::env::temp_dir().join(rand::random::<u64>().to_string());
+            let tmp_path = std::env::current_dir()
+                .unwrap_or_else(|_| std::env::temp_dir())
+                .join(format!("{}.tmp", rand::random::<u64>()));
             cfg_if!(
                 if #[cfg(libc_2_27)] {
                     let mut file = memfile::MemFile::create_default(&tmp_path.to_string_lossy())?;
@@ -104,9 +106,13 @@ impl File {
             );
             file.rewind()?;
             let mat = Self::new("", FileType::Rkyv, false).read_from_reader(file);
-            if std::fs::exists(&tmp_path)? {
-                std::fs::remove_file(tmp_path)?;
-            }
+            cfg_if!(
+                if #[cfg(not(libc_2_27))] {
+                    if std::fs::exists(&tmp_path)? {
+                        std::fs::remove_file(tmp_path)?;
+                    }
+                }
+            );
             return mat;
         }
         let file = std::fs::File::open(&self.path)?;
@@ -263,7 +269,9 @@ impl File {
                 os::{fd::FromRawFd, unix::process::CommandExt},
             };
 
-            let tmp_path = std::env::temp_dir().join(rand::random::<u64>().to_string());
+            let tmp_path = std::env::current_dir()
+                .unwrap_or_else(|_| std::env::temp_dir())
+                .join(format!("{}.tmp", rand::random::<u64>()));
             cfg_if!(
                 if #[cfg(libc_2_27)] {
                     let mut file = memfile::MemFile::create_default(&tmp_path.to_string_lossy())?;
@@ -293,6 +301,13 @@ impl File {
                     })
                     .output()?
             };
+            cfg_if!(
+                if #[cfg(not(libc_2_27))] {
+                    if std::fs::exists(&tmp_path)? {
+                        std::fs::remove_file(tmp_path)?;
+                    }
+                }
+            );
             if output.status.code().is_none() || output.status.code().unwrap() != 0 {
                 tracing::error!("failed to read {}", self.path.display());
                 tracing::error!("STDOUT: {}", String::from_utf8_lossy(&output.stdout));
