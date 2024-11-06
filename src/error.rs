@@ -44,6 +44,12 @@ pub enum Error {
     InvalidItemType,
     #[error("invalid rdata file")]
     InvalidRdataFile,
+    #[error("invalid mat file")]
+    InvalidMatFile,
+    #[error("unsupported mat file version {0}")]
+    UnsupportedMatFileVersion(u8),
+    #[error("matrix in mat file too large")]
+    MatrixTooLarge,
     #[error("unequal column lengths")]
     UnequalColumnLengths,
     #[error("io error: {0}")]

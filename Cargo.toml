@@ -45,3 +45,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)'] }
 [[bench]]
 name = "r2_simd"
 harness = false
+
+[[bench]]
+name = "mat_v_rkyv"
+harness = false
