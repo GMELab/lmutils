@@ -1,9 +1,13 @@
+use std::convert::identity;
+
 use faer::{
+    diag::Diag,
     get_global_parallelism,
     mat::AsMatRef,
-    solvers::{SpSolver, Svd},
+    solvers::{SolverCore, SpSolver, Svd},
     Col,
     ColMut,
+    ColRef,
     ComplexField,
     Mat,
     MatMut,
@@ -542,6 +546,107 @@ impl<'a> WithSimd for R2Simd<'a> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct LogisticModel {
+    slopes:    Vec<f64>,
+    intercept: f64,
+    predicted: Vec<f64>,
+}
+
+#[inline(always)]
+fn logit(x: f64) -> f64 {
+    (x / (1.0 - x)).ln()
+}
+
+#[inline(always)]
+fn logistic(x: f64) -> f64 {
+    1.0 / (1.0 + (-x).exp())
+}
+
+#[inline(always)]
+fn logit_prime(x: f64) -> f64 {
+    1.0 / (x * (1.0 - x))
+}
+
+#[inline(always)]
+fn v(x: f64) -> f64 {
+    x * (1.0 - x)
+}
+
+#[inline(always)]
+fn wls(x: MatRef<f64>, w: MatRef<f64>, z: ColRef<f64>) -> Col<f64> {
+    let xtwx = x.transpose() * w * x;
+    let xtwz = x.transpose() * w * z;
+    Svd::new(xtwx.as_mat_ref()).inverse() * xtwz
+    // match xtwx.cholesky(Side::Lower) {
+    //     Ok(chol) => chol.solve(xtwz),
+    //     Err(_) => {
+    //         warn!("Using pseudo inverse");
+    //         Svd::new(xtwx.as_mat_ref()).pseudoinverse() * xtwz
+    //     },
+    // }
+}
+
+#[inline(always)]
+fn ll(p: &[f64], y: &[f64]) -> f64 {
+    p.iter()
+        .zip(y)
+        .map(|(p, y)| y * p.ln() + (1.0 - y) * (1.0 - p).ln())
+        .sum()
+}
+
+pub fn logistic_regression(xs: MatRef<'_, f64>, ys: &[f64]) -> LogisticModel {
+    let mut mu = vec![0.5; ys.len()];
+    let mut delta = 1.0;
+    let mut l = 0.0;
+    let mut x = xs.to_owned();
+    x.resize_with(
+        xs.nrows(),
+        xs.ncols() + 1,
+        #[inline(always)]
+        |_, _| 1.0,
+    );
+    let mut slopes = vec![0.0; xs.ncols()];
+    let mut intercept = 0.0;
+    while delta > 1e-5 {
+        let z = mu
+            .iter()
+            .zip(ys)
+            .map(|(mu, y)| logit(*mu) + (y - mu) * logit_prime(*mu))
+            .collect::<Vec<_>>();
+        let w = Mat::from_fn(ys.len(), ys.len(), |i, j| {
+            if i == j {
+                1.0 / (logit_prime(mu[i]).powi(2) * v(mu[i]))
+            } else {
+                0.0
+            }
+        });
+
+        let beta = wls(
+            x.as_mat_ref(),
+            w.as_mat_ref(),
+            faer::col::from_slice(z.as_slice()),
+        );
+        let b = beta.try_as_slice().unwrap();
+        slopes.as_mut_slice().copy_from_slice(&b[..xs.ncols()]);
+        intercept = b[xs.ncols()];
+        let eta = &x * beta;
+        let eta = eta.try_as_slice().unwrap();
+        for (mu, eta) in mu.iter_mut().zip(eta) {
+            *mu = logistic(*eta);
+        }
+        let old_ll = l;
+        l = ll(mu.as_slice(), ys);
+        delta = (l - old_ll).abs();
+    }
+
+    LogisticModel {
+        slopes,
+        intercept,
+        predicted: mu,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use assert_float_eq::*;
@@ -742,5 +847,13 @@ mod tests {
         let predicted = [1.0, 2.0, 3.0, 4.0, 5.0];
         let r2 = R2Simd::new(&actual, &predicted).calculate();
         float_eq!(r2, 0.8837209302325582);
+    }
+
+    #[test]
+    fn test_logistic_regression() {
+        let xs = faer::mat::from_column_major_slice::<f64>(&[1.0, 0.0, 1.0, 0.0, 1.0], 5, 1);
+        let ys = [1.0, 0.0, 1.0, 0.0, 1.0];
+        let model = logistic_regression(xs.as_mat_ref(), &ys);
+        println!("{:?}", model);
     }
 }
