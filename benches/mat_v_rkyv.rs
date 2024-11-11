@@ -4,7 +4,7 @@ use lmutils::{File, IntoMatrix, OwnedMatrix};
 fn main() -> std::io::Result<()> {
     let mut bench = Bench::new(BenchConfig::from_args());
     bench.register_many(list![write_rkyv, write_mat, load_rkyv, load_mat], [
-        100, 1000, 10000,
+        100, 1000,
     ]);
     bench.run()?;
     Ok(())
