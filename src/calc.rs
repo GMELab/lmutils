@@ -620,10 +620,16 @@ pub fn logistic_regression_irls(xs: MatRef<'_, f64>, ys: &[f64]) -> LogisticMode
         //     1.0,
         //     get_global_parallelism(),
         // );
-        xtw.par_row_chunks_mut(1)
+        xtw.par_col_chunks_mut(1)
             .zip(w.par_iter())
             .enumerate()
-            .for_each(|(i, (xtw, w))| xtw.col_mut(0).iter_mut().for_each(|x| *x = xt[(i, 0)] * w));
+            .for_each(|(j, (mut xtw, w))| {
+                xtw.col_iter_mut().for_each(|x| {
+                    x.iter_mut()
+                        .enumerate()
+                        .for_each(|(i, x)| *x = xt[(i, j)] * w)
+                })
+            });
         faer::linalg::matmul::matmul(xtwx.as_mut(), &xtw, &x, None, 1.0, get_global_parallelism());
         faer::linalg::matmul::matmul(
             xtwz.as_mut(),
@@ -717,10 +723,16 @@ pub fn logistic_regression_newton_raphson(xs: MatRef<'_, f64>, ys: &[f64]) -> Lo
         //     1.0,
         //     get_global_parallelism(),
         // );
-        xtw.par_row_chunks_mut(1)
+        xtw.par_col_chunks_mut(1)
             .zip(w.par_iter())
             .enumerate()
-            .for_each(|(i, (xtw, w))| xtw.col_mut(0).iter_mut().for_each(|x| *x = xt[(i, 0)] * w));
+            .for_each(|(j, (mut xtw, w))| {
+                xtw.col_iter_mut().for_each(|x| {
+                    x.iter_mut()
+                        .enumerate()
+                        .for_each(|(i, x)| *x = xt[(i, j)] * w)
+                })
+            });
         faer::linalg::matmul::matmul(
             hessian.as_mut(),
             &xtw,
@@ -1062,8 +1074,8 @@ mod tests {
             .sample_iter(rand::thread_rng())
             .take(nrows)
             .collect::<Vec<_>>();
-        // println!("{:?}", xs);
-        // println!("{:?}", ys);
+        println!("{:?}", xs);
+        println!("{:?}", ys);
         let xs = faer::mat::from_column_major_slice(xs.as_slice(), nrows, 1);
         let m1 = logistic_regression_irls(xs, ys.as_slice());
         let m2 = logistic_regression_newton_raphson(xs, ys.as_slice());
