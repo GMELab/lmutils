@@ -2,6 +2,7 @@ use std::fmt::Debug;
 
 use diol::prelude::*;
 use lmutils::{logistic_regression_irls, logistic_regression_newton_raphson};
+use rand::SeedableRng;
 use rand_distr::Distribution;
 
 #[derive(Clone)]
@@ -19,17 +20,12 @@ impl Debug for Arg {
 
 fn main() -> std::io::Result<()> {
     let mut bench = Bench::new(BenchConfig::from_args());
-    let xs = statrs::distribution::Normal::new(0.0, 1.0).unwrap();
-    let ys = statrs::distribution::Bernoulli::new(0.5).unwrap();
+    let mut rng = rand::rngs::StdRng::seed_from_u64(0);
     let args = [5, 50, 500, 5000].iter().map(|len| {
-        let xs = xs
-            .sample_iter(rand::thread_rng())
-            .take(*len)
-            .collect::<Vec<_>>();
-        let ys = ys
-            .sample_iter(rand::thread_rng())
-            .take(*len)
-            .collect::<Vec<_>>();
+        let xs = statrs::distribution::Normal::new(0.0, 1.0).unwrap();
+        let ys = statrs::distribution::Bernoulli::new(0.5).unwrap();
+        let xs = xs.sample_iter(&mut rng).take(*len).collect::<Vec<_>>();
+        let ys = ys.sample_iter(&mut rng).take(*len).collect::<Vec<_>>();
         Arg { len: *len, xs, ys }
     });
     bench.register_many(list![irls, newton_raphson], args);
