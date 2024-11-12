@@ -29,4 +29,4 @@ jobs:
     - name: Test
       run: cargo test --verbose
     - name: Format
-      run: cargo fmt --all -- --check
+      run: cargo +nightly fmt --all -- --check
