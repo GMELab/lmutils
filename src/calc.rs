@@ -1,4 +1,4 @@
-use std::{convert::identity, ops::SubAssign};
+use std::{convert::identity, io::Write, ops::SubAssign};
 
 use faer::{
     diag::Diag,
@@ -20,7 +20,7 @@ use pulp::{Arch, Simd, WithSimd};
 use rand_distr::{Distribution, StandardNormal};
 use rayon::{iter::IntoParallelIterator, prelude::*};
 use statrs::distribution::{ContinuousCDF, StudentsT};
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 
 fn should_disable_predicted() -> bool {
     let enabled = std::env::var("LMUTILS_ENABLE_PREDICTED").is_ok();
@@ -595,9 +595,10 @@ pub fn logistic_regression_irls(xs: MatRef<'_, f64>, ys: &[f64]) -> LogisticMode
     let mut slopes = vec![0.0; xs.ncols()];
     let mut intercept = 0.0;
     let mut z = vec![0.0; ys.len()];
-    let mut w = Mat::zeros(ys.len(), ys.len());
+    // let mut w = Mat::zeros(ys.len(), ys.len());
+    let mut w = vec![0.0; ys.len()];
     let xt = x.transpose();
-    let mut xtw = Mat::zeros(x.ncols(), ys.len());
+    let mut xtw = Mat::<f64>::zeros(x.ncols(), ys.len());
     let mut xtwx = Mat::zeros(x.ncols(), x.ncols());
     let mut xtwz = Col::zeros(x.ncols());
     while delta > 1e-5 {
@@ -605,20 +606,24 @@ pub fn logistic_regression_irls(xs: MatRef<'_, f64>, ys: &[f64]) -> LogisticMode
             *z = logit(*mu) + (y - mu) * logit_prime(*mu);
         }
         for (i, mu) in mu.iter().enumerate() {
-            w[(i, i)] = 1.0 / (logit_prime(*mu).powi(2) * v(*mu));
+            w[i] = 1.0 / (logit_prime(*mu).powi(2) * v(*mu));
         }
 
-        faer::linalg::matmul::triangular::matmul(
-            xtw.as_mut(),
-            faer::linalg::matmul::triangular::BlockStructure::Rectangular,
-            xt,
-            faer::linalg::matmul::triangular::BlockStructure::Rectangular,
-            &w,
-            faer::linalg::matmul::triangular::BlockStructure::TriangularLower,
-            None,
-            1.0,
-            get_global_parallelism(),
-        );
+        // faer::linalg::matmul::triangular::matmul(
+        //     xtw.as_mut(),
+        //     faer::linalg::matmul::triangular::BlockStructure::Rectangular,
+        //     xt,
+        //     faer::linalg::matmul::triangular::BlockStructure::Rectangular,
+        //     &w,
+        //     faer::linalg::matmul::triangular::BlockStructure::TriangularLower,
+        //     None,
+        //     1.0,
+        //     get_global_parallelism(),
+        // );
+        xtw.par_row_chunks_mut(1)
+            .zip(w.par_iter())
+            .enumerate()
+            .for_each(|(i, (xtw, w))| xtw.col_mut(0).iter_mut().for_each(|x| *x = xt[(i, 0)] * w));
         faer::linalg::matmul::matmul(xtwx.as_mut(), &xtw, &x, None, 1.0, get_global_parallelism());
         faer::linalg::matmul::matmul(
             xtwz.as_mut(),
@@ -666,12 +671,13 @@ pub fn logistic_regression_newton_raphson(xs: MatRef<'_, f64>, ys: &[f64]) -> Lo
     );
     let mut beta = vec![0.0; x.ncols()];
     let mut mu = vec![0.0; ys.len()];
-    let mut w = Mat::zeros(ys.len(), ys.len());
+    // let mut w = Mat::zeros(ys.len(), ys.len());
+    let mut w = vec![0.0; ys.len()];
     let mut linear_predictor = Col::zeros(ys.len());
     let mut ys_sub_mu = vec![0.0; ys.len()];
     let xt = x.transpose();
     let mut jacobian = Col::zeros(x.ncols());
-    let mut xtw = Mat::zeros(x.ncols(), ys.len());
+    let mut xtw = Mat::<f64>::zeros(x.ncols(), ys.len());
     let mut hessian = Mat::zeros(x.ncols(), x.ncols());
     for _ in 0..100 {
         faer::linalg::matmul::matmul(
@@ -686,7 +692,7 @@ pub fn logistic_regression_newton_raphson(xs: MatRef<'_, f64>, ys: &[f64]) -> Lo
             *mu = logistic(*l);
         }
         for (i, mu) in mu.iter().enumerate() {
-            w[(i, i)] = mu * (1.0 - mu);
+            w[i] = mu * (1.0 - mu);
         }
         for (i, (mu, y)) in mu.iter().zip(ys).enumerate() {
             ys_sub_mu[i] = *y - mu;
@@ -700,17 +706,21 @@ pub fn logistic_regression_newton_raphson(xs: MatRef<'_, f64>, ys: &[f64]) -> Lo
             1.0,
             get_global_parallelism(),
         );
-        faer::linalg::matmul::triangular::matmul(
-            xtw.as_mut(),
-            faer::linalg::matmul::triangular::BlockStructure::Rectangular,
-            xt,
-            faer::linalg::matmul::triangular::BlockStructure::Rectangular,
-            &w,
-            faer::linalg::matmul::triangular::BlockStructure::TriangularLower,
-            None,
-            1.0,
-            get_global_parallelism(),
-        );
+        // faer::linalg::matmul::triangular::matmul(
+        //     xtw.as_mut(),
+        //     faer::linalg::matmul::triangular::BlockStructure::Rectangular,
+        //     xt,
+        //     faer::linalg::matmul::triangular::BlockStructure::Rectangular,
+        //     &w,
+        //     faer::linalg::matmul::triangular::BlockStructure::TriangularLower,
+        //     None,
+        //     1.0,
+        //     get_global_parallelism(),
+        // );
+        xtw.par_row_chunks_mut(1)
+            .zip(w.par_iter())
+            .enumerate()
+            .for_each(|(i, (xtw, w))| xtw.col_mut(0).iter_mut().for_each(|x| *x = xt[(i, 0)] * w));
         faer::linalg::matmul::matmul(
             hessian.as_mut(),
             &xtw,
@@ -747,6 +757,87 @@ pub fn logistic_regression_newton_raphson(xs: MatRef<'_, f64>, ys: &[f64]) -> Lo
             beta.truncate(x.ncols() - 1);
             beta
         },
+    }
+}
+
+fn logistic_regression_glm(xs: MatRef<'_, f64>, ys: &[f64]) -> LogisticModel {
+    let mut x = xs.to_owned();
+    x.resize_with(
+        xs.nrows(),
+        xs.ncols() + 1,
+        #[inline(always)]
+        |_, _| 1.0,
+    );
+    let weights = vec![1.0; ys.len()];
+    let mustart = weights
+        .iter()
+        .zip(ys)
+        .map(|(w, y)| (w * y + 0.5) / (w + 1.0))
+        .collect::<Vec<_>>();
+    let mut eta = mustart.iter().map(|x| logit(*x)).collect::<Vec<_>>();
+    let mut mu = mustart;
+    let mut delta = 1.0;
+    let mut l = 0.0;
+    let mut slopes = vec![0.0; xs.ncols()];
+    let mut intercept = 0.0;
+    let mut i = 0;
+    while delta > 1e-5 {
+        fn mu_eta_val(eta: f64) -> f64 {
+            let exp = eta.exp();
+            exp / (1.0 + exp).powi(2)
+        }
+        let z = eta
+            .iter()
+            .zip(ys)
+            .zip(mu.iter())
+            .map(|((e, y), m)| e + (y - m) / mu_eta_val(*e))
+            .collect::<Vec<_>>();
+        let w = mu
+            .iter()
+            .zip(weights.iter())
+            .zip(eta.iter())
+            .map(|((m, w), e)| (w * mu_eta_val(*e).powi(2)).sqrt() / v(*m))
+            .collect::<Vec<_>>();
+        let mut xw = x.clone();
+        xw.row_iter_mut()
+            .zip(w.iter())
+            .for_each(|(x, w)| x.iter_mut().for_each(|x| *x *= *w));
+        let zw = z.iter().zip(w).map(|(z, w)| z * w).collect::<Vec<_>>();
+        println!("{:?} {:?}", xw.nrows(), xw.ncols());
+        println!("{:?}", zw.len());
+        std::io::stdout().flush().unwrap();
+        let qr = xw.qr();
+        // let beta = match xw.cholesky(Side::Lower) {
+        //     Ok(chol) => chol.solve(faer::col::from_slice(zw.as_slice())),
+        //     Err(_) => {
+        //         warn!("Using pseudo inverse");
+        //         ThinSvd::new(xw.as_mat_ref()).pseudoinverse() *
+        // faer::col::from_slice(zw.as_slice())     },
+        // };
+        let beta = (qr.compute_thin_r().thin_svd().inverse()
+            * qr.compute_thin_q().transpose()
+            * faer::col::from_slice(zw.as_slice()));
+        slopes.copy_from_slice(&beta.try_as_slice().unwrap()[..xs.ncols()]);
+        intercept = beta.try_as_slice().unwrap()[xs.ncols()];
+        let eta = (&x * beta).try_as_slice().unwrap().to_vec();
+        for (i, eta) in eta.iter().enumerate() {
+            mu[i] = logistic(*eta);
+        }
+        let old_ll = l;
+        l = ll(mu.as_slice(), ys);
+        delta = (l - old_ll).abs();
+        println!("{:?} {:?}", old_ll, l);
+        i += 1;
+        if i > 100 {
+            error!("Did not converge");
+            break;
+        }
+    }
+
+    LogisticModel {
+        slopes,
+        intercept,
+        predicted: mu,
     }
 }
 
@@ -971,13 +1062,15 @@ mod tests {
             .sample_iter(rand::thread_rng())
             .take(nrows)
             .collect::<Vec<_>>();
-        println!("{:?}", xs);
-        println!("{:?}", ys);
+        // println!("{:?}", xs);
+        // println!("{:?}", ys);
         let xs = faer::mat::from_column_major_slice(xs.as_slice(), nrows, 1);
         let m1 = logistic_regression_irls(xs, ys.as_slice());
         let m2 = logistic_regression_newton_raphson(xs, ys.as_slice());
+        let m3 = logistic_regression_glm(xs, ys.as_slice());
         println!("{:?}", m1);
         println!("{:?}", m2);
+        println!("{:?}", m3);
         for (a, b) in m1.slopes.iter().zip(m2.slopes.iter()) {
             rough_eq!(a, b);
         }
