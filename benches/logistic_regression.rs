@@ -25,7 +25,7 @@ impl Debug for Arg {
 fn main() -> std::io::Result<()> {
     let mut bench = Bench::new(BenchConfig::from_args());
     let mut rng = rand::rngs::StdRng::seed_from_u64(0);
-    let args = [1, 2, 3, 4].iter().map(|len| {
+    let args = [1, 2, 3].iter().map(|len| {
         let nrow = 10_usize.pow(*len);
         let ncol = 5_usize.pow(*len);
         let xs = statrs::distribution::Normal::new(0.0, 1.0).unwrap();
