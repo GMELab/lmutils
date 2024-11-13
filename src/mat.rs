@@ -13,7 +13,14 @@ pub fn read_mat(mut reader: impl std::io::Read) -> Result<Matrix, crate::Error> 
     let mut version = [0; 1];
     reader.read_exact(&mut version)?;
     match version[0] {
-        FloatMatrix::VERSION => FloatMatrix::read(reader),
+        FloatMatrix::VERSION => FloatMatrix.read(reader),
+        BinaryMatrix::VERSION => {
+            BinaryMatrix {
+                zero: 0.0,
+                one:  1.0,
+            }
+            .read(reader)
+        },
         v => Err(crate::Error::UnsupportedMatFileVersion(v)),
     }
 }
@@ -21,18 +28,41 @@ pub fn read_mat(mut reader: impl std::io::Read) -> Result<Matrix, crate::Error> 
 pub fn write_mat(mut writer: impl std::io::Write, mat: &mut Matrix) -> Result<(), crate::Error> {
     mat.into_owned()?;
     writer.write_all(b"MAT")?;
-    writer.write_all(&[FloatMatrix::VERSION])?;
-    FloatMatrix::write(writer, mat);
+    let data = mat.data()?;
+    let mut unique = [data[0], 0.0];
+    let mut iter = data.iter();
+    // get second unique value
+    for i in &mut iter {
+        if *i != unique[0] {
+            unique[1] = *i;
+            break;
+        }
+    }
+    // if there's a third unique value, write as float matrix
+    for i in &mut iter {
+        if *i != unique[0] && *i != unique[1] {
+            writer.write_all(&[FloatMatrix::VERSION])?;
+            FloatMatrix.write(writer, mat);
+            return Ok(());
+        }
+    }
+    // otherwise, write as binary matrix
+    writer.write_all(&[BinaryMatrix::VERSION])?;
+    BinaryMatrix {
+        zero: unique[0],
+        one:  unique[1],
+    }
+    .write(writer, mat);
     Ok(())
 }
 
 trait Mat {
     const VERSION: u8;
 
-    fn read(reader: impl std::io::Read) -> Result<Matrix, crate::Error>;
-    fn write(writer: impl std::io::Write, mat: &mut Matrix) -> Result<(), crate::Error>;
+    fn read(&self, reader: impl std::io::Read) -> Result<Matrix, crate::Error>;
+    fn write(&self, writer: impl std::io::Write, mat: &mut Matrix) -> Result<(), crate::Error>;
 
-    fn read_header(mut reader: impl std::io::Read) -> Result<(usize, usize), crate::Error> {
+    fn read_header(&self, mut reader: impl std::io::Read) -> Result<(usize, usize), crate::Error> {
         let mut buf = [0; 8];
         reader.read_exact(&mut buf)?;
         let nrows = u64::from_le_bytes(buf);
@@ -47,12 +77,11 @@ trait Mat {
             Some(n) if n > usize_max => return Err(crate::Error::MatrixTooLarge),
             _ => (),
         }
-        let ncols = ncols as usize;
-        let nrows = nrows as usize;
         Ok((nrows as usize, ncols as usize))
     }
 
     fn read_colnames(
+        &self,
         mut reader: impl std::io::Read,
         ncols: usize,
     ) -> Result<Option<Vec<String>>, crate::Error> {
@@ -81,7 +110,11 @@ trait Mat {
         Ok(colnames)
     }
 
-    fn write_colnames(mut writer: impl std::io::Write, mat: &Matrix) -> Result<(), crate::Error> {
+    fn write_colnames(
+        &self,
+        mut writer: impl std::io::Write,
+        mat: &Matrix,
+    ) -> Result<(), crate::Error> {
         if let Some(colnames) = &mat.colnames_loaded() {
             writer.write_all(&[1])?;
             for colname in colnames {
@@ -112,10 +145,10 @@ struct FloatMatrix;
 impl Mat for FloatMatrix {
     const VERSION: u8 = 1;
 
-    fn read(mut reader: impl std::io::Read) -> Result<Matrix, crate::Error> {
-        let (nrows, ncols) = Self::read_header(&mut reader)?;
+    fn read(&self, mut reader: impl std::io::Read) -> Result<Matrix, crate::Error> {
+        let (nrows, ncols) = self.read_header(&mut reader)?;
         let mut len = unsafe { nrows.unchecked_mul(ncols) };
-        let colnames = Self::read_colnames(&mut reader, ncols)?;
+        let colnames = self.read_colnames(&mut reader, ncols)?;
 
         let mut data = vec![MaybeUninit::<f64>::uninit(); len];
         cfg_if!(
@@ -147,10 +180,10 @@ impl Mat for FloatMatrix {
         )))
     }
 
-    fn write(mut writer: impl std::io::Write, mat: &mut Matrix) -> Result<(), crate::Error> {
+    fn write(&self, mut writer: impl std::io::Write, mat: &mut Matrix) -> Result<(), crate::Error> {
         writer.write_all(&mat.nrows_loaded().to_le_bytes())?;
         writer.write_all(&mat.ncols_loaded().to_le_bytes())?;
-        Self::write_colnames(&mut writer, mat)?;
+        self.write_colnames(&mut writer, mat)?;
         let data = mat.data()?;
         cfg_if!(
             if #[cfg(target_endian = "little")] {
@@ -177,17 +210,28 @@ impl Mat for FloatMatrix {
 ///   - for each column:
 ///     - 2 bytes: length of column name
 ///     - n bytes: column name
+/// - 8 bytes: 0-bit packed data
+/// - 8 bytes: 1-bit packed data
 /// - ceil(nrows * ncols / 8) bytes: data
-struct BinaryMatrix;
+struct BinaryMatrix {
+    zero: f64,
+    one:  f64,
+}
 
 impl Mat for BinaryMatrix {
     const VERSION: u8 = 2;
 
-    fn read(mut reader: impl std::io::Read) -> Result<Matrix, crate::Error> {
-        let (nrows, ncols) = Self::read_header(&mut reader)?;
+    fn read(&self, mut reader: impl std::io::Read) -> Result<Matrix, crate::Error> {
+        let (nrows, ncols) = self.read_header(&mut reader)?;
         let mut len = unsafe { nrows.unchecked_mul(ncols) };
-        let colnames = Self::read_colnames(&mut reader, ncols)?;
+        let colnames = self.read_colnames(&mut reader, ncols)?;
 
+        let mut zero = [0; 8];
+        reader.read_exact(&mut zero)?;
+        let zero = f64::from_le_bytes(zero);
+        let mut one = [0; 8];
+        reader.read_exact(&mut one)?;
+        let one = f64::from_le_bytes(one);
         let mut data = vec![MaybeUninit::<f64>::uninit(); len];
         let mut buf = [0; 1];
         for i in 0..(len / 8) {
@@ -195,7 +239,8 @@ impl Mat for BinaryMatrix {
             for j in 0..8 {
                 let val = (buf[0] >> j) & 1;
                 unsafe {
-                    *data.as_ptr().add((i * 8) + j).cast_mut().cast::<f64>() = val as f64;
+                    *data.as_ptr().add((i * 8) + j).cast_mut().cast::<f64>() =
+                        if val == 0 { zero } else { one };
                 }
             }
         }
@@ -203,13 +248,12 @@ impl Mat for BinaryMatrix {
             reader.read_exact(&mut buf)?;
             for j in 0..(len % 8) {
                 let val = (buf[0] >> j) & 1;
-                println!("{:?}", val);
                 unsafe {
                     *data
                         .as_ptr()
                         .add(((len / 8) * 8) + j)
                         .cast_mut()
-                        .cast::<f64>() = val as f64;
+                        .cast::<f64>() = if val == 0 { zero } else { one };
                 }
             }
         }
@@ -225,15 +269,17 @@ impl Mat for BinaryMatrix {
         )))
     }
 
-    fn write(mut writer: impl std::io::Write, mat: &mut Matrix) -> Result<(), crate::Error> {
+    fn write(&self, mut writer: impl std::io::Write, mat: &mut Matrix) -> Result<(), crate::Error> {
         writer.write_all(&mat.nrows_loaded().to_le_bytes())?;
         writer.write_all(&mat.ncols_loaded().to_le_bytes())?;
-        Self::write_colnames(&mut writer, mat)?;
+        self.write_colnames(&mut writer, mat)?;
+        writer.write_all(&self.zero.to_le_bytes())?;
+        writer.write_all(&self.one.to_le_bytes())?;
         let mut data = mat.data()?;
         let mut bits = 0u8;
         for chunk in data.chunks(8) {
             for (i, &val) in chunk.iter().enumerate() {
-                bits |= (val as u8) << i;
+                bits |= if val == self.one { 1 << i } else { 0 };
             }
             writer.write_all(&[bits])?;
             bits = 0;
@@ -258,9 +304,10 @@ mod tests {
             Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]),
         ));
         let mut buf = Vec::new();
-        FloatMatrix::write(&mut buf, &mut mat).unwrap();
+        write_mat(&mut buf, &mut mat).unwrap();
+        assert_eq!(buf[..4], [b'M', b'A', b'T', FloatMatrix::VERSION]);
         let mut cursor = Cursor::new(buf);
-        let mat2 = FloatMatrix::read(&mut cursor).unwrap();
+        let mut mat2 = read_mat(&mut cursor).unwrap();
         assert_eq!(mat, mat2);
     }
 
@@ -273,9 +320,11 @@ mod tests {
             Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]),
         ));
         let mut buf = Vec::new();
-        BinaryMatrix::write(&mut buf, &mut mat).unwrap();
+        write_mat(&mut buf, &mut mat).unwrap();
+        assert_eq!(buf[..4], [b'M', b'A', b'T', BinaryMatrix::VERSION]);
+        println!("{:?}", &buf);
         let mut cursor = Cursor::new(buf);
-        let mat2 = BinaryMatrix::read(&mut cursor).unwrap();
+        let mat2 = read_mat(&mut cursor).unwrap();
         assert_eq!(mat, mat2);
     }
 }
