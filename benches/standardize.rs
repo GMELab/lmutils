@@ -8,6 +8,7 @@ fn main() -> std::io::Result<()> {
     bench.register_many(
         list![
             standardize,
+            standardize_recip,
             standardize_auto_vectorize,
             standardize_auto_vectorize_recip
         ],
@@ -47,6 +48,16 @@ fn standardize(bencher: Bencher, len: usize) {
         }
     });
 }
+fn standardize(bencher: Bencher, len: usize) {
+    bench_standardize(bencher, len, |mut x, mean, std| {
+        move || {
+            let std_recip = 1.0 / std;
+            for x in x.iter_mut() {
+                *x = (*x - mean) * std_recip;
+            }
+        }
+    });
+}
 
 fn standardize_auto_vectorize(bencher: Bencher, len: usize) {
     bench_standardize(bencher, len, |mut x, mean, std| {
@@ -80,7 +91,7 @@ fn standardize_auto_vectorize_recip(bencher: Bencher, len: usize) {
                 });
             } else {
                 for x in x.iter_mut() {
-                    *x = (*x - mean) / std;
+                    *x = (*x - mean) * std_recip;
                 }
             }
         }
