@@ -2398,7 +2398,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sort_by_order_length_missmatch() {
+    fn test_sort_by_order_length_mismatch() {
         let mut m = OwnedMatrix::new(
             3,
             2,
