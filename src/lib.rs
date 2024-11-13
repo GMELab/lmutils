@@ -3,6 +3,7 @@
 mod calc;
 mod error;
 mod file;
+mod mat;
 mod matrix;
 
 use std::{mem::MaybeUninit, panic::AssertUnwindSafe, sync::Mutex};

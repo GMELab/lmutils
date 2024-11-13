@@ -53,3 +53,11 @@ harness = false
 [[bench]]
 name = "logistic_regression"
 harness = false
+
+[[bench]]
+name = "standardize"
+harness = false
+
+[[bench]]
+name = "expand_packing"
+harness = false

@@ -18,7 +18,12 @@ use rayon::{
 };
 use tracing::info;
 
-use crate::{IntoMatrix, Matrix, OwnedMatrix};
+use crate::{
+    mat::{read_mat, write_mat},
+    IntoMatrix,
+    Matrix,
+    OwnedMatrix,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct File {
@@ -143,7 +148,7 @@ impl File {
                 Matrix::Owned(unsafe { rkyv::from_bytes_unchecked(&bytes)? })
             },
             FileType::Cbor => Matrix::Owned(serde_cbor::from_reader(reader)?),
-            FileType::Mat => Self::read_mat(reader)?,
+            FileType::Mat => read_mat(reader)?,
         })
     }
 
@@ -263,91 +268,6 @@ impl File {
         )))
     }
 
-    pub fn read_mat(mut reader: impl std::io::Read) -> Result<Matrix, crate::Error> {
-        let mut prefix = [0; 3];
-        reader.read_exact(&mut prefix)?;
-        if prefix != [b'M', b'A', b'T'] {
-            return Err(crate::Error::InvalidMatFile);
-        }
-        let mut version = [0; 1];
-        reader.read_exact(&mut version)?;
-        match version[0] {
-            1 => {
-                let mut buf = [0; 8];
-                reader.read_exact(&mut buf)?;
-                let nrows = u64::from_le_bytes(buf);
-                reader.read_exact(&mut buf)?;
-                let ncols = u64::from_le_bytes(buf);
-                let usize_max = usize::MAX as u64;
-                if nrows > usize_max || ncols > usize_max {
-                    return Err(crate::Error::MatrixTooLarge);
-                }
-                match nrows.checked_mul(ncols) {
-                    None => return Err(crate::Error::MatrixTooLarge),
-                    Some(n) if n > usize_max => return Err(crate::Error::MatrixTooLarge),
-                    _ => (),
-                }
-                let ncols = ncols as usize;
-                let nrows = nrows as usize;
-                let mut len = unsafe { nrows.unchecked_mul(ncols) };
-                let mut buf = [0; 1];
-                reader.read_exact(&mut buf)?;
-                let mut colnames = None;
-                if buf[0] == 1 {
-                    let mut names = Vec::with_capacity(ncols);
-                    let mut buf = [0; 2];
-                    for _ in 0..ncols {
-                        reader.read_exact(&mut buf)?;
-                        let len = u16::from_le_bytes(buf) as usize;
-                        let mut name = vec![MaybeUninit::<u8>::uninit(); len];
-                        let mut slice = unsafe {
-                            std::slice::from_raw_parts_mut(name.as_mut_ptr().cast::<u8>(), len)
-                        };
-                        reader.read_exact(slice)?;
-                        names.push(unsafe {
-                            String::from_utf8_unchecked(std::mem::transmute::<
-                                std::vec::Vec<std::mem::MaybeUninit<u8>>,
-                                std::vec::Vec<u8>,
-                            >(name))
-                        });
-                    }
-                    colnames = Some(names);
-                }
-
-                let mut data = vec![MaybeUninit::<f64>::uninit(); len];
-                cfg_if!(
-                    if #[cfg(target_endian = "little")] {
-                        let slice = unsafe {
-                            std::slice::from_raw_parts_mut(data.as_mut_ptr().cast::<u8>(), len * 8)
-                        };
-                        reader.read_exact(slice)?;
-                    } else {
-                        let mut buf = [0; 8];
-                        for i in 0..len {
-                            reader.read_exact(&mut buf)?;
-                            let val = f64::from_le_bytes(buf);
-                            unsafe {
-                                *data.as_ptr().add(i).cast_mut().cast::<f64>() = val;
-                            }
-                        }
-                    }
-                );
-                Ok(Matrix::Owned(OwnedMatrix::new(
-                    nrows,
-                    ncols,
-                    unsafe {
-                        std::mem::transmute::<
-                            std::vec::Vec<std::mem::MaybeUninit<f64>>,
-                            std::vec::Vec<f64>,
-                        >(data)
-                    },
-                    colnames,
-                )))
-            },
-            v => Err(crate::Error::UnsupportedMatFileVersion(v)),
-        }
-    }
-
     pub fn write(&self, mat: &mut Matrix) -> Result<(), crate::Error> {
         #[cfg(any(unix, target_os = "wasi"))]
         if self.file_type == FileType::Rdata && std::env::var("LMUTILS_FD").is_err() {
@@ -440,7 +360,7 @@ impl File {
                 writer.write_all(&bytes)?;
             },
             FileType::Cbor => serde_cbor::to_writer(writer, mat.as_owned_ref()?)?,
-            FileType::Mat => Self::write_mat(writer, mat)?,
+            FileType::Mat => write_mat(writer, mat)?,
         }
         Ok(())
     }
@@ -481,40 +401,6 @@ impl File {
         for row in rows {
             writer.write_all(&row)?;
         }
-        Ok(())
-    }
-
-    pub fn write_mat(
-        mut writer: impl std::io::Write,
-        mat: &mut Matrix,
-    ) -> Result<(), crate::Error> {
-        mat.into_owned()?;
-        writer.write_all(b"MAT")?;
-        writer.write_all(&[1])?;
-        writer.write_all(&mat.nrows_loaded().to_le_bytes())?;
-        writer.write_all(&mat.ncols_loaded().to_le_bytes())?;
-        if let Some(colnames) = &mat.colnames_loaded() {
-            writer.write_all(&[1])?;
-            for colname in colnames {
-                let len = colname.len() as u16;
-                writer.write_all(&len.to_le_bytes())?;
-                writer.write_all(colname.as_bytes())?;
-            }
-        } else {
-            writer.write_all(&[0])?;
-        }
-        cfg_if!(
-            if #[cfg(target_endian = "little")] {
-                let data = mat.data()?;
-                writer.write_all(unsafe {
-                    std::slice::from_raw_parts(data.as_ptr().cast::<u8>(), data.len() * 8)
-                })?;
-            } else {
-                for val in mat.data.iter() {
-                    writer.write_all(&val.to_le_bytes())?;
-                }
-            }
-        );
         Ok(())
     }
 
