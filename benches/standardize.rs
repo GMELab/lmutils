@@ -48,7 +48,7 @@ fn standardize(bencher: Bencher, len: usize) {
         }
     });
 }
-fn standardize(bencher: Bencher, len: usize) {
+fn standardize_recip(bencher: Bencher, len: usize) {
     bench_standardize(bencher, len, |mut x, mean, std| {
         move || {
             let std_recip = 1.0 / std;
