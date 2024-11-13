@@ -4,6 +4,8 @@
 
 ## [Unreleased] - ReleaseDate
 
+## [0.2.32] - 2024-11-13
+
 ## [0.2.31] - 2024-11-06
 
 ## [0.2.30] - 2024-10-31
@@ -146,7 +148,9 @@
 
 <!-- next-url -->
 
-[unreleased]: https://github.com/mrvillage/lmutils/compare/v0.2.31...HEAD
+[unreleased]: https://github.com/mrvillage/lmutils/compare/v0.2.32...HEAD
+
+[0.2.32]: https://github.com/mrvillage/lmutils/compare/v0.2.31...v0.2.32
 
 [0.2.31]: https://github.com/mrvillage/lmutils/compare/v0.2.30...v0.2.31
 
