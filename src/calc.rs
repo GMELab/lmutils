@@ -135,7 +135,7 @@ pub fn get_r2s(data: MatRef<f64>, outcomes: MatRef<f64>) -> Vec<R2> {
             let mut predicted = (data * betas).try_as_slice().unwrap().to_vec();
             let actual = outcomes.col(i).try_as_slice().unwrap();
             let r2 = R2Simd::new(actual, &predicted).calculate();
-            let adj_r2 = 1.0 - (1.0 - r2) * (n as f64 - 1.0) / (n as f64 - m as f64 - 1.0);
+            let adj_r2 = calculate_adj_r2(r2, n, m);
             let mut betas = betas.try_as_slice().unwrap().to_vec();
             if should_disable_predicted() {
                 predicted = Vec::new();
@@ -352,6 +352,10 @@ pub fn standardize_row(mut x: RowMut<f64>) {
     }
 }
 
+pub fn calculate_adj_r2(r2: f64, nrows: usize, ncols: usize) -> f64 {
+    1.0 - (1.0 - r2) * (nrows as f64 - 1.0) / (nrows as f64 - ncols as f64 - 1.0)
+}
+
 #[derive(Debug, Clone)]
 pub struct LinearModel {
     slopes:    Vec<f64>,
@@ -403,6 +407,7 @@ impl LinearModel {
     }
 }
 
+#[tracing::instrument(skip(xs, ys))]
 pub fn linear_regression(xs: MatRef<'_, f64>, ys: &[f64]) -> LinearModel {
     let ncols = xs.ncols();
     let mut x = xs.to_owned();
@@ -428,8 +433,7 @@ pub fn linear_regression(xs: MatRef<'_, f64>, ys: &[f64]) -> LinearModel {
         .map(|i| intercept + (0..ncols).map(|j| betas[j] * x[(i, j)]).sum::<f64>())
         .collect::<Vec<_>>();
     let r2 = R2Simd::new(ys, &predicted).calculate();
-    let adj_r2 =
-        1.0 - (1.0 - r2) * (ys.len() as f64 - 1.0) / (ys.len() as f64 - ncols as f64 - 1.0);
+    let adj_r2 = calculate_adj_r2(r2, ys.len(), ncols);
     if should_disable_predicted() {
         predicted = Vec::new();
     }
@@ -551,6 +555,8 @@ pub struct LogisticModel {
     slopes:    Vec<f64>,
     intercept: f64,
     predicted: Vec<f64>,
+    r2:        f64,
+    adj_r2:    f64,
 }
 
 #[inline(always)]
@@ -581,6 +587,7 @@ fn ll(p: &[f64], y: &[f64]) -> f64 {
         .sum()
 }
 
+#[tracing::instrument(skip(xs, ys))]
 pub fn logistic_regression_irls(xs: MatRef<'_, f64>, ys: &[f64]) -> LogisticModel {
     let mut mu = vec![0.5; ys.len()];
     let mut delta = 1.0;
@@ -660,13 +667,19 @@ pub fn logistic_regression_irls(xs: MatRef<'_, f64>, ys: &[f64]) -> LogisticMode
         delta = (l - old_ll).abs();
     }
 
+    let r2 = R2Simd::new(ys, &mu).calculate();
+    let adj_r2 = calculate_adj_r2(r2, ys.len(), xs.ncols());
+
     LogisticModel {
         slopes,
         intercept,
         predicted: mu,
+        r2,
+        adj_r2,
     }
 }
 
+#[tracing::instrument(skip(xs, ys))]
 pub fn logistic_regression_newton_raphson(xs: MatRef<'_, f64>, ys: &[f64]) -> LogisticModel {
     let mut x = xs.to_owned();
     x.resize_with(
@@ -756,22 +769,28 @@ pub fn logistic_regression_newton_raphson(xs: MatRef<'_, f64>, ys: &[f64]) -> Lo
         }
         beta.copy_from_slice(beta_new.try_as_slice().unwrap());
     }
+    let predicted = (&x * faer::col::from_slice(beta.as_slice()))
+        .try_as_slice()
+        .unwrap()
+        .iter()
+        .map(|x| logistic(*x))
+        .collect();
+    let r2 = R2Simd::new(ys, &mu).calculate();
+    let adj_r2 = calculate_adj_r2(r2, ys.len(), xs.ncols());
 
     LogisticModel {
-        predicted: (&x * faer::col::from_slice(beta.as_slice()))
-            .try_as_slice()
-            .unwrap()
-            .iter()
-            .map(|x| logistic(*x))
-            .collect(),
+        predicted,
         intercept: beta[x.ncols() - 1],
-        slopes:    {
+        slopes: {
             beta.truncate(x.ncols() - 1);
             beta
         },
+        r2,
+        adj_r2,
     }
 }
 
+// UNFINISHED
 fn logistic_regression_glm(xs: MatRef<'_, f64>, ys: &[f64]) -> LogisticModel {
     let mut x = xs.to_owned();
     x.resize_with(
@@ -845,11 +864,15 @@ fn logistic_regression_glm(xs: MatRef<'_, f64>, ys: &[f64]) -> LogisticModel {
             break;
         }
     }
+    let r2 = R2Simd::new(ys, &mu).calculate();
+    let adj_r2 = calculate_adj_r2(r2, ys.len(), xs.ncols());
 
     LogisticModel {
         slopes,
         intercept,
         predicted: mu,
+        r2,
+        adj_r2,
     }
 }
 
@@ -1074,15 +1097,14 @@ mod tests {
             .sample_iter(rand::thread_rng())
             .take(nrows)
             .collect::<Vec<_>>();
-        println!("{:?}", xs);
-        println!("{:?}", ys);
+        // println!("{:?}", xs);
+        // println!("{:?}", ys);
         let xs = faer::mat::from_column_major_slice(xs.as_slice(), nrows, 1);
         let m1 = logistic_regression_irls(xs, ys.as_slice());
         let m2 = logistic_regression_newton_raphson(xs, ys.as_slice());
-        let m3 = logistic_regression_glm(xs, ys.as_slice());
-        println!("{:?}", m1);
-        println!("{:?}", m2);
-        println!("{:?}", m3);
+        // println!("{:?}", m1);
+        // println!("{:?}", m2);
+        // println!("{:?}", m3);
         for (a, b) in m1.slopes.iter().zip(m2.slopes.iter()) {
             rough_eq!(a, b);
         }
