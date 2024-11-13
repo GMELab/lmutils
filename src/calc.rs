@@ -670,6 +670,10 @@ pub fn logistic_regression_irls(xs: MatRef<'_, f64>, ys: &[f64]) -> LogisticMode
     let r2 = R2Simd::new(ys, &mu).calculate();
     let adj_r2 = calculate_adj_r2(r2, ys.len(), xs.ncols());
 
+    if should_disable_predicted() {
+        mu = Vec::new();
+    }
+
     LogisticModel {
         slopes,
         intercept,
@@ -769,14 +773,19 @@ pub fn logistic_regression_newton_raphson(xs: MatRef<'_, f64>, ys: &[f64]) -> Lo
         }
         beta.copy_from_slice(beta_new.try_as_slice().unwrap());
     }
-    let predicted = (&x * faer::col::from_slice(beta.as_slice()))
-        .try_as_slice()
-        .unwrap()
-        .iter()
-        .map(|x| logistic(*x))
-        .collect();
     let r2 = R2Simd::new(ys, &mu).calculate();
     let adj_r2 = calculate_adj_r2(r2, ys.len(), xs.ncols());
+
+    let predicted = if should_disable_predicted() {
+        Vec::new()
+    } else {
+        (&x * faer::col::from_slice(beta.as_slice()))
+            .try_as_slice()
+            .unwrap()
+            .iter()
+            .map(|x| logistic(*x))
+            .collect()
+    };
 
     LogisticModel {
         predicted,
