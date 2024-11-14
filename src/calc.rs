@@ -579,6 +579,48 @@ pub struct LogisticModel {
     adj_r2:    f64,
 }
 
+impl LogisticModel {
+    #[inline]
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn slopes(&self) -> &[f64] {
+        &self.slopes
+    }
+
+    #[inline]
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn intercept(&self) -> f64 {
+        self.intercept
+    }
+
+    #[inline]
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn predicted(&self) -> &[f64] {
+        &self.predicted
+    }
+
+    #[inline]
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn r2(&self) -> f64 {
+        self.r2
+    }
+
+    #[inline]
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn adj_r2(&self) -> f64 {
+        self.adj_r2
+    }
+
+    pub fn predict(&self, x: &[f64]) -> f64 {
+        self.intercept
+            + self
+                .slopes
+                .iter()
+                .zip(x.iter())
+                .map(|(a, b)| a * b)
+                .sum::<f64>()
+    }
+}
+
 #[inline(always)]
 fn logit(x: f64) -> f64 {
     (x / (1.0 - x)).ln()
