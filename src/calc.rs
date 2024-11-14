@@ -888,6 +888,7 @@ fn logistic_regression_glm(xs: MatRef<'_, f64>, ys: &[f64]) -> LogisticModel {
 #[cfg(test)]
 mod tests {
     use assert_float_eq::*;
+    use rand::SeedableRng;
     use test_log::test;
 
     use super::*;
@@ -895,13 +896,19 @@ mod tests {
 
     macro_rules! float_eq {
         ($a:expr, $b:expr) => {
-            assert_float_absolute_eq!($a, $b, 0.0000001);
+            assert_float_relative_eq!($a, $b, 1e-7);
         };
     }
 
     macro_rules! rough_eq {
         ($a:expr, $b:expr) => {
-            assert_float_absolute_eq!($a, $b, 0.001);
+            assert_float_absolute_eq!($a, $b, 1e-3);
+        };
+    }
+
+    macro_rules! float_very_eq {
+        ($a:expr, $b:expr) => {
+            assert_float_absolute_eq!($a, $b, 1e-15);
         };
     }
 
