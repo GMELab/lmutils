@@ -323,8 +323,18 @@ pub fn standardize_column(mut x: ColMut<f64>) {
         x.fill(0.0);
         return;
     }
-    for x in x.iter_mut() {
-        *x = (*x - mean) / std;
+    let xx = x.as_mut();
+    let std_recip = 1.0 / std;
+    if let Some(x) = xx.try_as_slice_mut() {
+        Arch::new().dispatch(|| {
+            for x in x.iter_mut() {
+                *x = (*x - mean) * std_recip;
+            }
+        });
+    } else {
+        for x in x.iter_mut() {
+            *x = (*x - mean) * std_recip;
+        }
     }
 }
 
@@ -347,8 +357,18 @@ pub fn standardize_row(mut x: RowMut<f64>) {
         x.fill(0.0);
         return;
     }
-    for x in x.iter_mut() {
-        *x = (*x - mean) / std;
+    let xx = x.as_mut();
+    let std_recip = 1.0 / std;
+    if let Some(x) = xx.try_as_slice_mut() {
+        Arch::new().dispatch(|| {
+            for x in x.iter_mut() {
+                *x = (*x - mean) * std_recip;
+            }
+        });
+    } else {
+        for x in x.iter_mut() {
+            *x = (*x - mean) * std_recip;
+        }
     }
 }
 
