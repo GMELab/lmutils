@@ -21,6 +21,7 @@ pub fn read_mat(mut reader: impl std::io::Read) -> Result<Matrix, crate::Error> 
             }
             .read(reader)
         },
+        BinaryColumnMatrix::VERSION => BinaryColumnMatrix.read(reader),
         v => Err(crate::Error::UnsupportedMatFileVersion(v)),
     }
 }
@@ -28,6 +29,8 @@ pub fn read_mat(mut reader: impl std::io::Read) -> Result<Matrix, crate::Error> 
 pub fn write_mat(mut writer: impl std::io::Write, mat: &mut Matrix) -> Result<(), crate::Error> {
     mat.into_owned()?;
     writer.write_all(b"MAT")?;
+    let ncols = mat.ncols_loaded();
+    let nrows = mat.nrows_loaded();
     let data = mat.data()?;
     let mut unique = [data[0], 0.0];
     let mut iter = data.iter();
@@ -38,11 +41,31 @@ pub fn write_mat(mut writer: impl std::io::Write, mat: &mut Matrix) -> Result<()
             break;
         }
     }
-    // if there's a third unique value, write as float matrix
     for i in &mut iter {
         if *i != unique[0] && *i != unique[1] {
-            writer.write_all(&[FloatMatrix::VERSION])?;
-            FloatMatrix.write(writer, mat);
+            // more than two unique values, but could still be two unique per column so
+            // we can't write as a float matrix yet
+            for col in 0..ncols {
+                let mut unique = [data[col * nrows], 0.0];
+                let mut iter = data[col * nrows..(col + 1) * nrows].iter();
+                for i in &mut iter {
+                    if *i != unique[0] {
+                        unique[1] = *i;
+                        break;
+                    }
+                }
+                for i in &mut iter {
+                    if *i != unique[0] && *i != unique[1] {
+                        // more than two unique values in a column, can't write as a binary column
+                        // matrix
+                        writer.write_all(&[FloatMatrix::VERSION])?;
+                        FloatMatrix.write(writer, mat);
+                        return Ok(());
+                    }
+                }
+            }
+            writer.write_all(&[BinaryColumnMatrix::VERSION])?;
+            BinaryColumnMatrix.write(writer, mat);
             return Ok(());
         }
     }
@@ -288,6 +311,109 @@ impl Mat for BinaryMatrix {
     }
 }
 
+/// Format (little endian):
+/// - 3 bytes: "MAT"
+/// - 1 byte: version
+/// - 8 bytes: nrows
+/// - 8 bytes: ncols
+/// - 1 byte: colnames flag
+/// - if colnames flag is 1:
+///   - for each column:
+///     - 2 bytes: length of column name
+///     - n bytes: column name
+/// - for each column:
+///   - 8 bytes: 0-bit packed data
+///   - 8 bytes: 1-bit packed data
+///   - ceil(nrows / 8) bytes: data
+struct BinaryColumnMatrix;
+
+impl Mat for BinaryColumnMatrix {
+    const VERSION: u8 = 3;
+
+    fn read(&self, mut reader: impl std::io::Read) -> Result<Matrix, crate::Error> {
+        let (nrows, ncols) = self.read_header(&mut reader)?;
+        let mut len = unsafe { nrows.unchecked_mul(ncols) };
+        let colnames = self.read_colnames(&mut reader, ncols)?;
+
+        let mut data = vec![MaybeUninit::<f64>::uninit(); len];
+        for i in 0..ncols {
+            let mut zero = [0; 8];
+            reader.read_exact(&mut zero)?;
+            let zero = f64::from_le_bytes(zero);
+            let mut one = [0; 8];
+            reader.read_exact(&mut one)?;
+            let one = f64::from_le_bytes(one);
+            let mut buf = [0; 1];
+            for j in 0..(nrows / 8) {
+                reader.read_exact(&mut buf)?;
+                for k in 0..8 {
+                    let val = (buf[0] >> k) & 1;
+                    unsafe {
+                        *data
+                            .as_ptr()
+                            .add(i * nrows + (j * 8) + k)
+                            .cast_mut()
+                            .cast::<f64>() = if val == 0 { zero } else { one };
+                    }
+                }
+            }
+            if nrows % 8 != 0 {
+                reader.read_exact(&mut buf)?;
+                for j in 0..(nrows % 8) {
+                    let val = (buf[0] >> j) & 1;
+                    unsafe {
+                        *data
+                            .as_ptr()
+                            .add(i * nrows + ((nrows / 8) * 8) + j)
+                            .cast_mut()
+                            .cast::<f64>() = if val == 0 { zero } else { one };
+                    }
+                }
+            }
+        }
+        Ok(Matrix::Owned(OwnedMatrix::new(
+            nrows,
+            ncols,
+            unsafe {
+                std::mem::transmute::<std::vec::Vec<std::mem::MaybeUninit<f64>>, std::vec::Vec<f64>>(
+                    data,
+                )
+            },
+            colnames,
+        )))
+    }
+
+    fn write(&self, mut writer: impl std::io::Write, mat: &mut Matrix) -> Result<(), crate::Error> {
+        let nrows = mat.nrows_loaded();
+        let ncols = mat.ncols_loaded();
+        writer.write_all(&nrows.to_le_bytes())?;
+        writer.write_all(&ncols.to_le_bytes())?;
+        self.write_colnames(&mut writer, mat)?;
+        let mut data = mat.data()?;
+        let mut bits = 0u8;
+        for col in 0..ncols {
+            let zero = data[col * nrows];
+            let mut one = 0.0;
+            for i in data[col * nrows..(col + 1) * nrows].iter() {
+                if *i != one {
+                    one = *i;
+                    break;
+                }
+            }
+            writer.write_all(&zero.to_le_bytes())?;
+            writer.write_all(&one.to_le_bytes())?;
+            for chunk in data[col * nrows..(col + 1) * nrows].chunks(8) {
+                for (i, &val) in data[col * nrows..(col + 1) * nrows].iter().enumerate() {
+                    bits |= if val == one { 1 << i } else { 0 };
+                }
+                writer.write_all(&[bits])?;
+                bits = 0;
+            }
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
@@ -305,7 +431,92 @@ mod tests {
         ));
         let mut buf = Vec::new();
         write_mat(&mut buf, &mut mat).unwrap();
-        assert_eq!(buf[..4], [b'M', b'A', b'T', FloatMatrix::VERSION]);
+        assert_eq!(buf, [
+            // header
+            b'M',
+            b'A',
+            b'T',
+            FloatMatrix::VERSION,
+            // nrows
+            2,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            // ncols
+            3,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            // colnames flag
+            1,
+            // colnames
+            1,
+            0,
+            b'a',
+            1,
+            0,
+            b'b',
+            1,
+            0,
+            b'c',
+            // data
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            240,
+            63,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            64,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            8,
+            64,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            16,
+            64,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            20,
+            64,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            24,
+            64,
+        ]);
         let mut cursor = Cursor::new(buf);
         let mut mat2 = read_mat(&mut cursor).unwrap();
         assert_eq!(mat, mat2);
@@ -314,15 +525,185 @@ mod tests {
     #[test]
     fn binary_matrix() {
         let mut mat = Matrix::Owned(OwnedMatrix::new(
+            2,
             3,
-            3,
-            vec![1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
+            vec![0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
             Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]),
         ));
         let mut buf = Vec::new();
         write_mat(&mut buf, &mut mat).unwrap();
-        assert_eq!(buf[..4], [b'M', b'A', b'T', BinaryMatrix::VERSION]);
-        println!("{:?}", &buf);
+        assert_eq!(buf, [
+            // header
+            b'M',
+            b'A',
+            b'T',
+            BinaryMatrix::VERSION,
+            // nrows
+            2,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            // ncols
+            3,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            // colnames flag
+            1,
+            // colnames
+            1,
+            0,
+            b'a',
+            1,
+            0,
+            b'b',
+            1,
+            0,
+            b'c',
+            // zero
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            // one
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            240,
+            63,
+            // data
+            0b00101010
+        ]);
+        let mut cursor = Cursor::new(buf);
+        let mat2 = read_mat(&mut cursor).unwrap();
+        assert_eq!(mat, mat2);
+    }
+
+    #[test]
+    fn binary_column_matrix() {
+        let mut mat = Matrix::Owned(OwnedMatrix::new(
+            2,
+            3,
+            vec![0.0, 1.0, 0.0, 2.0, 0.0, 3.0],
+            Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]),
+        ));
+        let mut buf = Vec::new();
+        write_mat(&mut buf, &mut mat).unwrap();
+        assert_eq!(buf, [
+            // header
+            b'M',
+            b'A',
+            b'T',
+            BinaryColumnMatrix::VERSION,
+            // nrows
+            2,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            // ncols
+            3,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            // colnames flag
+            1,
+            // colnames
+            1,
+            0,
+            b'a',
+            1,
+            0,
+            b'b',
+            1,
+            0,
+            b'c',
+            // column 1
+            // zero
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            // one
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            240,
+            63,
+            // data
+            0b10,
+            // column 2
+            // zero
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            // one
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            64,
+            // data
+            0b10,
+            // column 3
+            // zero
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            // one
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            8,
+            64,
+            // data
+            0b10,
+        ]);
         let mut cursor = Cursor::new(buf);
         let mat2 = read_mat(&mut cursor).unwrap();
         assert_eq!(mat, mat2);
