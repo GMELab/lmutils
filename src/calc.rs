@@ -949,28 +949,33 @@ fn logistic_regression_glm(xs: MatRef<'_, f64>, ys: &[f64]) -> LogisticModel {
 
 #[cfg(test)]
 mod tests {
-    use assert_float_eq::*;
     use rand::SeedableRng;
     use test_log::test;
 
     use super::*;
     use crate::{IntoMatrix, Matrix, OwnedMatrix};
 
+    macro_rules! assert_float_eq {
+        ($a:expr, $b:expr, $tol:expr) => {
+            assert!(($a - $b).abs() < $tol);
+        };
+    }
+
     macro_rules! float_eq {
         ($a:expr, $b:expr) => {
-            assert_float_relative_eq!($a, $b, 1e-7);
+            assert_float_eq!($a, $b, 1e-7);
         };
     }
 
     macro_rules! rough_eq {
         ($a:expr, $b:expr) => {
-            assert_float_absolute_eq!($a, $b, 1e-3);
+            assert_float_eq!($a, $b, 1e-3);
         };
     }
 
     macro_rules! float_very_eq {
         ($a:expr, $b:expr) => {
-            assert_float_absolute_eq!($a, $b, 1e-15);
+            assert_float_eq!($a, $b, 1e-15);
         };
     }
 
