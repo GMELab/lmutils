@@ -70,6 +70,7 @@ pub enum Error {
     Cbor(#[from] serde_cbor::Error),
 }
 
+#[cfg(feature = "r")]
 impl From<extendr_api::Error> for Error {
     #[cfg_attr(coverage_nightly, coverage(off))]
     fn from(err: extendr_api::Error) -> Self {
@@ -77,6 +78,7 @@ impl From<extendr_api::Error> for Error {
     }
 }
 
+#[cfg(feature = "r")]
 impl From<Error> for extendr_api::Error {
     #[cfg_attr(coverage_nightly, coverage(off))]
     fn from(e: Error) -> Self {

@@ -7,7 +7,7 @@ license = "MIT"
 repository = "https://github.com/mrvillage/lmutils"
 
 [dependencies]
-extendr-api = { version = "0.6.0", features = ["either"] }
+extendr-api = { version = "0.6.0", features = ["either"], optional = true }
 faer = "0.19"
 flate2 = "1.0.30"
 libc = "0.2.155"
@@ -41,6 +41,10 @@ libc = "0.2.155"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)'] }
+
+[features]
+default = []
+r = ["dep:extendr-api"]
 
 [[bench]]
 name = "r2_simd"

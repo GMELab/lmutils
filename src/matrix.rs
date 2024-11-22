@@ -6,6 +6,7 @@ use std::{
     str::FromStr,
 };
 
+#[cfg(feature = "r")]
 use extendr_api::{
     io::Load,
     scalar::Scalar,
@@ -41,6 +42,7 @@ pub enum Join {
 
 const INVALID_JOIN_TYPE: &str = "invalid join type, must be one of 0, 1, or 2";
 
+#[cfg(feature = "r")]
 impl FromRobj<'_> for Join {
     #[cfg_attr(coverage_nightly, coverage(off))]
     fn from_robj(obj: &Robj) -> Result<Self, &'static str> {
@@ -79,6 +81,7 @@ pub trait DerefMatrix: Deref<Target = Matrix> + DerefMut + std::fmt::Debug {}
 impl<T> DerefMatrix for T where T: Deref<Target = Matrix> + DerefMut + std::fmt::Debug {}
 
 pub enum Matrix {
+    #[cfg(feature = "r")]
     R(RMatrix<f64>),
     Owned(OwnedMatrix),
     File(File),
@@ -94,6 +97,7 @@ impl PartialEq for Matrix {
     #[cfg_attr(coverage_nightly, coverage(off))]
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
+            #[cfg(feature = "r")]
             (Matrix::R(a), Matrix::R(b)) => a == b,
             (Matrix::Owned(a), Matrix::Owned(b)) => a == b,
             (Matrix::File(a), Matrix::File(b)) => a == b,
@@ -108,10 +112,11 @@ impl std::fmt::Debug for Matrix {
     #[cfg_attr(coverage_nightly, coverage(off))]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            #[cfg(feature = "r")]
             Matrix::R(m) => write!(f, "Matrix::R({:?})", m),
             Matrix::Owned(m) => write!(f, "Matrix::Owned({:?})", m),
             Matrix::File(m) => write!(f, "Matrix::File({:?})", m),
-            Matrix::Dyn(m) => write!(f, "Matrix::Ref({:?})", m),
+            Matrix::Dyn(m) => write!(f, "Matrix::Dyn({:?})", m),
             Matrix::Transform(t, m) => write!(f, "Matrix::Transform({:?}, {:?})", t.len(), m),
         }
     }
@@ -135,6 +140,7 @@ impl Matrix {
     #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn as_mat_ref_loaded(&self) -> MatRef<'_, f64> {
         match self {
+            #[cfg(feature = "r")]
             Matrix::R(m) => faer::mat::from_column_major_slice(m.data(), m.nrows(), m.ncols()),
             Matrix::Owned(m) => {
                 faer::mat::from_column_major_slice(m.data.as_slice(), m.nrows, m.ncols)
@@ -149,6 +155,7 @@ impl Matrix {
     pub fn as_mat_mut(&mut self) -> Result<MatMut<'_, f64>, crate::Error> {
         Ok(match self {
             // SAFETY: We know that the data is valid
+            #[cfg(feature = "r")]
             Matrix::R(m) => unsafe {
                 faer::mat::from_raw_parts_mut(
                     m.data().as_ptr().cast_mut(),
@@ -189,15 +196,19 @@ impl Matrix {
     #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn is_loaded(&self) -> bool {
         match self {
-            Matrix::R(_) | Matrix::Owned(_) => true,
+            #[cfg(feature = "r")]
+            Matrix::R(_) => true,
+            Matrix::Owned(_) => true,
             Matrix::File(_) | Matrix::Transform(..) => false,
             Matrix::Dyn(m) => m.is_loaded(),
         }
     }
 
     #[cfg_attr(coverage_nightly, coverage(off))]
+    #[cfg(feature = "r")]
     pub fn to_rmatrix(&mut self) -> Result<RMatrix<f64>, crate::Error> {
         Ok(match self {
+            #[cfg(feature = "r")]
             Matrix::R(m) => m.clone().into_robj().clone().as_matrix().unwrap(),
             Matrix::Owned(m) => {
                 use extendr_api::prelude::*;
@@ -222,11 +233,13 @@ impl Matrix {
     }
 
     #[cfg_attr(coverage_nightly, coverage(off))]
+    #[cfg(feature = "r")]
     pub fn into_robj(&mut self) -> Result<Robj, crate::Error> {
         Ok(self.to_rmatrix().into_robj())
     }
 
     #[cfg_attr(coverage_nightly, coverage(off))]
+    #[cfg(feature = "r")]
     pub fn from_rdata(mut reader: impl std::io::Read) -> Result<Self, crate::Error> {
         let mut buf = [0; 5];
         reader.read_exact(&mut buf)?;
@@ -245,6 +258,7 @@ impl Matrix {
     }
 
     #[cfg_attr(coverage_nightly, coverage(off))]
+    #[cfg(feature = "r")]
     pub fn from_robj(r: Robj) -> Result<Self, crate::Error> {
         if r.is_matrix() {
             let float = RMatrix::<f64>::try_from(r);
@@ -342,6 +356,7 @@ impl Matrix {
     #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn into_owned(&mut self) -> Result<&mut Self, crate::Error> {
         match self {
+            #[cfg(feature = "r")]
             Matrix::R(_) => {
                 let colnames = self
                     .colnames()?
@@ -371,6 +386,7 @@ impl Matrix {
     #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn colnames(&mut self) -> Result<Option<Vec<&str>>, crate::Error> {
         Ok(match self {
+            #[cfg(feature = "r")]
             Matrix::R(m) => {
                 m.dimnames().and_then(|mut dimnames| {
                     dimnames
@@ -393,6 +409,7 @@ impl Matrix {
     #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn colnames_loaded(&self) -> Option<Vec<&str>> {
         match self {
+            #[cfg(feature = "r")]
             Matrix::R(m) => {
                 m.dimnames().and_then(|mut dimnames| {
                     dimnames
@@ -419,6 +436,7 @@ impl Matrix {
     }
 
     #[cfg_attr(coverage_nightly, coverage(off))]
+    #[cfg(feature = "r")]
     pub fn from_rmatrix(r: RMatrix<f64>) -> Self {
         Matrix::R(r)
     }
@@ -1690,6 +1708,7 @@ impl Matrix {
     pub fn as_mut_slice(&mut self) -> Result<&mut [f64], crate::Error> {
         match self {
             Matrix::Owned(m) => Ok(&mut m.data),
+            #[cfg(feature = "r")]
             Matrix::R(m) => {
                 Ok(unsafe {
                     std::slice::from_raw_parts_mut(m.data().as_ptr().cast_mut(), m.data().len())
@@ -1856,6 +1875,7 @@ pub trait IntoMatrix {
     fn into_matrix(self) -> Matrix;
 }
 
+#[cfg(feature = "r")]
 impl IntoMatrix for RMatrix<f64> {
     #[cfg_attr(coverage_nightly, coverage(off))]
     fn into_matrix(self) -> Matrix {
@@ -1863,6 +1883,7 @@ impl IntoMatrix for RMatrix<f64> {
     }
 }
 
+#[cfg(feature = "r")]
 impl IntoMatrix for RMatrix<i32> {
     #[cfg_attr(coverage_nightly, coverage(off))]
     fn into_matrix(self) -> Matrix {
@@ -1911,6 +1932,7 @@ pub trait TryIntoMatrix {
     fn try_into_matrix(self) -> Result<Matrix, Self::Err>;
 }
 
+#[cfg(feature = "r")]
 impl TryIntoMatrix for Robj {
     type Err = crate::Error;
 

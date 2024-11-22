@@ -9,6 +9,7 @@ use std::{
 };
 
 use cfg_if::cfg_if;
+#[cfg(feature = "r")]
 use extendr_api::{io::Save, pairlist, Pairlist};
 use libc::WSTOPSIG;
 use rayon::{
@@ -60,7 +61,7 @@ impl File {
     }
 
     pub fn read(&self) -> Result<Matrix, crate::Error> {
-        #[cfg(unix)]
+        #[cfg(all(unix, feature = "r"))]
         if self.file_type == FileType::Rdata && std::env::var("LMUTILS_FD").is_err() {
             use std::{io::Seek, os::unix::process::CommandExt};
 
@@ -122,14 +123,16 @@ impl File {
             return mat;
         }
         let file = std::fs::File::open(&self.path)?;
-        if self.gz || self.file_type == FileType::Rdata {
-            let decoder = flate2::read::GzDecoder::new(std::io::BufReader::new(
-                // 1024 * 1024 * 100,
-                file,
-            ));
-            self.read_from_reader(std::io::BufReader::new(decoder))
+        #[cfg(feature = "r")]
+        if self.file_type == FileType::Rdata {
+            let decoder = flate2::read::GzDecoder::new(file);
+            return self.read_from_reader(decoder);
+        }
+        if self.gz {
+            let decoder = flate2::read::GzDecoder::new(file);
+            self.read_from_reader(decoder)
         } else {
-            self.read_from_reader(std::io::BufReader::new(file))
+            self.read_from_reader(file)
         }
     }
 
@@ -141,6 +144,7 @@ impl File {
             FileType::Tsv => Self::read_text_file(reader, b'\t')?,
             FileType::Json => Matrix::Owned(serde_json::from_reader(reader)?),
             FileType::Txt => Self::read_text_file(reader, b' ')?,
+            #[cfg(feature = "r")]
             FileType::Rdata => Matrix::from_rdata(&mut reader)?,
             FileType::Rkyv => {
                 let mut bytes = vec![];
@@ -269,7 +273,7 @@ impl File {
     }
 
     pub fn write(&self, mat: &mut Matrix) -> Result<(), crate::Error> {
-        #[cfg(any(unix, target_os = "wasi"))]
+        #[cfg(all(unix, feature = "r"))]
         if self.file_type == FileType::Rdata && std::env::var("LMUTILS_FD").is_err() {
             use std::{
                 io::Seek,
@@ -324,11 +328,16 @@ impl File {
             return Ok(());
         }
         let file = std::fs::File::create(&self.path)?;
-        if self.gz || self.file_type == FileType::Rdata {
+        #[cfg(feature = "r")]
+        if self.file_type == FileType::Rdata {
             let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
-            self.write_matrix_to_writer(std::io::BufWriter::new(encoder), mat)
+            return self.write_matrix_to_writer(encoder, mat);
+        }
+        if self.gz {
+            let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+            self.write_matrix_to_writer(encoder, mat)
         } else {
-            self.write_matrix_to_writer(std::io::BufWriter::new(file), mat)
+            self.write_matrix_to_writer(file, mat)
         }
     }
 
@@ -344,6 +353,7 @@ impl File {
             FileType::Tsv => Self::write_text_file(writer, mat, b'\t')?,
             FileType::Json => serde_json::to_writer(writer, mat.as_owned_ref()?)?,
             FileType::Txt => Self::write_text_file(writer, mat, b' ')?,
+            #[cfg(feature = "r")]
             FileType::Rdata => {
                 let mat = mat.to_rmatrix();
                 let pl = pairlist!(mat = mat);
@@ -451,6 +461,7 @@ pub enum FileType {
     /// Expects the first row to be the column names.
     Txt,
     /// RData file.
+    #[cfg(feature = "r")]
     Rdata,
     /// Serialized matrix type.
     Rkyv,
@@ -470,6 +481,7 @@ impl FromStr for FileType {
             "tsv" => Self::Tsv,
             "json" => Self::Json,
             "txt" => Self::Txt,
+            #[cfg(feature = "r")]
             "rdata" | "RData" => Self::Rdata,
             "rkyv" => Self::Rkyv,
             "cbor" => Self::Cbor,
@@ -607,8 +619,11 @@ mod tests {
         assert_eq!(file.file_type, crate::FileType::Json);
         let file = crate::File::from_path("tests/test.txt").unwrap();
         assert_eq!(file.file_type, crate::FileType::Txt);
-        let file = crate::File::from_path("tests/test.rdata").unwrap();
-        assert_eq!(file.file_type, crate::FileType::Rdata);
+        #[cfg(feature = "r")]
+        {
+            let file = crate::File::from_path("tests/test.rdata").unwrap();
+            assert_eq!(file.file_type, crate::FileType::Rdata);
+        }
         let file = crate::File::from_path("tests/test.rkyv").unwrap();
         assert_eq!(file.file_type, crate::FileType::Rkyv);
         let file = crate::File::from_path("tests/test.cbor").unwrap();
@@ -631,9 +646,12 @@ mod tests {
         let file = crate::File::from_path("tests/test.txt.gz").unwrap();
         assert_eq!(file.file_type, crate::FileType::Txt);
         assert!(file.gz);
-        let file = crate::File::from_path("tests/test.rdata.gz").unwrap();
-        assert_eq!(file.file_type, crate::FileType::Rdata);
-        assert!(file.gz);
+        #[cfg(feature = "r")]
+        {
+            let file = crate::File::from_path("tests/test.rdata.gz").unwrap();
+            assert_eq!(file.file_type, crate::FileType::Rdata);
+            assert!(file.gz);
+        }
         let file = crate::File::from_path("tests/test.rkyv.gz").unwrap();
         assert_eq!(file.file_type, crate::FileType::Rkyv);
         assert!(file.gz);
