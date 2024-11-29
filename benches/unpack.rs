@@ -31,7 +31,7 @@ fn chunk_size(len: usize) -> usize {
     if chunk_size == 0 {
         chunk_size = 1;
     }
-    chunk_size.next_power_of_two()
+    chunk_size.next_power_of_two() / 2 + 8
 }
 
 fn main() -> std::io::Result<()> {
