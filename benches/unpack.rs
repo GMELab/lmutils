@@ -93,6 +93,7 @@ fn avx512_par(bencher: Bencher, len: usize) {
         let mut out = out(len);
         let threads = rayon::current_num_threads();
         let mut chunk_size = len / threads / 8 * 8;
+        println!("chunk_size: {}", chunk_size);
         if chunk_size == 0 {
             chunk_size = 1;
         }
