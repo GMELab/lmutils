@@ -9,27 +9,27 @@ use rayon::{
 };
 
 // convert from bits to zero or one
-pub fn from_bits(out: &mut [f64], bytes: &[u8], bits: u64, zero: f64, one: f64) {
+pub fn unpack(out: &mut [f64], bytes: &[u8], bits: u64, zero: f64, one: f64) {
     if is_x86_feature_detected!("avx512f") {
-        from_bits_avx512_sync(out, bytes, bits, zero, one);
+        unpack_avx512(out, bytes, bits, zero, one);
     } else if let Some(simd) = pulp::x86::V3::try_new() {
-        from_bits_avx2_sync(simd, out, bytes, bits, zero, one);
+        unpack_avx2(simd, out, bytes, bits, zero, one);
     } else {
-        from_bits_naive(out, bytes, bits, zero, one);
+        unpack_naive(out, bytes, bits, zero, one);
     }
 }
 
-fn from_bits_avx512(out: &mut [f64], bytes: &[u8], bits: u64, zero: f64, one: f64) {
+pub fn unpack_avx512(out: &mut [f64], bytes: &[u8], bits: u64, zero: f64, one: f64) {
     let threads = rayon::current_num_threads();
     let chunk_size = bytes.len() / threads / 8 * 8;
     if chunk_size < 128 {
-        from_bits_avx512(out, bytes, bits, zero, one);
+        unpack_avx512(out, bytes, bits, zero, one);
     } else {
-        from_bits_avx512_par(chunk_size, out, bytes, bits, zero, one);
+        unpack_avx512_par(chunk_size, out, bytes, bits, zero, one);
     }
 }
 
-fn from_bits_avx512_sync(out: &mut [f64], bytes: &[u8], bits: u64, zero: f64, one: f64) {
+pub fn unpack_avx512_sync(out: &mut [f64], bytes: &[u8], bits: u64, zero: f64, one: f64) {
     unsafe {
         core::arch::asm! {
             "vbroadcastsd zmm0, xmm0",
@@ -57,7 +57,7 @@ fn from_bits_avx512_sync(out: &mut [f64], bytes: &[u8], bits: u64, zero: f64, on
             inout("rdi") out.as_mut_ptr() => _,
         }
     };
-    from_bits_naive_sync(
+    unpack_naive_sync(
         out[(bits / 8 * 8) as usize..].as_mut(),
         &bytes[(bits / 8) as usize..],
         bits - (bits / 8 * 8),
@@ -66,7 +66,7 @@ fn from_bits_avx512_sync(out: &mut [f64], bytes: &[u8], bits: u64, zero: f64, on
     );
 }
 
-fn from_bits_avx512_par(
+pub fn unpack_avx512_par(
     chunk_size: usize,
     out: &mut [f64],
     bytes: &[u8],
@@ -78,11 +78,11 @@ fn from_bits_avx512_par(
         .par_chunks(chunk_size)
         .zip(out.par_chunks_mut(8 * chunk_size))
         .for_each(|(chunk, out)| {
-            from_bits_avx512_sync(out, chunk, out.len() as u64, zero, one);
+            unpack_avx512_sync(out, chunk, out.len() as u64, zero, one);
         });
 }
 
-fn from_bits_avx2(
+pub fn unpack_avx2(
     simd: pulp::x86::V3,
     out: &mut [f64],
     bytes: &[u8],
@@ -93,13 +93,13 @@ fn from_bits_avx2(
     let threads = rayon::current_num_threads();
     let chunk_size = bytes.len() / threads / 8 * 8;
     if chunk_size < 128 {
-        from_bits_avx2_sync(simd, out, bytes, bits, zero, one);
+        unpack_avx2_sync(simd, out, bytes, bits, zero, one);
     } else {
-        from_bits_avx2_par(chunk_size, simd, out, bytes, bits, zero, one);
+        unpack_avx2_par(chunk_size, simd, out, bytes, bits, zero, one);
     }
 }
 
-fn from_bits_avx2_sync(
+pub fn unpack_avx2_sync(
     simd: pulp::x86::V3,
     out: &mut [f64],
     bytes: &[u8],
@@ -159,7 +159,7 @@ fn from_bits_avx2_sync(
             }
 
             if !out_tail.is_empty() {
-                from_bits_naive(out_tail, bytes_tail, bits % 128, zero, one);
+                unpack_naive(out_tail, bytes_tail, bits % 128, zero, one);
             }
         }
     }
@@ -173,7 +173,7 @@ fn from_bits_avx2_sync(
     });
 }
 
-fn from_bits_avx2_par(
+pub fn unpack_avx2_par(
     chunk_size: usize,
     simd: pulp::x86::V3,
     out: &mut [f64],
@@ -186,21 +186,21 @@ fn from_bits_avx2_par(
         .par_chunks(chunk_size)
         .zip(out.par_chunks_mut(8 * chunk_size))
         .for_each(|(chunk, out)| {
-            from_bits_avx2_sync(simd, out, chunk, bits, zero, one);
+            unpack_avx2_sync(simd, out, chunk, bits, zero, one);
         });
 }
 
-fn from_bits_naive(out: &mut [f64], bytes: &[u8], bits: u64, zero: f64, one: f64) {
+pub fn unpack_naive(out: &mut [f64], bytes: &[u8], bits: u64, zero: f64, one: f64) {
     let threads = rayon::current_num_threads();
     let chunk_size = bytes.len() / threads;
     if chunk_size < 128 {
-        from_bits_naive_sync(out, bytes, bits, zero, one);
+        unpack_naive_sync(out, bytes, bits, zero, one);
     } else {
-        from_bits_naive_par(chunk_size, out, bytes, bits, zero, one);
+        unpack_naive_par(chunk_size, out, bytes, bits, zero, one);
     }
 }
 
-fn from_bits_naive_sync(out: &mut [f64], bytes: &[u8], bits: u64, zero: f64, one: f64) {
+pub fn unpack_naive_sync(out: &mut [f64], bytes: &[u8], bits: u64, zero: f64, one: f64) {
     for i in 0..(bits as usize) {
         out[i] = if ((bytes[i / 8] >> (i % 8)) & 1) == 1 {
             one
@@ -210,7 +210,7 @@ fn from_bits_naive_sync(out: &mut [f64], bytes: &[u8], bits: u64, zero: f64, one
     }
 }
 
-fn from_bits_naive_par(
+pub fn unpack_naive_par(
     chunk_size: usize,
     out: &mut [f64],
     bytes: &[u8],
@@ -263,51 +263,51 @@ mod tests {
     }
 
     #[test]
-    fn test_from_bits_naive() {
+    fn test_unpack_naive_sync() {
         let mut out = out();
-        from_bits_naive(&mut out, &bytes(), bits(), 0.0, 1.0);
+        unpack_naive_sync(&mut out, &bytes(), bits(), 0.0, 1.0);
         assert_eq!(out, expected(),);
     }
 
     #[test]
-    fn test_from_bits_naive_par() {
+    fn test_unpack_naive_par() {
         let mut out = out();
-        from_bits_naive_par(128, &mut out, &bytes(), bits(), 0.0, 1.0);
+        unpack_naive_par(128, &mut out, &bytes(), bits(), 0.0, 1.0);
         assert_eq!(out, expected());
     }
 
     #[test]
-    fn test_from_bits_avx2_sync() {
+    fn test_unpack_avx2_sync() {
         if let Some(simd) = pulp::x86::V3::try_new() {
             let mut out = out();
-            from_bits_avx2_sync(simd, &mut out, &bytes(), bits(), 0.0, 1.0);
+            unpack_avx2_sync(simd, &mut out, &bytes(), bits(), 0.0, 1.0);
             assert_eq!(out, expected());
         }
     }
 
     #[test]
-    fn test_from_bits_avx2_par() {
+    fn test_unpack_avx2_par() {
         if let Some(simd) = pulp::x86::V3::try_new() {
             let mut out = out();
-            from_bits_avx2_par(128, simd, &mut out, &bytes(), bits(), 0.0, 1.0);
+            unpack_avx2_par(128, simd, &mut out, &bytes(), bits(), 0.0, 1.0);
             assert_eq!(out, expected());
         }
     }
 
     #[test]
-    fn test_from_bits_avx512_sync() {
+    fn test_unpack_avx512_sync() {
         if is_x86_feature_detected!("avx512f") {
             let mut out = out();
-            from_bits_avx512_sync(&mut out, &bytes(), bits(), 0.0, 1.0);
+            unpack_avx512_sync(&mut out, &bytes(), bits(), 0.0, 1.0);
             assert_eq!(out, expected());
         }
     }
 
     #[test]
-    fn test_from_bits_avx512_par() {
+    fn test_unpack_avx512_par() {
         if is_x86_feature_detected!("avx512f") {
             let mut out = out();
-            from_bits_avx512_par(128, &mut out, &bytes(), bits(), 0.0, 1.0);
+            unpack_avx512_par(128, &mut out, &bytes(), bits(), 0.0, 1.0);
             assert_eq!(out, expected());
         }
     }

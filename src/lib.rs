@@ -12,7 +12,7 @@ use std::{mem::MaybeUninit, panic::AssertUnwindSafe, sync::Mutex};
 use rayon::prelude::*;
 use tracing::{debug, debug_span, error, info, trace, warn};
 
-pub use crate::{calc::*, error::*, file::*, matrix::*};
+pub use crate::{calc::*, error::*, file::*, matrix::*, pack::*};
 
 #[cfg_attr(coverage_nightly, coverage(off))]
 #[doc(hidden)]
