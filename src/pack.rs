@@ -42,15 +42,15 @@ fn from_bits_avx512(out: &mut [f64], bytes: &[u8], bits: u64, zero: f64, one: f6
             inout("xmm0") zero => _,
             inout("xmm1") one => _,
             out("xmm2") _,
-            inout("rax") bytes.len() / 8 * 8 => _,
+            inout("rax") bits / 8 => _,
             inout("rsi") bytes.as_ptr() => _,
             inout("rdi") out.as_mut_ptr() => _,
         }
     };
     from_bits_naive_sync(
-        out[bytes.len() / 8 * 8..].as_mut(),
-        &bytes[bytes.len() / 8 * 8..],
-        bits - (bytes.len() / 8 * 8) as u64,
+        out[(bits / 8 * 8) as usize..].as_mut(),
+        &bytes[(bits / 8 * 8) as usize..],
+        bits - (bits / 8 * 8),
         zero,
         one,
     );
