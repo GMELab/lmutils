@@ -5,6 +5,7 @@ mod error;
 mod file;
 mod mat;
 mod matrix;
+mod pack;
 
 use std::{mem::MaybeUninit, panic::AssertUnwindSafe, sync::Mutex};
 
