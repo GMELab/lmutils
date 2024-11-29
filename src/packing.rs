@@ -136,7 +136,7 @@ pub fn unpack_avx2_sync(simd: pulp::x86::V3, out: &mut [f64], bytes: &[u8], zero
             }
 
             if !out_tail.is_empty() {
-                unpack_naive(out_tail, bytes_tail, zero, one);
+                unpack_naive_sync(out_tail, bytes_tail, zero, one);
             }
         }
     }
@@ -190,13 +190,152 @@ pub fn unpack_naive_par(chunk_size: usize, out: &mut [f64], bytes: &[u8], zero: 
         .par_chunks(chunk_size)
         .zip(out.par_chunks_mut(8 * chunk_size))
         .for_each(|(chunk, out)| {
-            for i in 0..out.len() {
-                out[i] = if ((chunk[i / 8] >> (i % 8)) & 1) == 1 {
-                    one
-                } else {
-                    zero
-                };
+            unpack_naive_sync(out, chunk, zero, one);
+        });
+}
+
+pub fn pack(out: &mut [u8], data: &[f64], zero: f64, one: f64) {
+    if is_x86_feature_detected!("avx512f") {
+        pack_avx512(out, data, zero, one);
+    } else if let Some(simd) = pulp::x86::V3::try_new() {
+        pack_avx2(simd, out, data, zero, one);
+    } else {
+        pack_naive(out, data, zero, one);
+    }
+}
+
+pub fn pack_avx512(out: &mut [u8], data: &[f64], zero: f64, one: f64) {
+    let threads = rayon::current_num_threads();
+    let chunk_size = (data.len() / threads / 8 + 1) * 8;
+    if chunk_size < 128 {
+        pack_avx512_sync(out, data, zero, one);
+    } else {
+        pack_avx512_par(chunk_size, out, data, zero, one);
+    }
+}
+
+pub fn pack_avx512_sync(out: &mut [u8], data: &[f64], zero: f64, one: f64) {
+    let bits = data.len();
+    pack_naive_sync(out[(bits / 8)..].as_mut(), &data[(bits / 8)..], zero, one);
+}
+
+pub fn pack_avx512_par(chunk_size: usize, out: &mut [u8], data: &[f64], zero: f64, one: f64) {
+    data.par_chunks(chunk_size)
+        .zip(out.par_chunks_mut(chunk_size / 8))
+        .for_each(|(data, out)| {
+            pack_avx512_sync(out, data, zero, one);
+        });
+}
+
+pub fn pack_avx2(simd: pulp::x86::V3, out: &mut [u8], data: &[f64], zero: f64, one: f64) {
+    let threads = rayon::current_num_threads();
+    let chunk_size = (data.len() / threads / 8 + 1) * 8;
+    if chunk_size < 128 {
+        pack_avx2_sync(simd, out, data, zero, one);
+    } else {
+        pack_avx2_par(chunk_size, simd, out, data, zero, one);
+    }
+}
+
+pub fn pack_avx2_sync(simd: pulp::x86::V3, out: &mut [u8], data: &[f64], zero: f64, one: f64) {
+    struct Impl<'a> {
+        simd: pulp::x86::V3,
+        out:  &'a mut [u8],
+        data: &'a [f64],
+        zero: f64,
+        one:  f64,
+    }
+    impl pulp::NullaryFnOnce for Impl<'_> {
+        type Output = ();
+
+        #[inline(always)]
+        fn call(self) -> Self::Output {
+            let Self {
+                simd,
+                out,
+                data,
+                zero,
+                one,
+            } = self;
+
+            let (out16, out_tail) = pulp::as_arrays_mut::<16, _>(out);
+            let (data128, data_tail) = pulp::as_arrays::<128, _>(data);
+
+            for (out, data) in std::iter::zip(out16, data128) {
+                let data = pulp::as_arrays::<8, _>(data).0;
+                let zeros = simd.splat_f64x2(zero);
+                let ones = simd.splat_f64x2(one);
+                for (o, d) in std::iter::zip(out.iter_mut().rev(), data.iter().rev()) {
+                    let d = pulp::as_arrays::<2, _>(d).0;
+                    let d0 = pulp::cast(d[0]);
+                    let d1 = pulp::cast(d[1]);
+                    let d2 = pulp::cast(d[2]);
+                    let d3 = pulp::cast(d[3]);
+
+                    let f0 = simd.cmp_eq_f64x2(d0, ones);
+                    let f1 = simd.cmp_eq_f64x2(d1, ones);
+                    let f2 = simd.cmp_eq_f64x2(d2, ones);
+                    let f3 = simd.cmp_eq_f64x2(d3, ones);
+
+                    // cmp bits
+                    let f0 = simd.sse2._mm_movemask_pd(pulp::cast(f0));
+                    let f1 = simd.sse2._mm_movemask_pd(pulp::cast(f1));
+                    let f2 = simd.sse2._mm_movemask_pd(pulp::cast(f2));
+                    let f3 = simd.sse2._mm_movemask_pd(pulp::cast(f3));
+                    *o = (f0 as u8) | ((f1 as u8) << 2) | ((f2 as u8) << 4) | ((f3 as u8) << 6);
+                }
             }
+
+            if !out_tail.is_empty() {
+                pack_naive_sync(out_tail, data_tail, zero, one);
+            }
+        }
+    }
+    simd.vectorize(Impl {
+        simd,
+        out,
+        data,
+        zero,
+        one,
+    });
+}
+
+pub fn pack_avx2_par(
+    chunk_size: usize,
+    simd: pulp::x86::V3,
+    out: &mut [u8],
+    data: &[f64],
+    zero: f64,
+    one: f64,
+) {
+    data.par_chunks(chunk_size)
+        .zip(out.par_chunks_mut(chunk_size / 8))
+        .for_each(|(data, out)| {
+            pack_avx2_sync(simd, out, data, zero, one);
+        });
+}
+
+pub fn pack_naive(out: &mut [u8], data: &[f64], zero: f64, one: f64) {
+    let threads = rayon::current_num_threads();
+    let chunk_size = data.len() / threads;
+    if chunk_size < 128 {
+        pack_naive_sync(out, data, zero, one);
+    } else {
+        pack_naive_par(chunk_size, out, data, zero, one);
+    }
+}
+
+pub fn pack_naive_sync(out: &mut [u8], data: &[f64], zero: f64, one: f64) {
+    for i in 0..data.len() {
+        out[i / 8] |= if data[i] == one { 1 << (i % 8) } else { 0 };
+    }
+}
+
+pub fn pack_naive_par(chunk_size: usize, out: &mut [u8], data: &[f64], zero: f64, one: f64) {
+    data.par_chunks(chunk_size)
+        .zip(out.par_chunks_mut(chunk_size / 8))
+        .for_each(|(data, out)| {
+            pack_naive_sync(out, data, zero, one);
         });
 }
 
@@ -204,12 +343,23 @@ pub fn unpack_naive_par(chunk_size: usize, out: &mut [f64], bytes: &[u8], zero: 
 mod tests {
     use super::*;
 
+    const BYTES: usize = 2101;
+
     fn bytes() -> Vec<u8> {
-        vec![0b10101010, 0b01010101]
+        let mut v: Vec<u8> = vec![0b10101010, 0b01010101]
             .into_iter()
             .cycle()
-            .take(2101)
-            .collect()
+            .take(BYTES - 1)
+            .collect();
+        // we -5 bits to test partial bytes, this is that partial byte
+        if BYTES % 2 == 0 {
+            // the last byte is 0b10101010
+            v.push(0b101);
+        } else {
+            // the last byte is 0b01010101
+            v.push(0b010);
+        }
+        v
     }
 
     fn out() -> Vec<f64> {
@@ -217,7 +367,7 @@ mod tests {
     }
 
     fn bits() -> u64 {
-        2101 * 8 - 5
+        BYTES as u64 * 8 - 5
     }
 
     fn expected() -> Vec<f64> {
@@ -279,4 +429,54 @@ mod tests {
             assert_eq!(out, expected());
         }
     }
+
+    #[test]
+    fn test_pack_naive_sync() {
+        let mut out = vec![0; bytes().len()];
+        pack_naive_sync(&mut out, &expected(), 0.0, 1.0);
+        assert_eq!(out, bytes());
+    }
+
+    #[test]
+    fn test_pack_naive_par() {
+        let mut out = vec![0; bytes().len()];
+        pack_naive_par(128, &mut out, &expected(), 0.0, 1.0);
+        assert_eq!(out, bytes());
+    }
+
+    #[test]
+    fn test_pack_avx2_sync() {
+        if let Some(simd) = pulp::x86::V3::try_new() {
+            let mut out = vec![0; bytes().len()];
+            pack_avx2_sync(simd, &mut out, &expected(), 0.0, 1.0);
+            assert_eq!(out, bytes());
+        }
+    }
+
+    // #[test]
+    // fn test_pack_avx2_par() {
+    //     if let Some(simd) = pulp::x86::V3::try_new() {
+    //         let mut out = vec![0; bytes().len()];
+    //         pack_avx2_par(128, simd, &mut out, &expected(), 0.0, 1.0);
+    //         assert_eq!(out, bytes());
+    //     }
+    // }
+
+    // #[test]
+    // fn test_pack_avx512_sync() {
+    //     if is_x86_feature_detected!("avx512f") {
+    //         let mut out = vec![0; bytes().len()];
+    //         pack_avx512_sync(&mut out, &expected(), 0.0, 1.0);
+    //         assert_eq!(out, bytes());
+    //     }
+    // }
+    //
+    // #[test]
+    // fn test_pack_avx512_par() {
+    //     if is_x86_feature_detected!("avx512f") {
+    //         let mut out = vec![0; bytes().len()];
+    //         pack_avx512_par(128, &mut out, &expected(), 0.0, 1.0);
+    //         assert_eq!(out, bytes());
+    //     }
+    // }
 }

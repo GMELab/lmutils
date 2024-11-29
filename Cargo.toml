@@ -69,3 +69,7 @@ harness = false
 [[bench]]
 name = "unpack"
 harness = false
+
+[[bench]]
+name = "pack"
+harness = false

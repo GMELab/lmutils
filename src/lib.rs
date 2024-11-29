@@ -5,14 +5,14 @@ mod error;
 mod file;
 mod mat;
 mod matrix;
-mod pack;
+mod packing;
 
 use std::{mem::MaybeUninit, panic::AssertUnwindSafe, sync::Mutex};
 
 use rayon::prelude::*;
 use tracing::{debug, debug_span, error, info, trace, warn};
 
-pub use crate::{calc::*, error::*, file::*, matrix::*, pack::*};
+pub use crate::{calc::*, error::*, file::*, matrix::*, packing::*};
 
 #[cfg_attr(coverage_nightly, coverage(off))]
 #[doc(hidden)]
