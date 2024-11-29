@@ -50,7 +50,7 @@ fn naive_sync(bencher: Bencher, len: usize) {
 
 fn naive_par(bencher: Bencher, len: usize) {
     let mut out = out(len);
-    let threads = rayon::current_num_threads();
+    let threads = num_cpus::get();
     let chunk_size = len / threads / 8 * 8;
     bencher.bench(|| {
         unpack_naive_par(chunk_size, &mut out, &bytes(len), bits(len), 0.0, 1.0);
@@ -69,7 +69,7 @@ fn avx2_sync(bencher: Bencher, len: usize) {
 fn avx2_par(bencher: Bencher, len: usize) {
     if let Some(simd) = pulp::x86::V3::try_new() {
         let mut out = out(len);
-        let threads = rayon::current_num_threads();
+        let threads = num_cpus::get();
         let chunk_size = len / threads / 8 * 8;
         bencher.bench(|| {
             unpack_avx2_par(chunk_size, simd, &mut out, &bytes(len), bits(len), 0.0, 1.0);
@@ -89,7 +89,7 @@ fn avx512_sync(bencher: Bencher, len: usize) {
 fn avx512_par(bencher: Bencher, len: usize) {
     if is_x86_feature_detected!("avx512f") {
         let mut out = out(len);
-        let threads = rayon::current_num_threads();
+        let threads = num_cpus::get();
         let chunk_size = len / threads / 8 * 8;
         bencher.bench(|| {
             unpack_avx512_par(chunk_size, &mut out, &bytes(len), bits(len), 0.0, 1.0);
