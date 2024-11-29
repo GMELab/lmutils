@@ -21,7 +21,7 @@ pub fn unpack(out: &mut [f64], bytes: &[u8], zero: f64, one: f64) {
 
 pub fn unpack_avx512(out: &mut [f64], bytes: &[u8], zero: f64, one: f64) {
     let threads = rayon::current_num_threads();
-    let chunk_size = bytes.len() / threads / 8 * 8;
+    let chunk_size = (bytes.len() / threads / 8 + 1) * 8;
     if chunk_size < 128 {
         unpack_avx512(out, bytes, zero, one);
     } else {
@@ -77,7 +77,7 @@ pub fn unpack_avx512_par(chunk_size: usize, out: &mut [f64], bytes: &[u8], zero:
 
 pub fn unpack_avx2(simd: pulp::x86::V3, out: &mut [f64], bytes: &[u8], zero: f64, one: f64) {
     let threads = rayon::current_num_threads();
-    let chunk_size = bytes.len() / threads / 16 * 16;
+    let chunk_size = (bytes.len() / threads / 16 + 1) * 16;
     if chunk_size < 128 {
         unpack_avx2_sync(simd, out, bytes, zero, one);
     } else {
