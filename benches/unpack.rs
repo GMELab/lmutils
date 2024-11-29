@@ -1,4 +1,3 @@
-use aligned_vec::{avec, AVec};
 use diol::prelude::*;
 use lmutils::{
     unpack_avx2_par,
@@ -9,20 +8,16 @@ use lmutils::{
     unpack_naive_sync,
 };
 
-fn out(len: usize) -> AVec<f64> {
-    avec![0.0; len * 8]
+fn out(len: usize) -> Vec<f64> {
+    vec![0.0; len * 8]
 }
 
-fn bytes(len: usize) -> AVec<u8> {
-    let mut v = avec![0; len];
-    for i in 0..len {
-        if i % 2 == 0 {
-            v[i] = 0b10101010;
-        } else {
-            v[i] = 0b01010101;
-        }
-    }
-    v
+fn bytes(len: usize) -> Vec<u8> {
+    vec![0b10101010, 0b01010101]
+        .into_iter()
+        .cycle()
+        .take(len)
+        .collect()
 }
 
 fn chunk_size(len: usize) -> usize {
@@ -31,7 +26,7 @@ fn chunk_size(len: usize) -> usize {
     if chunk_size == 0 {
         chunk_size = 1;
     }
-    chunk_size.next_power_of_two() / 2 + 8
+    chunk_size.next_power_of_two()
 }
 
 fn main() -> std::io::Result<()> {
