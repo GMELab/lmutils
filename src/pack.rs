@@ -9,27 +9,27 @@ use rayon::{
 };
 
 // convert from bits to zero or one
-pub fn unpack(out: &mut [f64], bytes: &[u8], bits: u64, zero: f64, one: f64) {
+pub fn unpack(out: &mut [f64], bytes: &[u8], zero: f64, one: f64) {
     if is_x86_feature_detected!("avx512f") {
-        unpack_avx512(out, bytes, bits, zero, one);
+        unpack_avx512(out, bytes, zero, one);
     } else if let Some(simd) = pulp::x86::V3::try_new() {
-        unpack_avx2(simd, out, bytes, bits, zero, one);
+        unpack_avx2(simd, out, bytes, zero, one);
     } else {
-        unpack_naive(out, bytes, bits, zero, one);
+        unpack_naive(out, bytes, zero, one);
     }
 }
 
-pub fn unpack_avx512(out: &mut [f64], bytes: &[u8], bits: u64, zero: f64, one: f64) {
+pub fn unpack_avx512(out: &mut [f64], bytes: &[u8], zero: f64, one: f64) {
     let threads = rayon::current_num_threads();
     let chunk_size = bytes.len() / threads / 8 * 8;
     if chunk_size < 128 {
-        unpack_avx512(out, bytes, bits, zero, one);
+        unpack_avx512(out, bytes, zero, one);
     } else {
-        unpack_avx512_par(chunk_size, out, bytes, bits, zero, one);
+        unpack_avx512_par(chunk_size, out, bytes, zero, one);
     }
 }
 
-pub fn unpack_avx512_sync(out: &mut [f64], bytes: &[u8], bits: u64, zero: f64, one: f64) {
+pub fn unpack_avx512_sync(out: &mut [f64], bytes: &[u8], zero: f64, one: f64) {
     unsafe {
         core::arch::asm! {
             "vbroadcastsd zmm0, xmm0",
@@ -52,66 +52,44 @@ pub fn unpack_avx512_sync(out: &mut [f64], bytes: &[u8], bits: u64, zero: f64, o
             inout("xmm0") zero => _,
             inout("xmm1") one => _,
             out("xmm2") _,
-            inout("rax") bits / 8 => _,
+            inout("rax") out.len() / 8 => _,
             inout("rsi") bytes.as_ptr() => _,
             inout("rdi") out.as_mut_ptr() => _,
         }
     };
+    let bits = out.len();
     unpack_naive_sync(
-        out[(bits / 8 * 8) as usize..].as_mut(),
-        &bytes[(bits / 8) as usize..],
-        bits - (bits / 8 * 8),
+        out[(bits / 8 * 8)..].as_mut(),
+        &bytes[(bits / 8)..],
         zero,
         one,
     );
 }
 
-pub fn unpack_avx512_par(
-    chunk_size: usize,
-    out: &mut [f64],
-    bytes: &[u8],
-    bits: u64,
-    zero: f64,
-    one: f64,
-) {
+pub fn unpack_avx512_par(chunk_size: usize, out: &mut [f64], bytes: &[u8], zero: f64, one: f64) {
     bytes
         .par_chunks(chunk_size)
         .zip(out.par_chunks_mut(8 * chunk_size))
         .for_each(|(chunk, out)| {
-            unpack_avx512_sync(out, chunk, out.len() as u64, zero, one);
+            unpack_avx512_sync(out, chunk, zero, one);
         });
 }
 
-pub fn unpack_avx2(
-    simd: pulp::x86::V3,
-    out: &mut [f64],
-    bytes: &[u8],
-    bits: u64,
-    zero: f64,
-    one: f64,
-) {
+pub fn unpack_avx2(simd: pulp::x86::V3, out: &mut [f64], bytes: &[u8], zero: f64, one: f64) {
     let threads = rayon::current_num_threads();
-    let chunk_size = bytes.len() / threads / 8 * 8;
+    let chunk_size = bytes.len() / threads / 16 * 16;
     if chunk_size < 128 {
-        unpack_avx2_sync(simd, out, bytes, bits, zero, one);
+        unpack_avx2_sync(simd, out, bytes, zero, one);
     } else {
-        unpack_avx2_par(chunk_size, simd, out, bytes, bits, zero, one);
+        unpack_avx2_par(chunk_size, simd, out, bytes, zero, one);
     }
 }
 
-pub fn unpack_avx2_sync(
-    simd: pulp::x86::V3,
-    out: &mut [f64],
-    bytes: &[u8],
-    bits: u64,
-    zero: f64,
-    one: f64,
-) {
+pub fn unpack_avx2_sync(simd: pulp::x86::V3, out: &mut [f64], bytes: &[u8], zero: f64, one: f64) {
     struct Impl<'a> {
         simd:  pulp::x86::V3,
         out:   &'a mut [f64],
         bytes: &'a [u8],
-        bits:  u64,
         zero:  f64,
         one:   f64,
     }
@@ -124,7 +102,6 @@ pub fn unpack_avx2_sync(
                 simd,
                 out,
                 bytes,
-                bits,
                 zero,
                 one,
             } = self;
@@ -159,7 +136,7 @@ pub fn unpack_avx2_sync(
             }
 
             if !out_tail.is_empty() {
-                unpack_naive(out_tail, bytes_tail, bits % 128, zero, one);
+                unpack_naive(out_tail, bytes_tail, zero, one);
             }
         }
     }
@@ -167,7 +144,6 @@ pub fn unpack_avx2_sync(
         simd,
         out,
         bytes,
-        bits,
         zero,
         one,
     });
@@ -178,7 +154,6 @@ pub fn unpack_avx2_par(
     simd: pulp::x86::V3,
     out: &mut [f64],
     bytes: &[u8],
-    bits: u64,
     zero: f64,
     one: f64,
 ) {
@@ -186,22 +161,22 @@ pub fn unpack_avx2_par(
         .par_chunks(chunk_size)
         .zip(out.par_chunks_mut(8 * chunk_size))
         .for_each(|(chunk, out)| {
-            unpack_avx2_sync(simd, out, chunk, bits, zero, one);
+            unpack_avx2_sync(simd, out, chunk, zero, one);
         });
 }
 
-pub fn unpack_naive(out: &mut [f64], bytes: &[u8], bits: u64, zero: f64, one: f64) {
+pub fn unpack_naive(out: &mut [f64], bytes: &[u8], zero: f64, one: f64) {
     let threads = rayon::current_num_threads();
     let chunk_size = bytes.len() / threads;
     if chunk_size < 128 {
-        unpack_naive_sync(out, bytes, bits, zero, one);
+        unpack_naive_sync(out, bytes, zero, one);
     } else {
-        unpack_naive_par(chunk_size, out, bytes, bits, zero, one);
+        unpack_naive_par(chunk_size, out, bytes, zero, one);
     }
 }
 
-pub fn unpack_naive_sync(out: &mut [f64], bytes: &[u8], bits: u64, zero: f64, one: f64) {
-    for i in 0..(bits as usize) {
+pub fn unpack_naive_sync(out: &mut [f64], bytes: &[u8], zero: f64, one: f64) {
+    for i in 0..out.len() {
         out[i] = if ((bytes[i / 8] >> (i % 8)) & 1) == 1 {
             one
         } else {
@@ -210,14 +185,7 @@ pub fn unpack_naive_sync(out: &mut [f64], bytes: &[u8], bits: u64, zero: f64, on
     }
 }
 
-pub fn unpack_naive_par(
-    chunk_size: usize,
-    out: &mut [f64],
-    bytes: &[u8],
-    bits: u64,
-    zero: f64,
-    one: f64,
-) {
+pub fn unpack_naive_par(chunk_size: usize, out: &mut [f64], bytes: &[u8], zero: f64, one: f64) {
     bytes
         .par_chunks(chunk_size)
         .zip(out.par_chunks_mut(8 * chunk_size))
@@ -265,14 +233,14 @@ mod tests {
     #[test]
     fn test_unpack_naive_sync() {
         let mut out = out();
-        unpack_naive_sync(&mut out, &bytes(), bits(), 0.0, 1.0);
+        unpack_naive_sync(&mut out, &bytes(), 0.0, 1.0);
         assert_eq!(out, expected(),);
     }
 
     #[test]
     fn test_unpack_naive_par() {
         let mut out = out();
-        unpack_naive_par(128, &mut out, &bytes(), bits(), 0.0, 1.0);
+        unpack_naive_par(128, &mut out, &bytes(), 0.0, 1.0);
         assert_eq!(out, expected());
     }
 
@@ -280,7 +248,7 @@ mod tests {
     fn test_unpack_avx2_sync() {
         if let Some(simd) = pulp::x86::V3::try_new() {
             let mut out = out();
-            unpack_avx2_sync(simd, &mut out, &bytes(), bits(), 0.0, 1.0);
+            unpack_avx2_sync(simd, &mut out, &bytes(), 0.0, 1.0);
             assert_eq!(out, expected());
         }
     }
@@ -289,7 +257,7 @@ mod tests {
     fn test_unpack_avx2_par() {
         if let Some(simd) = pulp::x86::V3::try_new() {
             let mut out = out();
-            unpack_avx2_par(128, simd, &mut out, &bytes(), bits(), 0.0, 1.0);
+            unpack_avx2_par(128, simd, &mut out, &bytes(), 0.0, 1.0);
             assert_eq!(out, expected());
         }
     }
@@ -298,7 +266,7 @@ mod tests {
     fn test_unpack_avx512_sync() {
         if is_x86_feature_detected!("avx512f") {
             let mut out = out();
-            unpack_avx512_sync(&mut out, &bytes(), bits(), 0.0, 1.0);
+            unpack_avx512_sync(&mut out, &bytes(), 0.0, 1.0);
             assert_eq!(out, expected());
         }
     }
@@ -307,7 +275,7 @@ mod tests {
     fn test_unpack_avx512_par() {
         if is_x86_feature_detected!("avx512f") {
             let mut out = out();
-            unpack_avx512_par(128, &mut out, &bytes(), bits(), 0.0, 1.0);
+            unpack_avx512_par(128, &mut out, &bytes(), 0.0, 1.0);
             assert_eq!(out, expected());
         }
     }

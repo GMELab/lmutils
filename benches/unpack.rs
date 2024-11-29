@@ -9,7 +9,7 @@ use lmutils::{
 };
 
 fn out(len: usize) -> Vec<f64> {
-    vec![0.0; bits(len) as usize]
+    vec![0.0; len * 8]
 }
 
 fn bytes(len: usize) -> Vec<u8> {
@@ -18,10 +18,6 @@ fn bytes(len: usize) -> Vec<u8> {
         .cycle()
         .take(len)
         .collect()
-}
-
-fn bits(len: usize) -> u64 {
-    len as u64 * 8
 }
 
 fn main() -> std::io::Result<()> {
@@ -44,7 +40,7 @@ fn main() -> std::io::Result<()> {
 fn naive_sync(bencher: Bencher, len: usize) {
     let mut out = out(len);
     bencher.bench(|| {
-        unpack_naive_sync(&mut out, &bytes(len), bits(len), 0.0, 1.0);
+        unpack_naive_sync(&mut out, &bytes(len), 0.0, 1.0);
     });
 }
 
@@ -56,7 +52,7 @@ fn naive_par(bencher: Bencher, len: usize) {
         chunk_size = 1;
     }
     bencher.bench(|| {
-        unpack_naive_par(chunk_size, &mut out, &bytes(len), bits(len), 0.0, 1.0);
+        unpack_naive_par(chunk_size, &mut out, &bytes(len), 0.0, 1.0);
     });
 }
 
@@ -64,7 +60,7 @@ fn avx2_sync(bencher: Bencher, len: usize) {
     if let Some(simd) = pulp::x86::V3::try_new() {
         let mut out = out(len);
         bencher.bench(|| {
-            unpack_avx2_sync(simd, &mut out, &bytes(len), bits(len), 0.0, 1.0);
+            unpack_avx2_sync(simd, &mut out, &bytes(len), 0.0, 1.0);
         });
     }
 }
@@ -78,7 +74,7 @@ fn avx2_par(bencher: Bencher, len: usize) {
             chunk_size = 1;
         }
         bencher.bench(|| {
-            unpack_avx2_par(chunk_size, simd, &mut out, &bytes(len), bits(len), 0.0, 1.0);
+            unpack_avx2_par(chunk_size, simd, &mut out, &bytes(len), 0.0, 1.0);
         });
     }
 }
@@ -87,7 +83,7 @@ fn avx512_sync(bencher: Bencher, len: usize) {
     if is_x86_feature_detected!("avx512f") {
         let mut out = out(len);
         bencher.bench(|| {
-            unpack_avx512_sync(&mut out, &bytes(len), bits(len), 0.0, 1.0);
+            unpack_avx512_sync(&mut out, &bytes(len), 0.0, 1.0);
         });
     }
 }
@@ -101,7 +97,7 @@ fn avx512_par(bencher: Bencher, len: usize) {
             chunk_size = 1;
         }
         bencher.bench(|| {
-            unpack_avx512_par(chunk_size, &mut out, &bytes(len), bits(len), 0.0, 1.0);
+            unpack_avx512_par(chunk_size, &mut out, &bytes(len), 0.0, 1.0);
         });
     }
 }
