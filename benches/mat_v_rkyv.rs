@@ -2,7 +2,7 @@ use diol::prelude::*;
 use lmutils::{File, IntoMatrix, OwnedMatrix};
 
 fn main() -> std::io::Result<()> {
-    let mut bench = Bench::new(BenchConfig::from_args());
+    let mut bench = Bench::new(BenchConfig::from_args()?);
     bench.register_many(
         list![
             write_rkyv,

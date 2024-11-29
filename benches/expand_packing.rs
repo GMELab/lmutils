@@ -4,7 +4,7 @@ use diol::prelude::*;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 fn main() -> std::io::Result<()> {
-    let mut bench = Bench::new(BenchConfig::from_args());
+    let mut bench = Bench::new(BenchConfig::from_args()?);
     bench.register_many(
         list![
             expand_packing,

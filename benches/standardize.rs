@@ -4,7 +4,7 @@ use lmutils::standardize_column;
 use pulp::{Arch, Simd, WithSimd};
 
 fn main() -> std::io::Result<()> {
-    let mut bench = Bench::new(BenchConfig::from_args());
+    let mut bench = Bench::new(BenchConfig::from_args()?);
     bench.register_many(
         list![
             standardize,

@@ -497,7 +497,7 @@ impl<'a> R2Simd<'a> {
     }
 }
 
-impl<'a> WithSimd for R2Simd<'a> {
+impl WithSimd for R2Simd<'_> {
     type Output = f64;
 
     #[inline(always)]
