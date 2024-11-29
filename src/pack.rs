@@ -42,7 +42,7 @@ fn from_bits_avx512(out: &mut [f64], bytes: &[u8], bits: u64, zero: f64, one: f6
             inout("xmm0") zero => _,
             inout("xmm1") one => _,
             out("xmm2") _,
-            inout("rax") bytes.len() / 8 => _,
+            inout("rax") bytes.len() / 8 * 8 => _,
             inout("rsi") bytes.as_ptr() => _,
             inout("rdi") out.as_mut_ptr() => _,
         }
