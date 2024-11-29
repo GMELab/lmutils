@@ -49,7 +49,7 @@ fn from_bits_avx512(out: &mut [f64], bytes: &[u8], bits: u64, zero: f64, one: f6
     };
     from_bits_naive_sync(
         out[(bits / 8 * 8) as usize..].as_mut(),
-        &bytes[(bits / 8 * 8) as usize..],
+        &bytes[(bits / 8) as usize..],
         bits - (bits / 8 * 8),
         zero,
         one,
