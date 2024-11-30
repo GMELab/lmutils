@@ -224,14 +224,14 @@ pub fn pack_avx512_sync(out: &mut [u8], data: &[f64], zero: f64, one: f64) {
             "test rax, rax",
             "jz 3f",
                 "2:",
-                "vmovupd zmmword ptr [rsi], zmm1", // move the next 8 f64s into the input
+                "vmovupd zmm1, zmmword ptr [rsi]", // move the next 8 f64s into the input
                 "vcmpneqpd k1, zmm1, zmm0", // compare the input to zero
                 "kmovb byte ptr [rdi], k1", // move the next output byte into k1
 
                 "add rsi, 64", // increment the input pointer
                 "add rdi, 1", // increment the output pointer
                 "dec rax", // decrement the counter
-                "jz 3f", // if the counter is zero, jump to the
+                "jnz 2b", // if the counter is zero, jump to the start of the loop
             "3:",
 
             inout("xmm0") zero => _,
@@ -494,12 +494,12 @@ mod tests {
         }
     }
 
-    // #[test]
-    // fn test_pack_avx512_par() {
-    //     if is_x86_feature_detected!("avx512f") {
-    //         let mut out = vec![0; bytes().len()];
-    //         pack_avx512_par(128, &mut out, &expected(), 0.0, 1.0);
-    //         assert_eq!(out, bytes());
-    //     }
-    // }
+    #[test]
+    fn test_pack_avx512_par() {
+        if is_x86_feature_detected!("avx512f") {
+            let mut out = vec![0; bytes().len()];
+            pack_avx512_par(128, &mut out, &expected(), 0.0, 1.0);
+            assert_eq!(out, bytes());
+        }
+    }
 }
