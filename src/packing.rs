@@ -8,6 +8,8 @@ use rayon::{
     slice::{ParallelSlice, ParallelSliceMut},
 };
 
+const MIN_CHUNK_SIZE: usize = 16384;
+
 // convert from bits to zero or one
 pub fn unpack(out: &mut [f64], bytes: &[u8], zero: f64, one: f64) {
     if is_x86_feature_detected!("avx512f") {
@@ -22,7 +24,7 @@ pub fn unpack(out: &mut [f64], bytes: &[u8], zero: f64, one: f64) {
 pub fn unpack_avx512(out: &mut [f64], bytes: &[u8], zero: f64, one: f64) {
     let threads = rayon::current_num_threads();
     let chunk_size = (bytes.len() / threads / 8 + 1) * 8;
-    if chunk_size < 128 {
+    if chunk_size < MIN_CHUNK_SIZE {
         unpack_avx512(out, bytes, zero, one);
     } else {
         unpack_avx512_par(chunk_size, out, bytes, zero, one);
@@ -78,7 +80,7 @@ pub fn unpack_avx512_par(chunk_size: usize, out: &mut [f64], bytes: &[u8], zero:
 pub fn unpack_avx2(simd: pulp::x86::V3, out: &mut [f64], bytes: &[u8], zero: f64, one: f64) {
     let threads = rayon::current_num_threads();
     let chunk_size = (bytes.len() / threads / 16 + 1) * 16;
-    if chunk_size < 128 {
+    if chunk_size < MIN_CHUNK_SIZE {
         unpack_avx2_sync(simd, out, bytes, zero, one);
     } else {
         unpack_avx2_par(chunk_size, simd, out, bytes, zero, one);
@@ -168,7 +170,7 @@ pub fn unpack_avx2_par(
 pub fn unpack_naive(out: &mut [f64], bytes: &[u8], zero: f64, one: f64) {
     let threads = rayon::current_num_threads();
     let chunk_size = bytes.len() / threads;
-    if chunk_size < 128 {
+    if chunk_size < MIN_CHUNK_SIZE {
         unpack_naive_sync(out, bytes, zero, one);
     } else {
         unpack_naive_par(chunk_size, out, bytes, zero, one);
@@ -207,7 +209,7 @@ pub fn pack(out: &mut [u8], data: &[f64], zero: f64, one: f64) {
 pub fn pack_avx512(out: &mut [u8], data: &[f64], zero: f64, one: f64) {
     let threads = rayon::current_num_threads();
     let chunk_size = (data.len() / threads / 8 + 1) * 8;
-    if chunk_size < 128 {
+    if chunk_size < MIN_CHUNK_SIZE {
         pack_avx512_sync(out, data, zero, one);
     } else {
         pack_avx512_par(chunk_size, out, data, zero, one);
@@ -230,7 +232,7 @@ pub fn pack_avx512_par(chunk_size: usize, out: &mut [u8], data: &[f64], zero: f6
 pub fn pack_avx2(simd: pulp::x86::V3, out: &mut [u8], data: &[f64], zero: f64, one: f64) {
     let threads = rayon::current_num_threads();
     let chunk_size = (data.len() / threads / 8 + 1) * 8;
-    if chunk_size < 128 {
+    if chunk_size < MIN_CHUNK_SIZE {
         pack_avx2_sync(simd, out, data, zero, one);
     } else {
         pack_avx2_par(chunk_size, simd, out, data, zero, one);
@@ -311,7 +313,7 @@ pub fn pack_avx2_par(
 pub fn pack_naive(out: &mut [u8], data: &[f64], zero: f64, one: f64) {
     let threads = rayon::current_num_threads();
     let chunk_size = data.len() / threads;
-    if chunk_size < 128 {
+    if chunk_size < MIN_CHUNK_SIZE {
         pack_naive_sync(out, data, zero, one);
     } else {
         pack_naive_par(chunk_size, out, data, zero, one);
