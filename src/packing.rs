@@ -263,26 +263,19 @@ pub fn pack_avx2_sync(simd: pulp::x86::V3, out: &mut [u8], data: &[f64], zero: f
 
             for (out, data) in std::iter::zip(out16, data128) {
                 let data = pulp::as_arrays::<8, _>(data).0;
-                let zeros = simd.splat_f64x2(zero);
-                let ones = simd.splat_f64x2(one);
+                let zeros = simd.splat_f64x4(zero);
+                let ones = simd.splat_f64x4(one);
                 for (o, d) in std::iter::zip(out.iter_mut().rev(), data.iter().rev()) {
-                    let d = pulp::as_arrays::<2, _>(d).0;
+                    let d = pulp::as_arrays::<4, _>(d).0;
                     let d0 = pulp::cast(d[0]);
                     let d1 = pulp::cast(d[1]);
-                    let d2 = pulp::cast(d[2]);
-                    let d3 = pulp::cast(d[3]);
 
-                    let f0 = simd.cmp_eq_f64x2(d0, ones);
-                    let f1 = simd.cmp_eq_f64x2(d1, ones);
-                    let f2 = simd.cmp_eq_f64x2(d2, ones);
-                    let f3 = simd.cmp_eq_f64x2(d3, ones);
+                    let f0 = simd.cmp_eq_f64x4(d0, ones);
+                    let f1 = simd.cmp_eq_f64x4(d1, ones);
 
-                    // cmp bits
-                    let f0 = simd.sse2._mm_movemask_pd(pulp::cast(f0));
-                    let f1 = simd.sse2._mm_movemask_pd(pulp::cast(f1));
-                    let f2 = simd.sse2._mm_movemask_pd(pulp::cast(f2));
-                    let f3 = simd.sse2._mm_movemask_pd(pulp::cast(f3));
-                    *o = (f0 as u8) | ((f1 as u8) << 2) | ((f2 as u8) << 4) | ((f3 as u8) << 6);
+                    let f0 = simd.avx._mm256_movemask_pd(pulp::cast(f0));
+                    let f1 = simd.avx._mm256_movemask_pd(pulp::cast(f1));
+                    *o = (f0 as u8) | ((f1 as u8) << 4);
                 }
             }
 
@@ -453,14 +446,14 @@ mod tests {
         }
     }
 
-    // #[test]
-    // fn test_pack_avx2_par() {
-    //     if let Some(simd) = pulp::x86::V3::try_new() {
-    //         let mut out = vec![0; bytes().len()];
-    //         pack_avx2_par(128, simd, &mut out, &expected(), 0.0, 1.0);
-    //         assert_eq!(out, bytes());
-    //     }
-    // }
+    #[test]
+    fn test_pack_avx2_par() {
+        if let Some(simd) = pulp::x86::V3::try_new() {
+            let mut out = vec![0; bytes().len()];
+            pack_avx2_par(128, simd, &mut out, &expected(), 0.0, 1.0);
+            assert_eq!(out, bytes());
+        }
+    }
 
     // #[test]
     // fn test_pack_avx512_sync() {

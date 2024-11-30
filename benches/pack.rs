@@ -28,6 +28,7 @@ fn chunk_size(len: usize) -> usize {
     if chunk_size == 0 {
         chunk_size = 1;
     }
+    println!("chunk_size: {}", chunk_size.next_power_of_two());
     chunk_size.next_power_of_two()
 }
 
