@@ -241,7 +241,12 @@ pub fn pack_avx512_sync(out: &mut [u8], data: &[f64], zero: f64, one: f64) {
             inout("rdi") out.as_mut_ptr() => _,
         }
     };
-    pack_naive_sync(out[(bits / 8)..].as_mut(), &data[(bits / 8)..], zero, one);
+    pack_naive_sync(
+        out[(bits / 8)..].as_mut(),
+        &data[(bits / 8 * 8)..],
+        zero,
+        one,
+    );
 }
 
 pub fn pack_avx512_par(chunk_size: usize, out: &mut [u8], data: &[f64], zero: f64, one: f64) {
