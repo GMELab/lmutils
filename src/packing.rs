@@ -1,7 +1,7 @@
 //! This module provides utilities for speedily packing and unpacking bit-packed
-//! data. Much of the SIMD and inline assembly code is adapted from MIT licensed
-//! code provided by sarah quiñones el kazdadi, massive thanks to her for the
-//! help!
+//! data. Much of the unpacking SIMD and inline assembly code is adapted from
+//! MIT licensed code provided by sarah quiñones el kazdadi, massive thanks to
+//! her for the help!
 
 use rayon::{
     iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator},
@@ -218,6 +218,29 @@ pub fn pack_avx512(out: &mut [u8], data: &[f64], zero: f64, one: f64) {
 
 pub fn pack_avx512_sync(out: &mut [u8], data: &[f64], zero: f64, one: f64) {
     let bits = data.len();
+    unsafe {
+        core::arch::asm! {
+            "vbroadcastsd zmm0, xmm0", // 8 copies of zero from xmm0 to zmm0
+            "test rax, rax",
+            "jz 3f",
+                "2:",
+                "vmovupd zmmword ptr [rsi], zmm1", // move the next 8 f64s into the input
+                "vcmpneqpd k1, zmm1, zmm0", // compare the input to zero
+                "kmovb byte ptr [rdi], k1", // move the next output byte into k1
+
+                "add rsi, 64", // increment the input pointer
+                "add rdi, 1", // increment the output pointer
+                "dec rax", // decrement the counter
+                "jz 3f", // if the counter is zero, jump to the
+            "3:",
+
+            inout("xmm0") zero => _,
+            inout("xmm1") one => _,
+            inout("rax") bits / 8 => _,
+            inout("rsi") data.as_ptr() => _,
+            inout("rdi") out.as_mut_ptr() => _,
+        }
+    };
     pack_naive_sync(out[(bits / 8)..].as_mut(), &data[(bits / 8)..], zero, one);
 }
 
@@ -457,15 +480,15 @@ mod tests {
         }
     }
 
-    // #[test]
-    // fn test_pack_avx512_sync() {
-    //     if is_x86_feature_detected!("avx512f") {
-    //         let mut out = vec![0; bytes().len()];
-    //         pack_avx512_sync(&mut out, &expected(), 0.0, 1.0);
-    //         assert_eq!(out, bytes());
-    //     }
-    // }
-    //
+    #[test]
+    fn test_pack_avx512_sync() {
+        if is_x86_feature_detected!("avx512f") {
+            let mut out = vec![0; bytes().len()];
+            pack_avx512_sync(&mut out, &expected(), 0.0, 1.0);
+            assert_eq!(out, bytes());
+        }
+    }
+
     // #[test]
     // fn test_pack_avx512_par() {
     //     if is_x86_feature_detected!("avx512f") {
