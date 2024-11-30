@@ -36,10 +36,12 @@ fn main() -> std::io::Result<()> {
     let mut bench = Bench::new(BenchConfig::from_args()?);
     bench.register_many(
         list![
-            naive_sync, naive_par, avx2_sync,
+            naive_sync,
+            naive_par,
+            avx2_sync,
             avx2_par,
-            // avx512_sync,
-            // avx512_par
+            avx512_sync,
+            avx512_par
         ],
         [100, 1000, 10000, 100000, 1000000, 10000000],
     );
@@ -84,23 +86,24 @@ fn avx2_par(bencher: Bencher, len: usize) {
         });
     }
 }
-// fn avx512_sync(bencher: Bencher, len: usize) {
-//     if is_x86_feature_detected!("avx512f") {
-//         let mut out = out(len);
-//         let data = data(len);
-//         bencher.bench(|| {
-//             pack_avx512_sync(&mut out, &data, 0.0, 1.0);
-//         });
-//     }
-// }
-//
-// fn avx512_par(bencher: Bencher, len: usize) {
-//     if is_x86_feature_detected!("avx512f") {
-//         let mut out = out(len);
-//         let chunk_size = chunk_size(len);
-//         let data = data(len);
-//         bencher.bench(|| {
-//             pack_avx512_par(chunk_size, &mut out, &data, 0.0, 1.0);
-//         });
-//     }
-// }
+
+fn avx512_sync(bencher: Bencher, len: usize) {
+    if is_x86_feature_detected!("avx512f") {
+        let mut out = out(len);
+        let data = data(len);
+        bencher.bench(|| {
+            pack_avx512_sync(&mut out, &data, 0.0, 1.0);
+        });
+    }
+}
+
+fn avx512_par(bencher: Bencher, len: usize) {
+    if is_x86_feature_detected!("avx512f") {
+        let mut out = out(len);
+        let chunk_size = chunk_size(len);
+        let data = data(len);
+        bencher.bench(|| {
+            pack_avx512_par(chunk_size, &mut out, &data, 0.0, 1.0);
+        });
+    }
+}
