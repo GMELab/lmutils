@@ -349,6 +349,7 @@ pub fn pack_naive(out: &mut [u8], data: &[f64], zero: f64, one: f64) {
 }
 
 pub fn pack_naive_sync(out: &mut [u8], data: &[f64], zero: f64, one: f64) {
+    out.fill(0);
     for i in 0..data.len() {
         out[i / 8] |= if data[i] == one { 1 << (i % 8) } else { 0 };
     }

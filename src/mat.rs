@@ -244,6 +244,7 @@ struct BinaryMatrix {
 impl Mat for BinaryMatrix {
     const VERSION: u8 = 2;
 
+    #[allow(clippy::uninit_vec)]
     fn read(&self, mut reader: impl std::io::Read) -> Result<Matrix, crate::Error> {
         let (nrows, ncols) = self.read_header(&mut reader)?;
         let mut len = unsafe { nrows.unchecked_mul(ncols) };
@@ -255,40 +256,19 @@ impl Mat for BinaryMatrix {
         let mut one = [0; 8];
         reader.read_exact(&mut one)?;
         let one = f64::from_le_bytes(one);
-        let mut data = vec![MaybeUninit::<f64>::uninit(); len];
-        let mut buf = [0; 1];
-        for i in 0..(len / 8) {
-            reader.read_exact(&mut buf)?;
-            for j in 0..8 {
-                let val = (buf[0] >> j) & 1;
-                unsafe {
-                    *data.as_ptr().add((i * 8) + j).cast_mut().cast::<f64>() =
-                        if val == 0 { zero } else { one };
-                }
-            }
+        let mut buf = Vec::with_capacity(len / 8 + (len % 8 != 0) as usize);
+        unsafe {
+            buf.set_len(buf.capacity());
         }
-        if len % 8 != 0 {
-            reader.read_exact(&mut buf)?;
-            for j in 0..(len % 8) {
-                let val = (buf[0] >> j) & 1;
-                unsafe {
-                    *data
-                        .as_ptr()
-                        .add(((len / 8) * 8) + j)
-                        .cast_mut()
-                        .cast::<f64>() = if val == 0 { zero } else { one };
-                }
-            }
+        reader.read_exact(&mut buf)?;
+        let mut data = Vec::with_capacity(len);
+        let mut spare = unsafe { std::slice::from_raw_parts_mut(data.as_mut_ptr(), len) };
+        crate::unpack(spare, &buf, zero, one);
+        unsafe {
+            data.set_len(len);
         }
         Ok(Matrix::Owned(OwnedMatrix::new(
-            nrows,
-            ncols,
-            unsafe {
-                std::mem::transmute::<std::vec::Vec<std::mem::MaybeUninit<f64>>, std::vec::Vec<f64>>(
-                    data,
-                )
-            },
-            colnames,
+            nrows, ncols, data, colnames,
         )))
     }
 
@@ -299,14 +279,13 @@ impl Mat for BinaryMatrix {
         writer.write_all(&self.zero.to_le_bytes())?;
         writer.write_all(&self.one.to_le_bytes())?;
         let mut data = mat.data()?;
-        let mut bits = 0u8;
-        for chunk in data.chunks(8) {
-            for (i, &val) in chunk.iter().enumerate() {
-                bits |= if val == self.one { 1 << i } else { 0 };
-            }
-            writer.write_all(&[bits])?;
-            bits = 0;
+        let mut buf = Vec::with_capacity(data.len() / 8 + (data.len() % 8 != 0) as usize);
+        let mut spare = unsafe { std::slice::from_raw_parts_mut(buf.as_mut_ptr(), buf.capacity()) };
+        crate::pack(spare, data, self.zero, self.one);
+        unsafe {
+            buf.set_len(buf.capacity());
         }
+        writer.write_all(&buf)?;
         Ok(())
     }
 }
@@ -330,12 +309,13 @@ struct BinaryColumnMatrix;
 impl Mat for BinaryColumnMatrix {
     const VERSION: u8 = 3;
 
+    #[allow(clippy::uninit_vec)]
     fn read(&self, mut reader: impl std::io::Read) -> Result<Matrix, crate::Error> {
         let (nrows, ncols) = self.read_header(&mut reader)?;
         let mut len = unsafe { nrows.unchecked_mul(ncols) };
         let colnames = self.read_colnames(&mut reader, ncols)?;
 
-        let mut data = vec![MaybeUninit::<f64>::uninit(); len];
+        let mut data = Vec::<f64>::with_capacity(len);
         for i in 0..ncols {
             let mut zero = [0; 8];
             reader.read_exact(&mut zero)?;
@@ -343,43 +323,21 @@ impl Mat for BinaryColumnMatrix {
             let mut one = [0; 8];
             reader.read_exact(&mut one)?;
             let one = f64::from_le_bytes(one);
-            let mut buf = [0; 1];
-            for j in 0..(nrows / 8) {
-                reader.read_exact(&mut buf)?;
-                for k in 0..8 {
-                    let val = (buf[0] >> k) & 1;
-                    unsafe {
-                        *data
-                            .as_ptr()
-                            .add(i * nrows + (j * 8) + k)
-                            .cast_mut()
-                            .cast::<f64>() = if val == 0 { zero } else { one };
-                    }
-                }
+            let mut buf = Vec::with_capacity(nrows / 8 + (nrows % 8 != 0) as usize);
+            unsafe {
+                buf.set_len(buf.capacity());
             }
-            if nrows % 8 != 0 {
-                reader.read_exact(&mut buf)?;
-                for j in 0..(nrows % 8) {
-                    let val = (buf[0] >> j) & 1;
-                    unsafe {
-                        *data
-                            .as_ptr()
-                            .add(i * nrows + ((nrows / 8) * 8) + j)
-                            .cast_mut()
-                            .cast::<f64>() = if val == 0 { zero } else { one };
-                    }
-                }
-            }
+            reader.read_exact(&mut buf)?;
+            println!("{:?}", buf.len());
+            let mut spare =
+                unsafe { std::slice::from_raw_parts_mut(data.as_mut_ptr().add(i * nrows), nrows) };
+            crate::unpack(spare, &buf, zero, one);
+        }
+        unsafe {
+            data.set_len(len);
         }
         Ok(Matrix::Owned(OwnedMatrix::new(
-            nrows,
-            ncols,
-            unsafe {
-                std::mem::transmute::<std::vec::Vec<std::mem::MaybeUninit<f64>>, std::vec::Vec<f64>>(
-                    data,
-                )
-            },
-            colnames,
+            nrows, ncols, data, colnames,
         )))
     }
 
@@ -390,7 +348,6 @@ impl Mat for BinaryColumnMatrix {
         writer.write_all(&ncols.to_le_bytes())?;
         self.write_colnames(&mut writer, mat)?;
         let mut data = mat.data()?;
-        let mut bits = 0u8;
         for col in 0..ncols {
             let zero = data[col * nrows];
             let mut one = 0.0;
@@ -402,13 +359,14 @@ impl Mat for BinaryColumnMatrix {
             }
             writer.write_all(&zero.to_le_bytes())?;
             writer.write_all(&one.to_le_bytes())?;
-            for chunk in data[col * nrows..(col + 1) * nrows].chunks(8) {
-                for (i, &val) in data[col * nrows..(col + 1) * nrows].iter().enumerate() {
-                    bits |= if val == one { 1 << i } else { 0 };
-                }
-                writer.write_all(&[bits])?;
-                bits = 0;
+            let mut buf = Vec::with_capacity(nrows / 8 + (nrows % 8 != 0) as usize);
+            let mut spare =
+                unsafe { std::slice::from_raw_parts_mut(buf.as_mut_ptr(), buf.capacity()) };
+            crate::pack(spare, &data[col * nrows..(col + 1) * nrows], zero, one);
+            unsafe {
+                buf.set_len(buf.capacity());
             }
+            writer.write_all(&buf)?;
         }
         Ok(())
     }
