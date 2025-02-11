@@ -5,16 +5,7 @@ use faer::{
     get_global_parallelism,
     mat::AsMatRef,
     solvers::{SolverCore, SpSolver, Svd, ThinSvd},
-    Col,
-    ColMut,
-    ColRef,
-    ComplexField,
-    Mat,
-    MatMut,
-    MatRef,
-    RowMut,
-    Side,
-    SimpleEntity,
+    Col, ColMut, ColRef, ComplexField, Mat, MatMut, MatRef, RowMut, Side, SimpleEntity,
 };
 use pulp::{Arch, Simd, WithSimd};
 use rand_distr::{Distribution, StandardNormal};
@@ -264,12 +255,12 @@ pub fn p_value(xs: &[f64], ys: &[f64]) -> PValue {
     let t = m / se;
     let t_distr = StudentsT::new(0.0, 1.0, (xs.len() - 2) as f64).unwrap();
     PValue {
-        p_value:     2.0 * (1.0 - t_distr.cdf(t.abs())),
-        beta:        *m,
-        intercept:   *intercept,
-        data:        None,
+        p_value: 2.0 * (1.0 - t_distr.cdf(t.abs())),
+        beta: *m,
+        intercept: *intercept,
+        data: None,
         data_column: None,
-        outcome:     None,
+        outcome: None,
     }
 }
 
@@ -378,11 +369,11 @@ pub fn calculate_adj_r2(r2: f64, nrows: usize, ncols: usize) -> f64 {
 
 #[derive(Debug, Clone)]
 pub struct LinearModel {
-    slopes:    Vec<f64>,
+    slopes: Vec<f64>,
     intercept: f64,
     predicted: Vec<f64>,
-    r2:        f64,
-    adj_r2:    f64,
+    r2: f64,
+    adj_r2: f64,
 }
 
 impl LinearModel {
@@ -468,7 +459,7 @@ pub fn linear_regression(xs: MatRef<'_, f64>, ys: &[f64]) -> LinearModel {
 
 #[derive(Debug, Clone)]
 pub struct R2Simd<'a> {
-    actual:    &'a [f64],
+    actual: &'a [f64],
     predicted: &'a [f64],
 }
 
@@ -572,11 +563,11 @@ impl WithSimd for R2Simd<'_> {
 
 #[derive(Debug, Clone)]
 pub struct LogisticModel {
-    slopes:    Vec<f64>,
+    slopes: Vec<f64>,
     intercept: f64,
     predicted: Vec<f64>,
-    r2:        f64,
-    adj_r2:    f64,
+    r2: f64,
+    adj_r2: f64,
 }
 
 impl LogisticModel {
@@ -905,8 +896,6 @@ fn logistic_regression_glm(xs: MatRef<'_, f64>, ys: &[f64]) -> LogisticModel {
             .zip(w.iter())
             .for_each(|(x, w)| x.iter_mut().for_each(|x| *x *= *w));
         let zw = z.iter().zip(w).map(|(z, w)| z * w).collect::<Vec<_>>();
-        println!("{:?} {:?}", xw.nrows(), xw.ncols());
-        println!("{:?}", zw.len());
         std::io::stdout().flush().unwrap();
         let qr = xw.qr();
         // let beta = match xw.cholesky(Side::Lower) {
@@ -928,7 +917,6 @@ fn logistic_regression_glm(xs: MatRef<'_, f64>, ys: &[f64]) -> LogisticModel {
         let old_ll = l;
         l = ll(mu.as_slice(), ys);
         delta = (l - old_ll).abs();
-        println!("{:?} {:?}", old_ll, l);
         i += 1;
         if i > 100 {
             error!("Did not converge");

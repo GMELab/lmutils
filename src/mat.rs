@@ -14,13 +14,11 @@ pub fn read_mat(mut reader: impl std::io::Read) -> Result<Matrix, crate::Error> 
     reader.read_exact(&mut version)?;
     match version[0] {
         FloatMatrix::VERSION => FloatMatrix.read(reader),
-        BinaryMatrix::VERSION => {
-            BinaryMatrix {
-                zero: 0.0,
-                one:  1.0,
-            }
-            .read(reader)
-        },
+        BinaryMatrix::VERSION => BinaryMatrix {
+            zero: 0.0,
+            one: 1.0,
+        }
+        .read(reader),
         BinaryColumnMatrix::VERSION => BinaryColumnMatrix.read(reader),
         v => Err(crate::Error::UnsupportedMatFileVersion(v)),
     }
@@ -73,7 +71,7 @@ pub fn write_mat(mut writer: impl std::io::Write, mat: &mut Matrix) -> Result<()
     writer.write_all(&[BinaryMatrix::VERSION])?;
     BinaryMatrix {
         zero: unique[0],
-        one:  unique[1],
+        one: unique[1],
     }
     .write(writer, mat);
     Ok(())
@@ -238,7 +236,7 @@ impl Mat for FloatMatrix {
 /// - ceil(nrows * ncols / 8) bytes: data
 struct BinaryMatrix {
     zero: f64,
-    one:  f64,
+    one: f64,
 }
 
 impl Mat for BinaryMatrix {
@@ -328,7 +326,6 @@ impl Mat for BinaryColumnMatrix {
                 buf.set_len(buf.capacity());
             }
             reader.read_exact(&mut buf)?;
-            println!("{:?}", buf.len());
             let mut spare =
                 unsafe { std::slice::from_raw_parts_mut(data.as_mut_ptr().add(i * nrows), nrows) };
             crate::unpack(spare, &buf, zero, one);
@@ -389,140 +386,143 @@ mod tests {
         ));
         let mut buf = Vec::new();
         write_mat(&mut buf, &mut mat).unwrap();
-        assert_eq!(buf, [
-            // header
-            b'M',
-            b'A',
-            b'T',
-            FloatMatrix::VERSION,
-            // nrows
-            4,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            // ncols
-            3,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            // colnames flag
-            1,
-            // colnames
-            1,
-            0,
-            b'a',
-            1,
-            0,
-            b'b',
-            1,
-            0,
-            b'c',
-            // data
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            240,
-            63,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            64,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            8,
-            64,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            16,
-            64,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            240,
-            63,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            64,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            8,
-            64,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            16,
-            64,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            240,
-            63,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            64,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            8,
-            64,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            16,
-            64,
-        ]);
+        assert_eq!(
+            buf,
+            [
+                // header
+                b'M',
+                b'A',
+                b'T',
+                FloatMatrix::VERSION,
+                // nrows
+                4,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                // ncols
+                3,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                // colnames flag
+                1,
+                // colnames
+                1,
+                0,
+                b'a',
+                1,
+                0,
+                b'b',
+                1,
+                0,
+                b'c',
+                // data
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                240,
+                63,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                64,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                8,
+                64,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                16,
+                64,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                240,
+                63,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                64,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                8,
+                64,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                16,
+                64,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                240,
+                63,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                64,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                8,
+                64,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                16,
+                64,
+            ]
+        );
         let mut cursor = Cursor::new(buf);
         let mut mat2 = read_mat(&mut cursor).unwrap();
         assert_eq!(mat, mat2);
@@ -538,63 +538,66 @@ mod tests {
         ));
         let mut buf = Vec::new();
         write_mat(&mut buf, &mut mat).unwrap();
-        assert_eq!(buf, [
-            // header
-            b'M',
-            b'A',
-            b'T',
-            BinaryMatrix::VERSION,
-            // nrows
-            2,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            // ncols
-            3,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            // colnames flag
-            1,
-            // colnames
-            1,
-            0,
-            b'a',
-            1,
-            0,
-            b'b',
-            1,
-            0,
-            b'c',
-            // zero
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            // one
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            240,
-            63,
-            // data
-            0b00101010
-        ]);
+        assert_eq!(
+            buf,
+            [
+                // header
+                b'M',
+                b'A',
+                b'T',
+                BinaryMatrix::VERSION,
+                // nrows
+                2,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                // ncols
+                3,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                // colnames flag
+                1,
+                // colnames
+                1,
+                0,
+                b'a',
+                1,
+                0,
+                b'b',
+                1,
+                0,
+                b'c',
+                // zero
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                // one
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                240,
+                63,
+                // data
+                0b00101010
+            ]
+        );
         let mut cursor = Cursor::new(buf);
         let mat2 = read_mat(&mut cursor).unwrap();
         assert_eq!(mat, mat2);
@@ -610,106 +613,109 @@ mod tests {
         ));
         let mut buf = Vec::new();
         write_mat(&mut buf, &mut mat).unwrap();
-        assert_eq!(buf, [
-            // header
-            b'M',
-            b'A',
-            b'T',
-            BinaryColumnMatrix::VERSION,
-            // nrows
-            2,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            // ncols
-            3,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            // colnames flag
-            1,
-            // colnames
-            1,
-            0,
-            b'a',
-            1,
-            0,
-            b'b',
-            1,
-            0,
-            b'c',
-            // column 1
-            // zero
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            // one
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            240,
-            63,
-            // data
-            0b10,
-            // column 2
-            // zero
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            // one
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            64,
-            // data
-            0b10,
-            // column 3
-            // zero
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            // one
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            8,
-            64,
-            // data
-            0b10,
-        ]);
+        assert_eq!(
+            buf,
+            [
+                // header
+                b'M',
+                b'A',
+                b'T',
+                BinaryColumnMatrix::VERSION,
+                // nrows
+                2,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                // ncols
+                3,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                // colnames flag
+                1,
+                // colnames
+                1,
+                0,
+                b'a',
+                1,
+                0,
+                b'b',
+                1,
+                0,
+                b'c',
+                // column 1
+                // zero
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                // one
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                240,
+                63,
+                // data
+                0b10,
+                // column 2
+                // zero
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                // one
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                64,
+                // data
+                0b10,
+                // column 3
+                // zero
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                // one
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                8,
+                64,
+                // data
+                0b10,
+            ]
+        );
         let mut cursor = Cursor::new(buf);
         let mat2 = read_mat(&mut cursor).unwrap();
         assert_eq!(mat, mat2);

@@ -19,20 +19,22 @@ fn main() -> std::io::Result<()> {
 }
 
 fn bench_standardize<F>(bencher: Bencher, len: usize, f: impl Fn(Col<f64>, f64, f64) -> F)
-where F: FnMut() {
+where
+    F: FnMut(),
+{
     let v = (0..len).map(|x| x as f64).collect::<Vec<_>>();
     let x = faer::col::Col::from_fn(len, |i| v[i]);
     let mut mean = 0.0;
     let mut std: f64 = 0.0;
     faer::stats::row_mean(
-        faer::row::from_mut(&mut mean),
+        faer::RowMut::from_mut(&mut mean),
         x.as_ref().as_2d(),
         faer::stats::NanHandling::Ignore,
     );
     faer::stats::row_varm(
-        faer::row::from_mut(&mut std),
+        faer::RowMut::from_mut(&mut std),
         x.as_ref().as_2d(),
-        faer::row::from_ref(&mean),
+        faer::RowRef::from_ref(&mean),
         faer::stats::NanHandling::Ignore,
     );
     let std = std.sqrt();
@@ -99,9 +101,9 @@ fn standardize_auto_vectorize_recip(bencher: Bencher, len: usize) {
 }
 
 struct Standardize<'a> {
-    x:    &'a mut [f64],
+    x: &'a mut [f64],
     mean: f64,
-    std:  f64,
+    std: f64,
 }
 
 impl<'a> WithSimd for Standardize<'a> {

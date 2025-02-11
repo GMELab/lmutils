@@ -1,10 +1,6 @@
 use diol::prelude::*;
 use lmutils::{
-    unpack_avx2_par,
-    unpack_avx2_sync,
-    unpack_avx512_par,
-    unpack_avx512_sync,
-    unpack_naive_par,
+    unpack_avx2_par, unpack_avx2_sync, unpack_avx512_par, unpack_avx512_sync, unpack_naive_par,
     unpack_naive_sync,
 };
 
@@ -64,22 +60,22 @@ fn naive_par(bencher: Bencher, len: usize) {
 }
 
 fn avx2_sync(bencher: Bencher, len: usize) {
-    if let Some(simd) = pulp::x86::V3::try_new() {
+    if is_x86_feature_detected!("avx2") {
         let mut out = out(len);
         let bytes = bytes(len);
         bencher.bench(|| {
-            unpack_avx2_sync(simd, &mut out, &bytes, 0.0, 1.0);
+            unpack_avx2_sync(&mut out, &bytes, 0.0, 1.0);
         });
     }
 }
 
 fn avx2_par(bencher: Bencher, len: usize) {
-    if let Some(simd) = pulp::x86::V3::try_new() {
+    if is_x86_feature_detected!("avx2") {
         let mut out = out(len);
         let chunk_size = chunk_size(len);
         let bytes = bytes(len);
         bencher.bench(|| {
-            unpack_avx2_par(chunk_size, simd, &mut out, &bytes, 0.0, 1.0);
+            unpack_avx2_par(chunk_size, &mut out, &bytes, 0.0, 1.0);
         });
     }
 }

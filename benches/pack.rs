@@ -1,10 +1,6 @@
 use diol::prelude::*;
 use lmutils::{
-    pack_avx2_par,
-    pack_avx2_sync,
-    pack_avx512_par,
-    pack_avx512_sync,
-    pack_naive_par,
+    pack_avx2_par, pack_avx2_sync, pack_avx512_par, pack_avx512_sync, pack_naive_par,
     pack_naive_sync,
 };
 
@@ -40,9 +36,9 @@ fn main() -> std::io::Result<()> {
             avx2_sync,
             avx2_par,
             avx512_sync,
-            avx512_par
+            avx512_par,
         ],
-        [100, 1000, 10000, 100000, 1000000, 10000000],
+        [10, 100, 1000, 10000, 100000, 1000000, 10000000],
     );
     bench.run()?;
     Ok(())
@@ -66,22 +62,22 @@ fn naive_par(bencher: Bencher, len: usize) {
 }
 
 fn avx2_sync(bencher: Bencher, len: usize) {
-    if let Some(simd) = pulp::x86::V3::try_new() {
+    if is_x86_feature_detected!("avx2") {
         let mut out = out(len);
         let data = data(len);
         bencher.bench(|| {
-            pack_avx2_sync(simd, &mut out, &data, 0.0, 1.0);
+            pack_avx2_sync(&mut out, &data, 0.0, 1.0);
         });
     }
 }
 
 fn avx2_par(bencher: Bencher, len: usize) {
-    if let Some(simd) = pulp::x86::V3::try_new() {
+    if is_x86_feature_detected!("avx2") {
         let mut out = out(len);
         let chunk_size = chunk_size(len);
         let data = data(len);
         bencher.bench(|| {
-            pack_avx2_par(chunk_size, simd, &mut out, &data, 0.0, 1.0);
+            pack_avx2_par(chunk_size, &mut out, &data, 0.0, 1.0);
         });
     }
 }

@@ -9,8 +9,8 @@ use rand_distr::Distribution;
 struct Arg {
     nrow: usize,
     ncol: usize,
-    xs:   Vec<f64>,
-    ys:   Vec<f64>,
+    xs: Vec<f64>,
+    ys: Vec<f64>,
 }
 
 impl Debug for Arg {
@@ -25,7 +25,7 @@ impl Debug for Arg {
 fn main() -> std::io::Result<()> {
     let mut bench = Bench::new(BenchConfig::from_args()?);
     let mut rng = rand::rngs::StdRng::seed_from_u64(0);
-    let args = [1, 2, 3].iter().map(|len| {
+    let args = [1, 2, 3, 4].iter().map(|len| {
         let nrow = 10_usize.pow(*len);
         let ncol = 5_usize.pow(*len);
         let xs = statrs::distribution::Normal::new(0.0, 1.0).unwrap();
@@ -43,14 +43,14 @@ fn main() -> std::io::Result<()> {
 }
 
 fn irls(bencher: Bencher, Arg { nrow, ncol, xs, ys }: Arg) {
-    let xs = faer::mat::from_column_major_slice(xs.as_slice(), nrow, ncol);
+    let xs = faer::MatRef::from_column_major_slice(xs.as_slice(), nrow, ncol);
     bencher.bench(|| {
         logistic_regression_irls(xs, &ys);
     });
 }
 
 fn newton_raphson(bencher: Bencher, Arg { nrow, ncol, xs, ys }: Arg) {
-    let xs = faer::mat::from_column_major_slice(xs.as_slice(), nrow, ncol);
+    let xs = faer::MatRef::from_column_major_slice(xs.as_slice(), nrow, ncol);
     bencher.bench(|| {
         logistic_regression_newton_raphson(xs, &ys);
     });
