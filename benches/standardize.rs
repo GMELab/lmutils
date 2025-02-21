@@ -27,14 +27,14 @@ where
     let mut mean = 0.0;
     let mut std: f64 = 0.0;
     faer::stats::row_mean(
-        faer::RowMut::from_mut(&mut mean),
+        faer::row::from_mut(&mut mean),
         x.as_ref().as_2d(),
         faer::stats::NanHandling::Ignore,
     );
     faer::stats::row_varm(
-        faer::RowMut::from_mut(&mut std),
+        faer::row::from_mut(&mut std),
         x.as_ref().as_2d(),
-        faer::RowRef::from_ref(&mean),
+        faer::row::from_ref(&mean),
         faer::stats::NanHandling::Ignore,
     );
     let std = std.sqrt();

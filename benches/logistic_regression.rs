@@ -43,14 +43,14 @@ fn main() -> std::io::Result<()> {
 }
 
 fn irls(bencher: Bencher, Arg { nrow, ncol, xs, ys }: Arg) {
-    let xs = faer::MatRef::from_column_major_slice(xs.as_slice(), nrow, ncol);
+    let xs = faer::mat::from_column_major_slice(xs.as_slice(), nrow, ncol);
     bencher.bench(|| {
         logistic_regression_irls(xs, &ys);
     });
 }
 
 fn newton_raphson(bencher: Bencher, Arg { nrow, ncol, xs, ys }: Arg) {
-    let xs = faer::MatRef::from_column_major_slice(xs.as_slice(), nrow, ncol);
+    let xs = faer::mat::from_column_major_slice(xs.as_slice(), nrow, ncol);
     bencher.bench(|| {
         logistic_regression_newton_raphson(xs, &ys);
     });
