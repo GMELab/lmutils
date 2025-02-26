@@ -3,7 +3,6 @@ use std::{
     io::{Read, Write},
     mem::MaybeUninit,
     num::ParseFloatError,
-    os::fd::AsRawFd,
     path::PathBuf,
     str::FromStr,
 };
@@ -21,16 +20,14 @@ use tracing::info;
 
 use crate::{
     mat::{read_mat, write_mat},
-    IntoMatrix,
-    Matrix,
-    OwnedMatrix,
+    IntoMatrix, Matrix, OwnedMatrix,
 };
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct File {
-    path:      PathBuf,
+    path: PathBuf,
     file_type: FileType,
-    gz:        bool,
+    gz: bool,
 }
 
 impl File {
@@ -63,7 +60,7 @@ impl File {
     pub fn read(&self) -> Result<Matrix, crate::Error> {
         #[cfg(all(unix, feature = "r"))]
         if self.file_type == FileType::Rdata && std::env::var("LMUTILS_FD").is_err() {
-            use std::{io::Seek, os::unix::process::CommandExt};
+            use std::{io::Seek, os::fd::AsRawFd, os::unix::process::CommandExt};
 
             let tmp_path = std::env::current_dir()
                 .unwrap_or_else(|_| std::env::temp_dir())
