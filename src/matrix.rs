@@ -1373,7 +1373,7 @@ impl Matrix {
     pub fn nan_to_column_mean(&mut self) -> Result<&mut Self, crate::Error> {
         self.as_mat_mut()?.par_col_chunks_mut(1).for_each(|c| {
             let col = c.col_mut(0);
-            let m = mean(col.as_ref().try_as_slice().unwrap());
+            let m = mean::mean(col.as_ref().try_as_slice().unwrap());
             col.iter_mut().for_each(|x| {
                 if !x.is_finite() {
                     *x = m;

@@ -54,65 +54,63 @@ where
 
     std::thread::scope(|s| {
         for _ in 0..core_parallelism {
-            s.spawn(|| {
-                loop {
-                    let mut guard = data.lock().unwrap();
-                    let d = guard.pop();
-                    drop(guard);
-                    if let Some((i, mut d)) = d {
-                        rayon::scope(|s| {
-                            s.spawn(|_| {
-                                let s = debug_span!("core_scope");
-                                let _e = s.enter();
-                                let mut tries = 1;
-                                #[allow(clippy::blocks_in_conditions)]
-                                while std::panic::catch_unwind(AssertUnwindSafe(|| {
-                                    let r = f(i, &mut d).unwrap();
-                                    if let Some(out) = out {
-                                        let results = unsafe {
-                                            std::slice::from_raw_parts_mut(
-                                                results_uninit
-                                                    .as_ref()
-                                                    .unwrap()
-                                                    .as_ptr()
-                                                    .add(i * out)
-                                                    .cast_mut(),
-                                                out,
-                                            )
-                                        };
-                                        for (i, p) in r.into_iter().enumerate() {
-                                            results[i].write(p);
-                                        }
-                                    } else {
-                                        let mut results =
-                                            results_push.as_ref().unwrap().lock().unwrap();
-                                        results.extend(r);
+            s.spawn(|| loop {
+                let mut guard = data.lock().unwrap();
+                let d = guard.pop();
+                drop(guard);
+                if let Some((i, mut d)) = d {
+                    rayon::scope(|s| {
+                        s.spawn(|_| {
+                            let s = debug_span!("core_scope");
+                            let _e = s.enter();
+                            let mut tries = 1;
+                            #[allow(clippy::blocks_in_conditions)]
+                            while std::panic::catch_unwind(AssertUnwindSafe(|| {
+                                let r = f(i, &mut d).unwrap();
+                                if let Some(out) = out {
+                                    let results = unsafe {
+                                        std::slice::from_raw_parts_mut(
+                                            results_uninit
+                                                .as_ref()
+                                                .unwrap()
+                                                .as_ptr()
+                                                .add(i * out)
+                                                .cast_mut(),
+                                            out,
+                                        )
+                                    };
+                                    for (i, p) in r.into_iter().enumerate() {
+                                        results[i].write(p);
                                     }
-                                }))
-                                .is_err()
-                                {
-                                    let duration = std::time::Duration::from_secs(4u64.pow(tries));
-                                    warn!(
-                                        "Error in core scope, retrying in {} seconds",
-                                        duration.as_secs_f64()
-                                    );
-                                    std::thread::sleep(duration);
-                                    tries += 1;
-                                    if tries > 5 {
-                                        if ignore_errors {
-                                            error!("Error in core scope, ignoring");
-                                            break;
-                                        } else {
-                                            error!("Error in core scope, too many retries");
-                                            panic!("Error in core scope, too many retries");
-                                        }
+                                } else {
+                                    let mut results =
+                                        results_push.as_ref().unwrap().lock().unwrap();
+                                    results.extend(r);
+                                }
+                            }))
+                            .is_err()
+                            {
+                                let duration = std::time::Duration::from_secs(4u64.pow(tries));
+                                warn!(
+                                    "Error in core scope, retrying in {} seconds",
+                                    duration.as_secs_f64()
+                                );
+                                std::thread::sleep(duration);
+                                tries += 1;
+                                if tries > 5 {
+                                    if ignore_errors {
+                                        error!("Error in core scope, ignoring");
+                                        break;
+                                    } else {
+                                        error!("Error in core scope, too many retries");
+                                        panic!("Error in core scope, too many retries");
                                     }
                                 }
-                            })
+                            }
                         })
-                    } else {
-                        break;
-                    }
+                    })
+                } else {
+                    break;
                 }
             });
         }

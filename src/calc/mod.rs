@@ -1,3 +1,6 @@
+pub mod mean;
+pub mod variance;
+
 use std::{convert::identity, io::Write, ops::SubAssign};
 
 use faer::{
@@ -281,20 +284,6 @@ pub fn variance(data: &[f64]) -> f64 {
     var
 }
 
-pub fn mean<E: ComplexField + SimpleEntity>(x: &[E]) -> E {
-    let mut mean = E::faer_zero();
-    faer::stats::row_mean(
-        faer::row::from_mut(&mut mean),
-        faer::mat::from_column_major_slice(x, x.len(), 1).as_ref(),
-        faer::stats::NanHandling::Ignore,
-    );
-    if mean.faer_is_nan() {
-        E::faer_zero()
-    } else {
-        mean
-    }
-}
-
 pub fn standardize_column(mut x: ColMut<f64>) {
     let mut mean = 0.0;
     let mut std: f64 = 0.0;
@@ -496,7 +485,7 @@ impl WithSimd for R2Simd<'_> {
         let (actual_head, actual_tail) = S::f64s_as_simd(self.actual);
         let (predicted_head, predicted_tail) = S::f64s_as_simd(self.predicted);
 
-        let mean = mean(self.actual);
+        let mean = mean::mean(self.actual);
         let simd_mean = simd.f64s_splat(mean);
 
         let mut rss0 = simd.f64s_splat(0.0);
@@ -951,7 +940,7 @@ mod tests {
 
     macro_rules! float_eq {
         ($a:expr, $b:expr) => {
-            assert_float_eq!($a, $b, 1e-7);
+            assert_float_eq!($a, $b, 1e-14);
         };
     }
 
@@ -976,7 +965,7 @@ mod tests {
     #[test]
     fn test_mean() {
         let data = [1.0, 2.0, 3.0, 4.0, 5.0];
-        assert_eq!(mean(&data), 3.0);
+        assert_eq!(mean::mean(&data), 3.0);
     }
 
     #[test]

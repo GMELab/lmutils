@@ -73,3 +73,11 @@ harness = false
 [[bench]]
 name = "pack"
 harness = false
+
+[[bench]]
+name = "mean"
+harness = false
+
+[[bench]]
+name = "variance"
+harness = false

@@ -139,7 +139,7 @@ pub fn unpack_avx2_sync(out: &mut [f64], bytes: &[u8], zero: f64, one: f64) {
             out("ymm3") _,
             out("ymm4") _,
             out("ymm5") _,
-            options(nostack, readonly),
+            options(nostack),
         }
     };
     unpack_naive_sync(
@@ -233,6 +233,7 @@ pub fn pack_avx512_sync(out: &mut [u8], data: &[f64], zero: f64, one: f64) {
             inout("rdi") out.as_mut_ptr() => _,
             out("k1") _,
             out("zmm1") _,
+            options(nostack),
         }
     };
     pack_naive_sync(
@@ -301,6 +302,7 @@ pub fn pack_avx2_sync(out: &mut [u8], data: &[f64], zero: f64, one: f64) {
             out("ymm4") _,
             out("ecx") _,
             out("edx") _,
+            options(nostack),
         }
     };
     pack_naive_sync(
