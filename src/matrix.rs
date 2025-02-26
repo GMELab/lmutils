@@ -129,7 +129,7 @@ impl Matrix {
     pub fn as_mat_ref_loaded(&self) -> MatRef<'_, f64> {
         match self {
             #[cfg(feature = "r")]
-            Matrix::R(m) => faer::MatRef::from_column_major_slice(m.data(), m.nrows(), m.ncols()),
+            Matrix::R(m) => faer::mat::from_column_major_slice(m.data(), m.nrows(), m.ncols()),
             Matrix::Owned(m) => {
                 faer::mat::from_column_major_slice(m.data.as_slice(), m.nrows, m.ncols)
             },

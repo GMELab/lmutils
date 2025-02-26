@@ -274,7 +274,10 @@ impl File {
         if self.file_type == FileType::Rdata && std::env::var("LMUTILS_FD").is_err() {
             use std::{
                 io::Seek,
-                os::{fd::FromRawFd, unix::process::CommandExt},
+                os::{
+                    fd::{AsRawFd, FromRawFd},
+                    unix::process::CommandExt,
+                },
             };
 
             let tmp_path = std::env::current_dir()

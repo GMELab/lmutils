@@ -1,3 +1,5 @@
+#![allow(clippy::needless_range_loop, clippy::missing_safety_doc)]
+
 pub fn mean(data: &[f64]) -> f64 {
     if is_x86_feature_detected!("avx512f") {
         unsafe { mean_avx512(data) }
