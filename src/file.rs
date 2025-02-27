@@ -10,7 +10,6 @@ use std::{
 use cfg_if::cfg_if;
 #[cfg(feature = "r")]
 use extendr_api::{io::Save, pairlist, Pairlist};
-use libc::WSTOPSIG;
 use rayon::{
     iter::IntoParallelIterator,
     prelude::{IndexedParallelIterator, ParallelIterator},
