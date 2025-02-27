@@ -116,11 +116,11 @@ pub fn unpack_avx2_sync(out: &mut [f64], bytes: &[u8], zero: f64, one: f64) {
                 "vblendvpd ymm5, ymm1, ymm0, ymm3",
 
                 // move the f64s into the output
-                "vmovupd ymmword ptr [rdi], ymm4",
-                "vmovupd ymmword ptr [rdi + 32], ymm5",
+                "vmovupd [rdi], ymm4",
+                "vmovupd [rdi + 32], ymm5",
 
                 "add rsi, 1",
-                "add rdi, 32",
+                "add rdi, 64",
                 "dec rax",
                 "jnz 2b",
             "3:",
