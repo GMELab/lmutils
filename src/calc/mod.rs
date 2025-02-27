@@ -1157,14 +1157,9 @@ mod tests {
             .sample_iter(rand::thread_rng())
             .take(nrows)
             .collect::<Vec<_>>();
-        // println!("{:?}", xs);
-        // println!("{:?}", ys);
         let xs = faer::mat::from_column_major_slice(xs.as_slice(), nrows, 1);
         let m1 = logistic_regression_irls(xs, ys.as_slice());
         let m2 = logistic_regression_newton_raphson(xs, ys.as_slice());
-        // println!("{:?}", m1);
-        // println!("{:?}", m2);
-        // println!("{:?}", m3);
         for (a, b) in m1.slopes.iter().zip(m2.slopes.iter()) {
             rough_eq!(a, b);
         }
