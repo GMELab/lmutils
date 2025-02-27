@@ -1,3 +1,5 @@
+#![allow(clippy::needless_range_loop, clippy::missing_safety_doc)]
+
 use super::mean::{mean_avx2, mean_avx512, mean_naive};
 
 pub fn variance(data: &[f64]) -> f64 {
@@ -13,8 +15,8 @@ pub fn variance(data: &[f64]) -> f64 {
 pub fn variance_naive(data: &[f64]) -> f64 {
     let m = mean_naive(data);
     let mut sum = 0.0;
-    for &x in data {
-        sum += (x - m).powi(2);
+    for i in 0..data.len() {
+        sum += (data[i] - m).powi(2);
     }
     sum / data.len() as f64
 }
@@ -33,15 +35,16 @@ pub unsafe fn variance_avx2(data: &[f64]) -> f64 {
             "2:",
             "vmovupd ymm2, ymmword ptr [rsi]",
             "vsubpd ymm2, ymm2, ymm1",
-            "vfmadd231pd ymm0, ymm2, ymm2",
+            "vmulpd ymm2, ymm2, ymm2",
+            "vaddpd ymm0, ymm0, ymm2",
 
             "add rsi, 32",
             "dec rax",
             "jnz 2b",
         "3:",
         // extract the two parts ymm0 into xmm1 and xmm2
-        "vextractf64x2 xmm2, ymm0, 0",
-        "vextractf64x2 xmm3, ymm0, 1",
+        "vextractf128 xmm2, ymm0, 0",
+        "vextractf128 xmm3, ymm0, 1",
         "vaddpd xmm2, xmm2, xmm3",
         "vhaddpd xmm2, xmm2, xmm2",
         "vzeroupper",
@@ -53,8 +56,10 @@ pub unsafe fn variance_avx2(data: &[f64]) -> f64 {
         in("rax") data.len() / 4,
         in("rsi") data.as_ptr(),
     }
-    for &x in data[data.len() - data.len() % 4..].iter() {
-        sum += (x - m).powi(2);
+    if data.len() % 4 != 0 {
+        for i in (data.len() - data.len() % 4)..data.len() {
+            sum += (data[i] - m).powi(2);
+        }
     }
     sum / data.len() as f64
 }
@@ -98,8 +103,10 @@ pub unsafe fn variance_avx512(data: &[f64]) -> f64 {
         in("rax") data.len() / 8,
         in("rsi") data.as_ptr(),
     }
-    for &x in data[data.len() - data.len() % 8..].iter() {
-        sum += (x - m).powi(2);
+    if data.len() % 8 != 0 {
+        for i in (data.len() - data.len() % 8)..data.len() {
+            sum += (data[i] - m).powi(2);
+        }
     }
     sum / data.len() as f64
 }
