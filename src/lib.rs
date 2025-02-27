@@ -3,6 +3,9 @@
 mod calc;
 mod error;
 mod file;
+mod gam;
+mod glm;
+mod lm;
 mod mat;
 mod matrix;
 mod mean;

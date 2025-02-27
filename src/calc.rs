@@ -15,7 +15,7 @@ use rayon::{iter::IntoParallelIterator, prelude::*};
 use statrs::distribution::{ContinuousCDF, StudentsT};
 use tracing::{debug, error, warn};
 
-fn should_disable_predicted() -> bool {
+pub fn should_disable_predicted() -> bool {
     let enabled = std::env::var("LMUTILS_ENABLE_PREDICTED").is_ok();
     let disabled = std::env::var("LMUTILS_DISABLE_PREDICTED").is_ok();
     // disabled overrides
