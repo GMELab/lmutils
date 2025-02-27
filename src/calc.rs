@@ -1,7 +1,6 @@
-pub mod mean;
-pub mod variance;
-
 use std::{convert::identity, io::Write, ops::SubAssign};
+
+use crate::{mean, variance};
 
 use faer::{
     diag::Diag,
@@ -267,23 +266,6 @@ pub fn p_value(xs: &[f64], ys: &[f64]) -> PValue {
     }
 }
 
-pub fn variance(data: &[f64]) -> f64 {
-    let mut mean = 0.0;
-    let mut var = 0.0;
-    faer::stats::row_mean(
-        faer::row::from_mut(&mut mean),
-        faer::mat::from_column_major_slice(data, data.len(), 1),
-        faer::stats::NanHandling::Ignore,
-    );
-    faer::stats::row_varm(
-        faer::row::from_mut(&mut var),
-        faer::mat::from_column_major_slice(data, data.len(), 1),
-        faer::row::from_ref(&mean),
-        faer::stats::NanHandling::Ignore,
-    );
-    var
-}
-
 pub fn standardize_column(mut x: ColMut<f64>) {
     let mut mean = 0.0;
     let mut std: f64 = 0.0;
@@ -485,7 +467,7 @@ impl WithSimd for R2Simd<'_> {
         let (actual_head, actual_tail) = S::f64s_as_simd(self.actual);
         let (predicted_head, predicted_tail) = S::f64s_as_simd(self.predicted);
 
-        let mean = mean::mean(self.actual);
+        let mean = mean(self.actual);
         let simd_mean = simd.f64s_splat(mean);
 
         let mut rss0 = simd.f64s_splat(0.0);
@@ -957,15 +939,9 @@ mod tests {
     }
 
     #[test]
-    fn test_variance() {
-        let data = [1.0, 2.0, 3.0, 4.0, 5.0];
-        assert_eq!(variance(&data), 2.5);
-    }
-
-    #[test]
     fn test_mean() {
         let data = [1.0, 2.0, 3.0, 4.0, 5.0];
-        assert_eq!(mean::mean(&data), 3.0);
+        assert_eq!(mean(&data), 3.0);
     }
 
     #[test]

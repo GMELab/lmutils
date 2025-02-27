@@ -1,5 +1,5 @@
 use diol::prelude::*;
-use lmutils::mean::{mean_avx2, mean_avx512, mean_naive, mean_sse};
+use lmutils::{mean_avx2, mean_avx512, mean_naive, mean_sse};
 
 fn main() -> std::io::Result<()> {
     let mut bench = Bench::new(BenchConfig::from_args()?);

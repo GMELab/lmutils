@@ -1,8 +1,5 @@
 use diol::prelude::*;
-use lmutils::{
-    mean::mean,
-    variance::{variance_avx2, variance_avx512, variance_naive},
-};
+use lmutils::{mean, variance_avx2, variance_avx512, variance_naive};
 
 fn main() -> std::io::Result<()> {
     let mut bench = Bench::new(BenchConfig::from_args()?);
@@ -50,8 +47,8 @@ fn avx512(bencher: Bencher, len: usize) {
 
 fn faer_(bencher: Bencher, len: usize) {
     let data = data(len);
-    let mean = mean(&data);
     bencher.bench(|| {
+        let mean = mean(&data);
         let mut variance = 0.0;
         faer::stats::row_varm(
             faer::row::from_mut(&mut variance),

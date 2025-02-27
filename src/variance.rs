@@ -67,8 +67,7 @@ pub unsafe fn variance_avx512(data: &[f64]) -> f64 {
     let m = mean_avx512(data);
     let mut sum = 0.0;
     core::arch::asm! {
-        // this is the accumulation of the squared differences
-        "vbroadcastsd zmm0, xmm0",
+        "vpxorq zmm0, zmm0, zmm0",
         // this is the mean
         "vbroadcastsd zmm1, xmm1",
         "test rax, rax",
@@ -83,23 +82,20 @@ pub unsafe fn variance_avx512(data: &[f64]) -> f64 {
             "jnz 2b",
         "3:",
         // extract the two parts zmm0 into ymm2 and ymm3
-        "vextractf64x4 ymm2, zmm0, 0",
-        "vextractf64x4 ymm3, zmm0, 1",
+        "vextractf64x4 ymm1, zmm0, 1",
         // add the two parts
-        "vaddpd ymm1, ymm2, ymm3",
+        "vaddpd ymm0, ymm0, ymm1",
         // extract the two parts ymm3 into xmm1 and xmm3
-        "vextractf64x2 xmm2, ymm1, 0",
-        "vextractf64x2 xmm3, ymm1, 1",
-        "vaddpd xmm2, xmm2, xmm3",
-        "vhaddpd xmm2, xmm2, xmm2",
+        "vextractf64x2 xmm1, ymm0, 1",
+        "vaddpd xmm0, xmm0, xmm1",
+        "vhaddpd xmm0, xmm0, xmm0",
         "vzeroupper",
 
-        in("xmm0") 0.0,
-        in("xmm1") m,
-        inout("xmm2") sum => sum,
-        out("ymm3") _,
-        in("rax") data.len() / 8,
-        in("rsi") data.as_ptr(),
+        out("xmm0") sum,
+        inout("xmm1") m => _,
+        out("xmm2") _,
+        inout("rax") data.len() / 8 => _,
+        inout("rsi") data.as_ptr() => _,
     }
     if data.len() % 8 != 0 {
         for i in (data.len() - data.len() % 8)..data.len() {
@@ -137,7 +133,7 @@ mod tests {
 
     #[test]
     fn test_variance_naive() {
-        assert_eq!(variance_naive(&data()), VARIANCE);
+        float_eq!(variance_naive(&data()), VARIANCE);
     }
 
     #[test]
