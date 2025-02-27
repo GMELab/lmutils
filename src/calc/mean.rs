@@ -3,7 +3,7 @@
 pub fn mean(data: &[f64]) -> f64 {
     if is_x86_feature_detected!("avx512f") {
         unsafe { mean_avx512(data) }
-    } else if is_x86_feature_detected!("avx") {
+    } else if is_x86_feature_detected!("avx2") {
         unsafe { mean_avx2(data) }
     } else if is_x86_feature_detected!("sse4.1") {
         unsafe { mean_sse(data) }
@@ -112,10 +112,9 @@ pub unsafe fn mean_avx2(data: &[f64]) -> f64 {
         "jz 3f",
             "2:",
             // load from memory
-            "vmovupd ymm4, [rsi]",
-            "vmovupd ymm5, ymm4",
+            "vmovupd ymm5, [rsi]",
             // check for NaNs
-            "vcmppd ymm4, ymm4, ymm4, 3",
+            "vcmppd ymm4, ymm5, ymm5, 3",
             // replace NaNs with 0.0
             "vblendvpd ymm5, ymm5, ymm3, ymm4",
             // replace NaNs with 1 for counting
@@ -130,7 +129,7 @@ pub unsafe fn mean_avx2(data: &[f64]) -> f64 {
             "jnz 2b",
         "3:",
         // extract sum
-        "vextractf64x2 xmm2, ymm0, 1",
+        "vextractf128 xmm2, ymm0, 1",
         "vaddpd xmm0, xmm0, xmm2",
         "vhaddpd xmm0, xmm0, xmm0",
         // extract count
