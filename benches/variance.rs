@@ -23,7 +23,7 @@ fn data(len: usize) -> Vec<f64> {
 fn naive(bencher: Bencher, len: usize) {
     let data = data(len);
     bencher.bench(|| {
-        variance_naive(&data);
+        variance_naive(&data, 0);
     });
 }
 
@@ -31,7 +31,7 @@ fn avx2(bencher: Bencher, len: usize) {
     let data = data(len);
     bencher.bench(|| unsafe {
         if is_x86_feature_detected!("avx2") {
-            variance_avx2(&data);
+            variance_avx2(&data, 0);
         }
     });
 }
@@ -40,7 +40,7 @@ fn avx512(bencher: Bencher, len: usize) {
     let data = data(len);
     bencher.bench(|| unsafe {
         if is_x86_feature_detected!("avx512f") {
-            variance_avx512(&data);
+            variance_avx512(&data, 0);
         }
     });
 }

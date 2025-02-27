@@ -1,5 +1,5 @@
 use diol::prelude::*;
-use lmutils::{mean_avx2, mean_avx512, mean_naive, mean_sse};
+use lmutils::{mean_avx2, mean_avx512, mean_naive, mean_sse4};
 
 fn main() -> std::io::Result<()> {
     let mut bench = Bench::new(BenchConfig::from_args()?);
@@ -31,7 +31,7 @@ fn sse(bencher: Bencher, len: usize) {
     let data = data(len);
     bencher.bench(std::hint::black_box(|| unsafe {
         if is_x86_feature_detected!("sse4.1") {
-            mean_sse(&data);
+            mean_sse4(&data);
         }
     }));
 }

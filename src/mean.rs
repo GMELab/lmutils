@@ -1,35 +1,34 @@
 #![allow(clippy::needless_range_loop, clippy::missing_safety_doc)]
 
+#[inline(always)]
 pub fn mean(data: &[f64]) -> f64 {
     if is_x86_feature_detected!("avx512f") {
-        unsafe { mean_avx512(data) }
+        unsafe { mean_avx512(data).0 }
     } else if is_x86_feature_detected!("avx2") {
-        unsafe { mean_avx2(data) }
+        unsafe { mean_avx2(data).0 }
     } else if is_x86_feature_detected!("sse4.1") {
-        unsafe { mean_sse(data) }
+        unsafe { mean_sse4(data).0 }
     } else {
-        mean_naive(data)
+        mean_naive(data).0
     }
 }
 
-pub fn mean_naive(data: &[f64]) -> f64 {
+#[inline(always)]
+pub fn mean_naive(data: &[f64]) -> (f64, u64) {
     let mut sum = 0.0;
-    let mut count = 0.0;
+    let mut count = 0;
     for i in 0..data.len() {
         let d = data[i];
         if !d.is_nan() {
-            count += 1.0;
+            count += 1;
             sum += d;
         }
     }
-    if count == 0.0 {
-        0.0
-    } else {
-        sum / count
-    }
+    (if count == 0 { 0.0 } else { sum / count as f64 }, count)
 }
 
-pub unsafe fn mean_sse(data: &[f64]) -> f64 {
+#[inline(always)]
+pub unsafe fn mean_sse4(data: &[f64]) -> (f64, u64) {
     let mut sum: f64;
     let mut count: u64;
     core::arch::asm! {
@@ -62,7 +61,7 @@ pub unsafe fn mean_sse(data: &[f64]) -> f64 {
             "dec rax",
             "jnz 2b",
         "3:",
-        "vhaddpd xmm1, xmm1, xmm1",
+        "haddpd xmm1, xmm1",
         // sum xmm2
         "movupd xmm3, xmm2",
         "psrldq xmm2, 8",
@@ -87,16 +86,11 @@ pub unsafe fn mean_sse(data: &[f64]) -> f64 {
         }
     }
     count = data.len() as u64 - count;
-    if count == 0 {
-        0.0
-    } else {
-        sum / count as f64
-    }
+    (if count == 0 { 0.0 } else { sum / count as f64 }, count)
 }
 
-// #[target_feature(enable = "avx")]
 #[inline(always)]
-pub unsafe fn mean_avx2(data: &[f64]) -> f64 {
+pub unsafe fn mean_avx2(data: &[f64]) -> (f64, u64) {
     let mut sum: f64;
     let mut count: u64;
     core::arch::asm! {
@@ -161,16 +155,11 @@ pub unsafe fn mean_avx2(data: &[f64]) -> f64 {
         }
     }
     count = data.len() as u64 - count;
-    if count == 0 {
-        0.0
-    } else {
-        sum / count as f64
-    }
+    (if count == 0 { 0.0 } else { sum / count as f64 }, count)
 }
 
-// #[target_feature(enable = "avx")]
 #[inline(always)]
-pub unsafe fn mean_avx512(data: &[f64]) -> f64 {
+pub unsafe fn mean_avx512(data: &[f64]) -> (f64, u64) {
     let mut sum: f64;
     let mut non_nan: u64;
     core::arch::asm! {
@@ -232,11 +221,14 @@ pub unsafe fn mean_avx512(data: &[f64]) -> f64 {
             }
         }
     }
-    if non_nan == 0 {
-        0.0
-    } else {
-        sum / non_nan as f64
-    }
+    (
+        if non_nan == 0 {
+            0.0
+        } else {
+            sum / non_nan as f64
+        },
+        non_nan,
+    )
 }
 
 #[cfg(test)]
@@ -261,8 +253,8 @@ mod tests {
             .collect::<Vec<f64>>()
     }
 
-    const MEAN: f64 = (36000.0 - 8.0) / 7999.0;
-    const MEAN_NAN: f64 = 21000.0 / 6000.0;
+    const MEAN: (f64, u64) = ((36000.0 - 8.0) / 7999.0, 7999);
+    const MEAN_NAN: (f64, u64) = (21000.0 / 6000.0, 6000);
 
     #[test]
     fn test_mean_naive() {
@@ -275,16 +267,16 @@ mod tests {
     }
 
     #[test]
-    fn test_mean_sse() {
+    fn test_mean_sse4() {
         if is_x86_feature_detected!("sse4.1") {
-            assert_eq!(unsafe { mean_sse(&data()) }, MEAN);
+            assert_eq!(unsafe { mean_sse4(&data()) }, MEAN);
         }
     }
 
     #[test]
-    fn test_mean_sse_nan() {
+    fn test_mean_sse4_nan() {
         if is_x86_feature_detected!("sse4.1") {
-            assert_eq!(unsafe { mean_sse(&data_nan()) }, MEAN_NAN);
+            assert_eq!(unsafe { mean_sse4(&data_nan()) }, MEAN_NAN);
         }
     }
 
