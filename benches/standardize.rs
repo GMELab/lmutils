@@ -1,7 +1,6 @@
 use diol::prelude::*;
-use faer::{Col, ColMut};
-use lmutils::standardize_column;
-use pulp::{Arch, Simd, WithSimd};
+use faer::Col;
+use pulp::Arch;
 
 fn main() -> std::io::Result<()> {
     let mut bench = Bench::new(BenchConfig::from_args()?);
@@ -98,26 +97,4 @@ fn standardize_auto_vectorize_recip(bencher: Bencher, len: usize) {
             }
         }
     });
-}
-
-struct Standardize<'a> {
-    x: &'a mut [f64],
-    mean: f64,
-    std: f64,
-}
-
-impl<'a> WithSimd for Standardize<'a> {
-    type Output = ();
-
-    #[inline(always)]
-    fn with_simd<S: Simd>(self, simd: S) -> Self::Output {
-        let (head, tail) = S::f64s_as_simd(self.x);
-        let mean = simd.f64s_splat(self.mean);
-        let std = simd.f64s_splat(self.std);
-        // for x in head.iter() {
-        //     let mul = simd.f64s_sub(*x, mean);
-        //     let div = simd.f64s_div(mul, std);
-        //     simd.f64s_partial_store(x, div);
-        // }
-    }
 }
