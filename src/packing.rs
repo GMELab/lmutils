@@ -101,13 +101,15 @@ pub fn unpack_avx2_sync(out: &mut [f64], bytes: &[u8], zero: f64, one: f64) {
             "jz 3f",
                 "2:",
                 // move the next byte from the input
-                "movzx rcx, [rsi]",
-                // move to xmm2
-                "vpbroadcastq ymm2, rcx",
+                "movzx rcx, byte ptr [rsi]",
+                "vmovq xmm2, rcx",
+                // broadcast the byte to ymm2 and ymm3
+                "vbroadcastsd ymm3, xmm2",
+                "vbroadcastsd ymm2, xmm2",
+                // first half is in ymm2, if the bit is set then that quadword is a mask of 1s
                 "vpand ymm2, ymm2, [{mask1}]",
                 "vpcmpeqq ymm2, ymm2, [{zero}]",
-                // other half to xmm3
-                "vpbroadcastq ymm3, rcx",
+                // second half is in ymm3, if the bit is set then that quadword is a mask of 1s
                 "vpand ymm3, ymm3, [{mask2}]",
                 "vpcmpeqq ymm3, ymm3, [{zero}]",
 
