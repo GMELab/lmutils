@@ -30,21 +30,27 @@ fn naive(bencher: Bencher, len: usize) {
 fn sse(bencher: Bencher, len: usize) {
     let data = data(len);
     bencher.bench(std::hint::black_box(|| unsafe {
-        mean_sse(&data);
+        if is_x86_feature_detected!("sse4.1") {
+            mean_sse(&data);
+        }
     }));
 }
 
 fn avx2(bencher: Bencher, len: usize) {
     let data = data(len);
     bencher.bench(|| unsafe {
-        mean_avx2(&data);
+        if is_x86_feature_detected!("avx2") {
+            mean_avx2(&data);
+        }
     });
 }
 
 fn avx512(bencher: Bencher, len: usize) {
     let data = data(len);
     bencher.bench(|| unsafe {
-        mean_avx512(&data);
+        if is_x86_feature_detected!("avx512f") {
+            mean_avx512(&data);
+        }
     });
 }
 

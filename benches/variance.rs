@@ -33,14 +33,18 @@ fn naive(bencher: Bencher, len: usize) {
 fn avx2(bencher: Bencher, len: usize) {
     let data = data(len);
     bencher.bench(|| unsafe {
-        variance_avx2(&data);
+        if is_x86_feature_detected!("avx2") {
+            variance_avx2(&data);
+        }
     });
 }
 
 fn avx512(bencher: Bencher, len: usize) {
     let data = data(len);
     bencher.bench(|| unsafe {
-        variance_avx512(&data);
+        if is_x86_feature_detected!("avx512f") {
+            variance_avx512(&data);
+        }
     });
 }
 
