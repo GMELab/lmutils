@@ -42,17 +42,15 @@ pub unsafe fn variance_avx2(data: &[f64]) -> f64 {
             "dec rax",
             "jnz 2b",
         "3:",
-        // extract the two parts ymm0 into xmm1 and xmm2
-        "vextractf128 xmm2, ymm0, 0",
-        "vextractf128 xmm3, ymm0, 1",
-        "vaddpd xmm2, xmm2, xmm3",
+        // extract the two parts ymm0 into xmm1 and xmm0
+        "vextractf128 xmm1, ymm0, 1",
+        "vaddpd xmm2, xmm1, xmm0",
         "vhaddpd xmm2, xmm2, xmm2",
         "vzeroupper",
 
         in("xmm0") 0.0,
         in("xmm1") m,
         inout("xmm2") sum => sum,
-        out("ymm3") _,
         in("rax") data.len() / 4,
         in("rsi") data.as_ptr(),
     }
