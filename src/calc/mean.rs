@@ -275,32 +275,44 @@ mod tests {
     }
 
     #[test]
-    fn test_mean_sse2() {
-        assert_eq!(unsafe { mean_sse(&data()) }, MEAN);
+    fn test_mean_sse() {
+        if is_x86_feature_detected!("sse4.1") {
+            assert_eq!(unsafe { mean_sse(&data()) }, MEAN);
+        }
     }
 
     #[test]
-    fn test_mean_sse2_nan() {
-        assert_eq!(unsafe { mean_sse(&data_nan()) }, MEAN_NAN);
+    fn test_mean_sse_nan() {
+        if is_x86_feature_detected!("sse4.1") {
+            assert_eq!(unsafe { mean_sse(&data_nan()) }, MEAN_NAN);
+        }
     }
 
     #[test]
     fn test_mean_avx2() {
-        assert_eq!(unsafe { mean_avx2(&data()) }, MEAN);
+        if is_x86_feature_detected!("avx2") {
+            assert_eq!(unsafe { mean_avx2(&data()) }, MEAN);
+        }
     }
 
     #[test]
     fn test_mean_avx2_nan() {
-        assert_eq!(unsafe { mean_avx2(&data_nan()) }, MEAN_NAN);
+        if is_x86_feature_detected!("avx2") {
+            assert_eq!(unsafe { mean_avx2(&data_nan()) }, MEAN_NAN);
+        }
     }
 
     #[test]
     fn test_mean_avx512() {
-        assert_eq!(unsafe { mean_avx512(&data()) }, MEAN);
+        if is_x86_feature_detected!("avx512f") {
+            assert_eq!(unsafe { mean_avx512(&data()) }, MEAN);
+        }
     }
 
     #[test]
     fn test_mean_avx512_nan() {
-        assert_eq!(unsafe { mean_avx512(&data_nan()) }, MEAN_NAN);
+        if is_x86_feature_detected!("avx512f") {
+            assert_eq!(unsafe { mean_avx512(&data_nan()) }, MEAN_NAN);
+        }
     }
 }

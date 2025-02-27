@@ -142,11 +142,15 @@ mod tests {
 
     #[test]
     fn test_variance_avx2() {
-        float_eq!(unsafe { variance_avx2(&data()) }, VARIANCE);
+        if is_x86_feature_detected!("avx") {
+            float_eq!(unsafe { variance_avx2(&data()) }, VARIANCE);
+        }
     }
 
     #[test]
     fn test_variance_avx512() {
-        float_eq!(unsafe { variance_avx512(&data()) }, VARIANCE);
+        if is_x86_feature_detected!("avx512f") {
+            float_eq!(unsafe { variance_avx512(&data()) }, VARIANCE);
+        }
     }
 }
