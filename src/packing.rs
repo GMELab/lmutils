@@ -101,7 +101,7 @@ pub fn unpack_avx2_sync(out: &mut [f64], bytes: &[u8], zero: f64, one: f64) {
             "jz 3f",
                 "2:",
                 // move the next byte from the input
-                "movzx rcx, byte ptr [rsi]",
+                "movzx rcx, [rsi]",
                 // move to xmm2
                 "vpbroadcastq ymm2, rcx",
                 "vpand ymm2, ymm2, [{mask1}]",
