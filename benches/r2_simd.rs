@@ -3,9 +3,10 @@ use lmutils::R2Simd;
 
 fn main() -> std::io::Result<()> {
     let mut bench = Bench::new(BenchConfig::from_args()?);
-    bench.register_many(list![naive, simd], [
-        100, 1000, 10000, 100000, 1000000, 10000000,
-    ]);
+    bench.register_many(
+        list![naive, simd],
+        [100, 1000, 10000, 100000, 1000000, 10000000],
+    );
     bench.run()?;
     Ok(())
 }
