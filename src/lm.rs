@@ -5,7 +5,7 @@ use faer::{
 };
 use tracing::warn;
 
-use crate::{calculate_adj_r2, should_disable_predicted, R2Simd};
+use crate::{calculate_adj_r2, coef::Coef, should_disable_predicted, R2Simd};
 
 #[derive(Debug, Clone)]
 pub struct Lm {
@@ -16,54 +16,6 @@ pub struct Lm {
     adj_r2: f64,
     n: u64,
     m: u64,
-}
-
-impl Lm {
-    pub fn slopes(&self) -> &[Coef] {
-        &self.coefs[..self.coefs.len() - 1]
-    }
-
-    pub fn intercept(&self) -> &Coef {
-        &self.coefs[self.coefs.len() - 1]
-    }
-
-    pub fn predicted(&self) -> &[f64] {
-        &self.predicted
-    }
-
-    pub fn r2(&self) -> f64 {
-        self.r2
-    }
-
-    pub fn adj_r2(&self) -> f64 {
-        self.adj_r2
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Coef {
-    coef: f64,
-    std_err: f64,
-    t: f64,
-    p: f64,
-}
-
-impl Coef {
-    pub fn coef(&self) -> f64 {
-        self.coef
-    }
-
-    pub fn std_err(&self) -> f64 {
-        self.std_err
-    }
-
-    pub fn t(&self) -> f64 {
-        self.t
-    }
-
-    pub fn p(&self) -> f64 {
-        self.p
-    }
 }
 
 impl Lm {
@@ -96,26 +48,16 @@ impl Lm {
         if should_disable_predicted() {
             predicted = Vec::new();
         }
-        Lm {
+        Self {
             coefs: (0..ncols)
                 .map(|i| {
                     let coef = betas[i];
                     let std_err = 0.0;
                     let t = 0.0;
                     let p = 0.0;
-                    Coef {
-                        coef,
-                        std_err,
-                        t,
-                        p,
-                    }
+                    Coef::new(coef, std_err, t, p)
                 })
-                .chain(std::iter::once(Coef {
-                    coef: intercept,
-                    std_err: 0.0,
-                    t: 0.0,
-                    p: 0.0,
-                }))
+                .chain(std::iter::once(Coef::new(intercept, 0.0, 0.0, 0.0)))
                 .collect(),
             predicted,
             r2,
@@ -123,6 +65,26 @@ impl Lm {
             n: ys.len() as u64,
             m: ncols as u64,
         }
+    }
+
+    pub fn slopes(&self) -> &[Coef] {
+        &self.coefs[..self.coefs.len() - 1]
+    }
+
+    pub fn intercept(&self) -> &Coef {
+        &self.coefs[self.coefs.len() - 1]
+    }
+
+    pub fn predicted(&self) -> &[f64] {
+        &self.predicted
+    }
+
+    pub fn r2(&self) -> f64 {
+        self.r2
+    }
+
+    pub fn adj_r2(&self) -> f64 {
+        self.adj_r2
     }
 
     pub fn predict(&self, x: &[f64]) -> f64 {
@@ -141,7 +103,7 @@ mod tests {
 
     macro_rules! assert_float_eq {
         ($a:expr, $b:expr, $tol:expr) => {
-            assert!(($a - $b).abs() < $tol);
+            assert!(($a - $b).abs() < $tol, "{:.22} != {:.22}", $a, $b);
         };
     }
 

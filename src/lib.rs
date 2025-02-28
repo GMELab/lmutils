@@ -1,6 +1,7 @@
 #![cfg_attr(coverage_nightly, feature(coverage_attribute))]
-#![allow(dead_code, unused)]
+#![allow(dead_code, unused, clippy::excessive_precision)]
 mod calc;
+mod coef;
 mod error;
 mod file;
 mod gam;
@@ -9,6 +10,7 @@ mod lm;
 mod mat;
 mod matrix;
 mod mean;
+mod norm;
 mod packing;
 mod variance;
 
@@ -17,7 +19,10 @@ use std::{mem::MaybeUninit, panic::AssertUnwindSafe, sync::Mutex};
 use rayon::prelude::*;
 use tracing::{debug, debug_span, error, info, trace, warn};
 
-pub use crate::{calc::*, error::*, file::*, matrix::*, mean::*, packing::*, variance::*};
+pub use crate::{
+    calc::*, coef::*, error::*, file::*, glm::*, lm::*, matrix::*, mean::*, norm::*, packing::*,
+    variance::*,
+};
 
 #[cfg_attr(coverage_nightly, coverage(off))]
 #[doc(hidden)]

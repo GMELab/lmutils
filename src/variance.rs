@@ -27,7 +27,11 @@ pub fn variance_naive(data: &[f64], df: usize) -> f64 {
             sum += (d - m).powi(2);
         }
     }
-    sum / (count - df as u64) as f64
+    let df = df as u64;
+    if count <= df {
+        return 0.0;
+    }
+    sum / (count - df) as f64
 }
 
 #[inline(always)]
@@ -76,8 +80,11 @@ pub unsafe fn variance_sse4(data: &[f64], df: usize) -> f64 {
             }
         }
     }
-    println!("sum: {}", sum);
-    sum / (count - df as u64) as f64
+    let df = df as u64;
+    if count <= df {
+        return 0.0;
+    }
+    sum / (count - df) as f64
 }
 
 #[inline(always)]
@@ -128,7 +135,11 @@ pub unsafe fn variance_avx2(data: &[f64], df: usize) -> f64 {
             }
         }
     }
-    sum / (count - df as u64) as f64
+    let df = df as u64;
+    if count <= df {
+        return 0.0;
+    }
+    sum / (count - df) as f64
 }
 
 #[inline(always)]
@@ -177,7 +188,11 @@ pub unsafe fn variance_avx512(data: &[f64], df: usize) -> f64 {
             }
         }
     }
-    sum / (count - df as u64) as f64
+    let df = df as u64;
+    if count <= df {
+        return 0.0;
+    }
+    sum / (count - df) as f64
 }
 
 #[cfg(test)]
@@ -186,7 +201,7 @@ mod tests {
 
     macro_rules! assert_float_eq {
         ($a:expr, $b:expr, $tol:expr) => {
-            assert!(($a - $b).abs() < $tol);
+            assert!(($a - $b).abs() < $tol, "{:.22} != {:.22}", $a, $b);
         };
     }
 

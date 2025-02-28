@@ -57,7 +57,7 @@ name = "mat_v_rkyv"
 harness = false
 
 [[bench]]
-name = "logistic_regression"
+name = "glm"
 harness = false
 
 [[bench]]

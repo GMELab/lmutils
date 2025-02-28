@@ -916,7 +916,7 @@ mod tests {
 
     macro_rules! assert_float_eq {
         ($a:expr, $b:expr, $tol:expr) => {
-            assert!(($a - $b).abs() < $tol);
+            assert!(($a - $b).abs() < $tol, "{:.22} != {:.22}", $a, $b);
         };
     }
 
