@@ -609,6 +609,8 @@ pub fn dcauchy_inner(x: f64, location: f64, scale: f64, give_log: bool) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    use std::f64::consts::FRAC_1_PI;
+
     use super::*;
     use test_log::test;
 
@@ -651,7 +653,7 @@ mod tests {
     fn test_dcauchy() {
         assert_eq!(dcauchy(-5.0), 0.01224268793014579408129);
         assert_eq!(dcauchy(-1.0), 0.1591549430918953456082);
-        assert_eq!(dcauchy(0.0), 0.3183098861837906912164);
+        assert_eq!(dcauchy(0.0), FRAC_1_PI);
         assert_eq!(dcauchy(1.0), 0.1591549430918953456082);
         assert_eq!(dcauchy(5.0), 0.01224268793014579408129);
     }

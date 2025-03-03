@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use diol::prelude::*;
-use lmutils::{family, File, Glm, IntoMatrix, OwnedMatrix};
+use lmutils::{File, IntoMatrix, Lm, OwnedMatrix};
 use rand::SeedableRng;
 use rand_distr::Distribution;
 
@@ -37,38 +37,31 @@ fn main() -> std::io::Result<()> {
         let ys = ys.sample_iter(&mut rng).take(nrow).collect::<Vec<_>>();
         Arg { nrow, ncol, xs, ys }
     });
-    bench.register_many(list![irls, newton_raphson, r], args);
+    bench.register_many(list![lm, r], args);
     bench.run()?;
     Ok(())
 }
 
-fn irls(bencher: Bencher, Arg { nrow, ncol, xs, ys }: Arg) {
+fn lm(bencher: Bencher, Arg { nrow, ncol, xs, ys }: Arg) {
     let xs = faer::mat::from_column_major_slice(xs.as_slice(), nrow, ncol);
     bencher.bench(|| {
-        Glm::irls::<family::GaussianIdentity>(xs, &ys, 1e-8, 25);
-    });
-}
-
-fn newton_raphson(bencher: Bencher, Arg { nrow, ncol, xs, ys }: Arg) {
-    let xs = faer::mat::from_column_major_slice(xs.as_slice(), nrow, ncol);
-    bencher.bench(|| {
-        Glm::newton_raphson::<family::GaussianIdentity>(xs, &ys, 1e-8, 25);
+        Lm::new(xs, &ys);
     });
 }
 
 fn r(bencher: Bencher, Arg { nrow, ncol, xs, ys }: Arg) {
     let mut mat = OwnedMatrix::new(nrow, ncol, xs, None).into_matrix();
-    File::new("glm.mat", lmutils::FileType::Mat, false)
+    File::new("lm.mat", lmutils::FileType::Mat, false)
         .write(&mut mat)
         .unwrap();
     std::fs::write(
-        "glm.r",
+        "lm.r",
         format!(
             r#"
-            xs <- lmutils::load("glm.mat")[[1]]
+            xs <- lmutils::load("lm.mat")[[1]]
             ys <- c({})
             start <- Sys.time()
-            m <- glm(ys ~ xs, family = gaussian(link="identity"))
+            m <- lm(ys ~ xs)
             elapsed <- Sys.time() - start
             cat(as.character(as.numeric(elapsed), digits = 22))
             "#,
@@ -82,7 +75,7 @@ fn r(bencher: Bencher, Arg { nrow, ncol, xs, ys }: Arg) {
     let timings = (0..5)
         .map(|_| {
             let output = std::process::Command::new("Rscript")
-                .arg("glm.r")
+                .arg("lm.r")
                 .output()
                 .unwrap();
             if !output.status.success() {
@@ -96,6 +89,6 @@ fn r(bencher: Bencher, Arg { nrow, ncol, xs, ys }: Arg) {
         std::time::Duration::from_secs_f64(timings.iter().sum::<f64>() / timings.len() as f64);
 
     bencher.bench(|| std::thread::sleep(duration));
-    std::fs::remove_file("glm.r").unwrap();
-    std::fs::remove_file("glm.mat").unwrap();
+    std::fs::remove_file("lm.r").unwrap();
+    std::fs::remove_file("lm.mat").unwrap();
 }

@@ -83,3 +83,7 @@ harness = false
 [[bench]]
 name = "variance"
 harness = false
+
+[[bench]]
+name = "lm"
+harness = false

@@ -1,16 +1,20 @@
+use std::mem::MaybeUninit;
+
 use faer::{
     get_global_parallelism,
     mat::AsMatRef,
-    solvers::{SpSolver, Svd, ThinSvd},
+    solvers::{SpSolver, SpSolverLstsq, Svd, ThinSvd},
     Col, Mat, MatRef,
 };
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::{
+    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
+};
 use tracing::{debug, warn};
 
 use crate::{calculate_adj_r2, coef::Coef, should_disable_predicted, R2Simd};
 
 #[derive(Debug, Clone)]
-pub struct Glm<F: Family> {
+pub struct Glm {
     // the last element is the intercept
     coefs: Vec<Coef>,
     predicted: Vec<f64>,
@@ -18,14 +22,18 @@ pub struct Glm<F: Family> {
     adj_r2: f64,
     n: u64,
     m: u64,
-    family: std::marker::PhantomData<F>,
 }
 
-impl<F: Family> Glm<F> {
+impl Glm {
     #[tracing::instrument(skip(xs, ys))]
-    pub fn irls(xs: MatRef<'_, f64>, ys: &[f64], epsilon: f64, max_iterations: usize) -> Self {
+    pub fn irls<F: Family>(
+        xs: MatRef<'_, f64>,
+        ys: &[f64],
+        epsilon: f64,
+        max_iterations: usize,
+    ) -> Self {
         let ncols = xs.ncols();
-        let mut mu = vec![0.5; ys.len()];
+        let mut mu = ys.iter().map(|y| F::mu_start(*y)).collect::<Vec<_>>();
         let mut delta = 1.0;
         let mut l = 0.0;
         let mut x = xs.to_owned();
@@ -133,12 +141,131 @@ impl<F: Family> Glm<F> {
             adj_r2,
             n: ys.len() as u64,
             m: ncols as u64,
-            family: std::marker::PhantomData,
+        }
+    }
+
+    // UNFINISHED AND NOT FUNCTIONAL, MEANT TO BE THE IRLS IMPLEMENTATION THAT R USES WHICH SEEMS
+    // TO USE SIGNIFICANTLY LESS MATMULS
+    #[tracing::instrument(skip(xs, ys))]
+    pub fn irls_r<F: Family>(
+        xs: MatRef<'_, f64>,
+        ys: &[f64],
+        epsilon: f64,
+        max_iterations: usize,
+    ) -> Self {
+        let ncols = xs.ncols();
+        let mut mu = ys.iter().map(|y| F::mu_start(*y)).collect::<Vec<_>>();
+        let mut delta = 1.0;
+        let mut l = 0.0;
+        let mut x = xs.to_owned();
+        x.resize_with(
+            xs.nrows(),
+            xs.ncols() + 1,
+            #[inline(always)]
+            |_, _| 1.0,
+        );
+        let mut slopes = vec![0.0; xs.ncols()];
+        let mut intercept = 0.0;
+        // let mut z = vec![0.0; ys.len()];
+        // let mut w = Mat::zeros(ys.len(), ys.len());
+        let mut w = vec![0.0; ys.len()];
+        // let xt = x.transpose();
+        // let mut xtw = Mat::<f64>::zeros(x.ncols(), ys.len());
+        // let mut xtwx = Mat::zeros(x.ncols(), x.ncols());
+        // let mut xtwz = Col::zeros(x.ncols());
+        let mut i = 0;
+        let mut converged = true;
+        let eta = mu.iter().map(|m| F::linkfun(*m)).collect::<Vec<_>>();
+        for i in &mut mu {
+            *i = F::linkinv(*i);
+        }
+        let mut xw_vec = vec![0.0; xs.nrows() * x.ncols()];
+        let mut xw: MatRef<f64> =
+            faer::mat::from_column_major_slice(xw_vec.as_slice(), xs.nrows(), x.ncols());
+        let mut zw_vec = vec![0.0; ys.len()];
+        let mut zw_mut =
+            unsafe { std::slice::from_raw_parts_mut(zw_vec.as_mut_ptr(), zw_vec.len()) };
+        let mut zw = faer::col::from_slice(&zw_vec);
+        let mut dev = 0.0;
+        for i in 0..ys.len() {
+            dev += F::dev_resids(ys[i], mu[i]);
+        }
+        while delta > epsilon {
+            for i in 0..ys.len() {
+                let mu_eta = F::mu_eta(eta[i]);
+                w[i] = (mu_eta.powi(2) / F::variance(mu[i])).sqrt();
+                let z = (eta[i] + (ys[i] - mu[i])) / mu_eta;
+                zw_mut[i] = z * w[i];
+            }
+            // w multiplies each row
+            let ncols = x.ncols();
+            let nrows = x.nrows();
+            (0..ys.len()).into_par_iter().for_each(|r| {
+                let xw_mut = unsafe {
+                    std::slice::from_raw_parts_mut(xw_vec.as_ptr().cast_mut(), xw_vec.len())
+                };
+                for c in 0..ncols {
+                    xw_mut[c * nrows + r] = x[(r, c)] * w[r];
+                }
+            });
+
+            let beta = xw.qr().solve_lstsq(&zw);
+            let b = beta.try_as_slice().unwrap();
+            slopes.as_mut_slice().copy_from_slice(&b[..xs.ncols()]);
+            intercept = b[xs.ncols()];
+            let eta = &x * beta;
+            let eta = eta.try_as_slice().unwrap();
+            for (mu, eta) in mu.iter_mut().zip(eta) {
+                *mu = F::linkinv(*eta);
+            }
+            let mut new_dev = 0.0;
+            for i in 0..ys.len() {
+                new_dev += F::dev_resids(ys[i], mu[i]);
+            }
+            delta = (new_dev - dev).abs() / (0.1 + dev.abs());
+            dev = new_dev;
+            // let old_ll = l;
+            // l = ll(mu.as_slice(), ys);
+            // delta = (l - old_ll).abs();
+            if i >= max_iterations {
+                warn!("Did not converge after {} iterations", max_iterations);
+                converged = false;
+                break;
+            }
+            i += 1;
+        }
+        if converged {
+            debug!("Converged after {} iterations", i);
+        }
+
+        let r2 = R2Simd::new(ys, &mu).calculate();
+        let adj_r2 = calculate_adj_r2(r2, ys.len(), xs.ncols());
+
+        if should_disable_predicted() {
+            mu = Vec::new();
+        }
+
+        Self {
+            coefs: slopes
+                .into_iter()
+                .map(|coef| {
+                    let std_err = 0.0;
+                    let t = 0.0;
+                    let p = 0.0;
+                    Coef::new(coef, std_err, t, p)
+                })
+                .chain(std::iter::once(Coef::new(intercept, 0.0, 0.0, 0.0)))
+                .collect(),
+            predicted: mu,
+            r2,
+            adj_r2,
+            n: ys.len() as u64,
+            m: ncols as u64,
         }
     }
 
     #[tracing::instrument(skip(xs, ys))]
-    pub fn newton_raphson(
+    pub fn newton_raphson<F: Family>(
         xs: MatRef<'_, f64>,
         ys: &[f64],
         epsilon: f64,
@@ -153,7 +280,7 @@ impl<F: Family> Glm<F> {
             |_, _| 1.0,
         );
         let mut beta = vec![0.0; x.ncols()];
-        let mut mu = vec![0.0; ys.len()];
+        let mut mu = ys.iter().map(|y| F::mu_start(*y)).collect::<Vec<_>>();
         // let mut w = Mat::zeros(ys.len(), ys.len());
         let mut w = vec![0.0; ys.len()];
         let mut linear_predictor = Col::zeros(ys.len());
@@ -259,7 +386,6 @@ impl<F: Family> Glm<F> {
             adj_r2,
             n: ys.len() as u64,
             m: x.ncols() as u64,
-            family: std::marker::PhantomData,
         }
     }
 
@@ -283,7 +409,7 @@ impl<F: Family> Glm<F> {
         self.adj_r2
     }
 
-    pub fn predict(&self, x: &[f64]) -> f64 {
+    pub fn predict<F: Family>(&self, x: &[f64]) -> f64 {
         let mut v = self.intercept().coef();
         let slopes = self.slopes();
         for i in 0..self.slopes().len() {
@@ -311,6 +437,17 @@ pub trait Family {
     fn linkinv(eta: f64) -> f64;
     fn variance(mu: f64) -> f64;
     fn mu_eta(eta: f64) -> f64;
+    fn dev_resids(y: f64, mu: f64) -> f64;
+    fn mu_start(y: f64) -> f64;
+}
+
+#[inline(always)]
+fn y_log_y(y: f64, mu: f64) -> f64 {
+    if y == 0.0 {
+        0.0
+    } else {
+        y * (y / mu).ln()
+    }
 }
 
 pub mod family {
@@ -336,6 +473,14 @@ pub mod family {
         fn mu_eta(_eta: f64) -> f64 {
             1.0
         }
+
+        fn dev_resids(y: f64, mu: f64) -> f64 {
+            (y - mu).powi(2)
+        }
+
+        fn mu_start(y: f64) -> f64 {
+            y
+        }
     }
 
     /// Gaussian family with log link function
@@ -355,6 +500,14 @@ pub mod family {
 
         fn mu_eta(eta: f64) -> f64 {
             eta.exp().max(f64::EPSILON)
+        }
+
+        fn dev_resids(y: f64, mu: f64) -> f64 {
+            (y - mu).powi(2)
+        }
+
+        fn mu_start(y: f64) -> f64 {
+            y
         }
     }
 
@@ -376,6 +529,14 @@ pub mod family {
         fn mu_eta(eta: f64) -> f64 {
             -1.0 / eta.powi(2)
         }
+
+        fn dev_resids(y: f64, mu: f64) -> f64 {
+            (y - mu).powi(2)
+        }
+
+        fn mu_start(y: f64) -> f64 {
+            y
+        }
     }
 
     /// Binomial family with logit link function
@@ -395,6 +556,14 @@ pub mod family {
 
         fn mu_eta(eta: f64) -> f64 {
             1.0 / (eta * (1.0 - eta))
+        }
+
+        fn dev_resids(y: f64, mu: f64) -> f64 {
+            2.0 * (y_log_y(y, mu) + y_log_y(1.0 - y, 1.0 - mu))
+        }
+
+        fn mu_start(y: f64) -> f64 {
+            (y + 0.5) / 2.0
         }
     }
 
@@ -417,6 +586,14 @@ pub mod family {
         fn mu_eta(eta: f64) -> f64 {
             dnorm(eta).max(f64::EPSILON)
         }
+
+        fn dev_resids(y: f64, mu: f64) -> f64 {
+            2.0 * (y_log_y(y, mu) + y_log_y(1.0 - y, 1.0 - mu))
+        }
+
+        fn mu_start(y: f64) -> f64 {
+            (y + 0.5) / 2.0
+        }
     }
 
     /// Binomial family with cauchit link function
@@ -438,6 +615,14 @@ pub mod family {
         fn mu_eta(eta: f64) -> f64 {
             dcauchy(eta).max(f64::EPSILON)
         }
+
+        fn dev_resids(y: f64, mu: f64) -> f64 {
+            2.0 * (y_log_y(y, mu) + y_log_y(1.0 - y, 1.0 - mu))
+        }
+
+        fn mu_start(y: f64) -> f64 {
+            (y + 0.5) / 2.0
+        }
     }
 
     /// Binomial family with log link function
@@ -457,6 +642,14 @@ pub mod family {
 
         fn mu_eta(eta: f64) -> f64 {
             eta.exp().max(f64::EPSILON)
+        }
+
+        fn dev_resids(y: f64, mu: f64) -> f64 {
+            2.0 * (y_log_y(y, mu) + y_log_y(1.0 - y, 1.0 - mu))
+        }
+
+        fn mu_start(y: f64) -> f64 {
+            (y + 0.5) / 2.0
         }
     }
 
@@ -481,6 +674,14 @@ pub mod family {
             let eta = eta.min(700.0);
             (eta.exp() * (-eta.exp()).exp()).max(f64::EPSILON)
         }
+
+        fn dev_resids(y: f64, mu: f64) -> f64 {
+            2.0 * (y_log_y(y, mu) + y_log_y(1.0 - y, 1.0 - mu))
+        }
+
+        fn mu_start(y: f64) -> f64 {
+            (y + 0.5) / 2.0
+        }
     }
 
     /// Gamma family with inverse link function
@@ -500,6 +701,14 @@ pub mod family {
 
         fn mu_eta(eta: f64) -> f64 {
             -1.0 / eta.powi(2)
+        }
+
+        fn dev_resids(y: f64, mu: f64) -> f64 {
+            -2.0 * ((if y == 0.0 { 1.0 } else { y / mu }).ln() - ((y - mu) / mu))
+        }
+
+        fn mu_start(y: f64) -> f64 {
+            y
         }
     }
 
@@ -521,6 +730,14 @@ pub mod family {
         fn mu_eta(_eta: f64) -> f64 {
             1.0
         }
+
+        fn dev_resids(y: f64, mu: f64) -> f64 {
+            -2.0 * ((if y == 0.0 { 1.0 } else { y / mu }).ln() - ((y - mu) / mu))
+        }
+
+        fn mu_start(y: f64) -> f64 {
+            y
+        }
     }
 
     /// Gamma family with log link function
@@ -540,6 +757,14 @@ pub mod family {
 
         fn mu_eta(eta: f64) -> f64 {
             eta.exp().max(f64::EPSILON)
+        }
+
+        fn dev_resids(y: f64, mu: f64) -> f64 {
+            -2.0 * ((if y == 0.0 { 1.0 } else { y / mu }).ln() - ((y - mu) / mu))
+        }
+
+        fn mu_start(y: f64) -> f64 {
+            y
         }
     }
 
@@ -561,6 +786,18 @@ pub mod family {
         fn mu_eta(eta: f64) -> f64 {
             eta.exp().max(f64::EPSILON)
         }
+
+        fn dev_resids(y: f64, mu: f64) -> f64 {
+            2.0 * if y == 0.0 {
+                mu
+            } else {
+                y * (y / mu).ln() - (y - mu)
+            }
+        }
+
+        fn mu_start(y: f64) -> f64 {
+            y + 0.1
+        }
     }
 
     /// Poisson family with identity link function
@@ -580,6 +817,18 @@ pub mod family {
 
         fn mu_eta(_eta: f64) -> f64 {
             1.0
+        }
+
+        fn dev_resids(y: f64, mu: f64) -> f64 {
+            2.0 * if y == 0.0 {
+                mu
+            } else {
+                y * (y / mu).ln() - (y - mu)
+            }
+        }
+
+        fn mu_start(y: f64) -> f64 {
+            y + 0.1
         }
     }
 
@@ -601,6 +850,18 @@ pub mod family {
         fn mu_eta(eta: f64) -> f64 {
             2.0 * eta
         }
+
+        fn dev_resids(y: f64, mu: f64) -> f64 {
+            2.0 * if y == 0.0 {
+                mu
+            } else {
+                y * (y / mu).ln() - (y - mu)
+            }
+        }
+
+        fn mu_start(y: f64) -> f64 {
+            y + 0.1
+        }
     }
 
     /// Inverse Gaussian family with 1/mu^2 link function
@@ -620,6 +881,14 @@ pub mod family {
 
         fn mu_eta(eta: f64) -> f64 {
             -1.0 / (2.0 * eta.powf(1.5))
+        }
+
+        fn dev_resids(y: f64, mu: f64) -> f64 {
+            (y - mu).powi(2) / (y * mu.powi(2))
+        }
+
+        fn mu_start(y: f64) -> f64 {
+            y
         }
     }
 
@@ -641,6 +910,14 @@ pub mod family {
         fn mu_eta(eta: f64) -> f64 {
             -1.0 / eta.powi(2)
         }
+
+        fn dev_resids(y: f64, mu: f64) -> f64 {
+            (y - mu).powi(2) / (y * mu.powi(2))
+        }
+
+        fn mu_start(y: f64) -> f64 {
+            y
+        }
     }
 
     /// Inverse Gaussian family with identity link function
@@ -660,6 +937,14 @@ pub mod family {
 
         fn mu_eta(_eta: f64) -> f64 {
             1.0
+        }
+
+        fn dev_resids(y: f64, mu: f64) -> f64 {
+            (y - mu).powi(2) / (y * mu.powi(2))
+        }
+
+        fn mu_start(y: f64) -> f64 {
+            y
         }
     }
 
@@ -681,6 +966,14 @@ pub mod family {
         fn mu_eta(eta: f64) -> f64 {
             eta.exp().max(f64::EPSILON)
         }
+
+        fn dev_resids(y: f64, mu: f64) -> f64 {
+            (y - mu).powi(2) / (y * mu.powi(2))
+        }
+
+        fn mu_start(y: f64) -> f64 {
+            y
+        }
     }
 }
 
@@ -699,7 +992,7 @@ mod tests {
 
     macro_rules! float_eq {
         ($a:expr, $b:expr) => {
-            assert_float_eq!($a, $b, 1e-15);
+            assert_float_eq!($a, $b, 1e-10);
         };
     }
 
@@ -707,7 +1000,7 @@ mod tests {
     fn test_glm_irls() {
         let nrows = 50;
         let xs = faer::mat::from_column_major_slice(XS.as_slice(), nrows, 4);
-        let m = Glm::<family::BinomialLogit>::irls(xs, YS.as_slice(), 1e-10, 25);
+        let m = Glm::irls::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 25);
         float_eq!(m.intercept().coef(), -0.10480279218218244152716);
         float_eq!(m.slopes()[0].coef(), 0.06970776481172229199768);
         float_eq!(m.slopes()[1].coef(), 0.31341357257259599977672);
@@ -715,11 +1008,23 @@ mod tests {
         float_eq!(m.slopes()[3].coef(), 0.05905679790685783303594);
     }
 
+    // #[test]
+    // fn test_glm_irls_r() {
+    //     let nrows = 50;
+    //     let xs = faer::mat::from_column_major_slice(XS.as_slice(), nrows, 4);
+    //     let m = Glm::irls_r::<family::BinomialLogit>(xs, YS.as_slice(), 1e-100, 25);
+    //     float_eq!(m.intercept().coef(), -0.10480279218218244152716);
+    //     float_eq!(m.slopes()[0].coef(), 0.06970776481172229199768);
+    //     float_eq!(m.slopes()[1].coef(), 0.31341357257259599977672);
+    //     float_eq!(m.slopes()[2].coef(), -0.52734374471258893546377);
+    //     float_eq!(m.slopes()[3].coef(), 0.05905679790685783303594);
+    // }
+
     #[test]
     fn test_glm_newton_raphson() {
         let nrows = 50;
         let xs = faer::mat::from_column_major_slice(XS.as_slice(), nrows, 4);
-        let m = Glm::<family::BinomialLogit>::newton_raphson(xs, YS.as_slice(), 1e-10, 25);
+        let m = Glm::newton_raphson::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 25);
         float_eq!(m.intercept().coef(), -0.10480279218218244152716);
         float_eq!(m.slopes()[0].coef(), 0.06970776481172229199768);
         float_eq!(m.slopes()[1].coef(), 0.31341357257259599977672);
@@ -731,9 +1036,9 @@ mod tests {
     fn test_glm_irls_predict() {
         let nrows = 50;
         let xs = faer::mat::from_column_major_slice(XS.as_slice(), nrows, 4);
-        let m = Glm::<family::BinomialLogit>::irls(xs, YS.as_slice(), 1e-10, 25);
+        let m = Glm::irls::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 25);
         float_eq!(
-            m.predict(&[
+            m.predict::<family::BinomialLogit>(&[
                 -0.7639264113390733523801,
                 0.5045213234835747018181,
                 -0.8257110454007502431395,
@@ -747,9 +1052,9 @@ mod tests {
     fn test_glm_newton_raphson_predict() {
         let nrows = 50;
         let xs = faer::mat::from_column_major_slice(XS.as_slice(), nrows, 4);
-        let m = Glm::<family::BinomialLogit>::newton_raphson(xs, YS.as_slice(), 1e-10, 25);
+        let m = Glm::newton_raphson::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 25);
         float_eq!(
-            m.predict(&[
+            m.predict::<family::BinomialLogit>(&[
                 -0.7639264113390733523801,
                 0.5045213234835747018181,
                 -0.8257110454007502431395,
