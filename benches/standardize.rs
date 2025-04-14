@@ -64,7 +64,7 @@ fn standardize_auto_vectorize(bencher: Bencher, len: usize) {
     bench_standardize(bencher, len, |mut x, mean, std| {
         move || {
             let xx = x.as_mut();
-            if let Some(x) = xx.try_as_slice_mut() {
+            if let Some(x) = xx.try_as_col_major_mut().unwrap().as_slice_mut() {
                 Arch::new().dispatch(|| {
                     for x in x.iter_mut() {
                         *x = (*x - mean) / std;
@@ -84,7 +84,7 @@ fn standardize_auto_vectorize_recip(bencher: Bencher, len: usize) {
         move || {
             let xx = x.as_mut();
             let std_recip = 1.0 / std;
-            if let Some(x) = xx.try_as_slice_mut() {
+            if let Some(x) = xx.try_as_col_major_mut().unwrap().as_slice_mut() {
                 Arch::new().dispatch(|| {
                     for x in x.iter_mut() {
                         *x = (*x - mean) * std_recip;

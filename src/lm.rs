@@ -1,6 +1,6 @@
 use faer::{
+    linalg::solvers::{DenseSolveCore, Solve},
     mat::AsMatRef,
-    solvers::{SpSolver, Svd},
     MatRef,
 };
 use tracing::warn;
@@ -20,7 +20,7 @@ pub struct Lm {
 
 impl Lm {
     pub fn fit(xs: MatRef<'_, f64>, ys: &[f64]) -> Self {
-        Self::fit_many(xs, faer::mat::from_column_major_slice(ys, ys.len(), 1))
+        Self::fit_many(xs, MatRef::from_column_major_slice(ys, ys.len(), 1))
             .into_iter()
             .next()
             .unwrap()
@@ -39,19 +39,33 @@ impl Lm {
             let y = ys.col(i);
             let c_all = x.transpose() * y;
             let c_matrix = x.transpose() * &x;
-            let betas = match c_matrix.cholesky(faer::Side::Lower) {
+            let betas = match c_matrix.llt(faer::Side::Lower) {
                 Ok(chol) => chol.solve(c_all),
                 Err(_) => {
                     warn!("Using pseudo inverse");
-                    Svd::new(c_matrix.as_mat_ref()).pseudoinverse() * &c_all
+                    c_matrix
+                        .as_mat_ref()
+                        .thin_svd()
+                        .expect("could not compute thin SVD for pseudoinverse")
+                        .pseudoinverse()
+                        * &c_all
                 },
             };
-            let betas = betas.try_as_slice().unwrap();
+            let betas = betas
+                .try_as_col_major()
+                .expect("could not get slice")
+                .as_slice();
             let intercept = betas[ncols];
             let mut predicted = (0..y.nrows())
                 .map(|i| intercept + (0..ncols).map(|j| betas[j] * x[(i, j)]).sum::<f64>())
                 .collect::<Vec<_>>();
-            let r2 = R2Simd::new(y.try_as_slice().unwrap(), &predicted).calculate();
+            let r2 = R2Simd::new(
+                y.try_as_col_major()
+                    .expect("could not get slice")
+                    .as_slice(),
+                &predicted,
+            )
+            .calculate();
             let adj_r2 = calculate_adj_r2(r2, y.nrows(), ncols);
             if should_disable_predicted() {
                 predicted = Vec::new();
@@ -131,7 +145,7 @@ mod tests {
 
     #[test]
     fn test_lm() {
-        let xs = faer::mat::from_column_major_slice::<f64>(&[1.0, 2.0, 3.0, 4.0, 5.0], 5, 1);
+        let xs = MatRef::from_column_major_slice(&[1.0, 2.0, 3.0, 4.0, 5.0], 5, 1);
         let ys = [1.0, 2.0, 3.0, 4.0, 5.0];
         let model = Lm::fit(xs.as_mat_ref(), &ys);
         assert_eq!(model.slopes().len(), 1);
@@ -153,15 +167,11 @@ mod tests {
 
     #[test]
     fn test_lm_predict() {
-        let xs = faer::mat::from_column_major_slice::<f64>(&[1.0, 2.0, 3.0, 4.0, 5.0], 5, 1);
+        let xs = MatRef::from_column_major_slice(&[1.0, 2.0, 3.0, 4.0, 5.0], 5, 1);
         let ys = [1.0, 2.0, 3.0, 4.0, 5.0];
         let model = Lm::fit(xs.as_mat_ref(), &ys);
         float_eq!(model.predict(&[6.0]), 6.0);
-        let xs = faer::mat::from_column_major_slice::<f64>(
-            &[1.0, 2.0, 3.0, 4.0, 1.0, 2.0, 3.0, 4.0],
-            4,
-            2,
-        );
+        let xs = MatRef::from_column_major_slice(&[1.0, 2.0, 3.0, 4.0, 1.0, 2.0, 3.0, 4.0], 4, 2);
         let ys = [2.0, 4.0, 6.0, 8.0];
         let model = Lm::fit(xs.as_mat_ref(), &ys);
         float_eq!(model.predict(&[1.0, 1.0]), 2.0);

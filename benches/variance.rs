@@ -52,7 +52,7 @@ fn faer_(bencher: Bencher, len: usize) {
         let mut variance = 0.0;
         faer::stats::row_varm(
             faer::row::from_mut(&mut variance),
-            faer::mat::from_column_major_slice(data.as_slice(), data.len(), 1),
+            MatRef::from_column_major_slice(data.as_slice(), data.len(), 1),
             faer::row::from_ref(&mean),
             faer::stats::NanHandling::Ignore,
         );

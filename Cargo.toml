@@ -8,7 +8,7 @@ repository = "https://github.com/mrvillage/lmutils"
 
 [dependencies]
 extendr-api = { version = "0.6.0", features = ["either"], optional = true }
-faer = "0.19"
+faer = "0.21"
 flate2 = "1.0.30"
 rayon = "1.10.0"
 rkyv = { version = "0.7.44", features = [
