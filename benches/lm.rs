@@ -45,7 +45,7 @@ fn main() -> std::io::Result<()> {
 fn lm(bencher: Bencher, Arg { nrow, ncol, xs, ys }: Arg) {
     let xs = faer::mat::from_column_major_slice(xs.as_slice(), nrow, ncol);
     bencher.bench(|| {
-        Lm::new(xs, &ys);
+        Lm::fit(xs, &ys);
     });
 }
 

@@ -35,7 +35,7 @@ impl Glm {
         let ncols = xs.ncols();
         let mut mu = ys.iter().map(|y| F::mu_start(*y)).collect::<Vec<_>>();
         let mut delta = 1.0;
-        let mut l = 0.0;
+        // let mut l = 0.0;
         let mut x = xs.to_owned();
         x.resize_with(
             xs.nrows(),
@@ -54,6 +54,10 @@ impl Glm {
         let mut xtwz = Col::zeros(x.ncols());
         let mut i = 0;
         let mut converged = true;
+        let mut dev = 0.0;
+        for i in 0..ys.len() {
+            dev += F::dev_resids(ys[i], mu[i]);
+        }
         while delta > epsilon {
             for ((z, mu), y) in z.iter_mut().zip(mu.iter()).zip(ys) {
                 *z = F::linkfun(*mu) + (y - mu) * F::mu_eta(*mu);
@@ -104,9 +108,14 @@ impl Glm {
             for (mu, eta) in mu.iter_mut().zip(eta) {
                 *mu = F::linkinv(*eta);
             }
-            let old_ll = l;
-            l = ll(mu.as_slice(), ys);
-            delta = (l - old_ll).abs();
+            // let old_ll = l;
+            // l = ll(mu.as_slice(), ys);
+            let mut new_dev = 0.0;
+            for i in 0..ys.len() {
+                new_dev += F::dev_resids(ys[i], mu[i]);
+            }
+            delta = (new_dev - dev);
+            dev = new_dev;
             if i >= max_iterations {
                 warn!("Did not converge after {} iterations", max_iterations);
                 converged = false;
@@ -128,13 +137,20 @@ impl Glm {
         Self {
             coefs: slopes
                 .into_iter()
-                .map(|coef| {
+                .enumerate()
+                .map(|(i, coef)| {
                     let std_err = 0.0;
                     let t = 0.0;
                     let p = 0.0;
-                    Coef::new(coef, std_err, t, p)
+                    Coef::new(format!("x[{}]", i), coef, std_err, t, p)
                 })
-                .chain(std::iter::once(Coef::new(intercept, 0.0, 0.0, 0.0)))
+                .chain(std::iter::once(Coef::new(
+                    "(Intercept)",
+                    intercept,
+                    0.0,
+                    0.0,
+                    0.0,
+                )))
                 .collect(),
             predicted: mu,
             r2,
@@ -222,7 +238,7 @@ impl Glm {
             for i in 0..ys.len() {
                 new_dev += F::dev_resids(ys[i], mu[i]);
             }
-            delta = (new_dev - dev).abs() / (0.1 + dev.abs());
+            delta = (new_dev - dev);
             dev = new_dev;
             // let old_ll = l;
             // l = ll(mu.as_slice(), ys);
@@ -248,13 +264,20 @@ impl Glm {
         Self {
             coefs: slopes
                 .into_iter()
-                .map(|coef| {
+                .enumerate()
+                .map(|(i, coef)| {
                     let std_err = 0.0;
                     let t = 0.0;
                     let p = 0.0;
-                    Coef::new(coef, std_err, t, p)
+                    Coef::new(format!("x[{}]", i), coef, std_err, t, p)
                 })
-                .chain(std::iter::once(Coef::new(intercept, 0.0, 0.0, 0.0)))
+                .chain(std::iter::once(Coef::new(
+                    "(Intercept)",
+                    intercept,
+                    0.0,
+                    0.0,
+                    0.0,
+                )))
                 .collect(),
             predicted: mu,
             r2,
@@ -377,9 +400,15 @@ impl Glm {
                     let std_err = 0.0;
                     let t = 0.0;
                     let p = 0.0;
-                    Coef::new(coef, std_err, t, p)
+                    Coef::new(format!("x[{}]", i), coef, std_err, t, p)
                 })
-                .chain(std::iter::once(Coef::new(beta[ncols], 0.0, 0.0, 0.0)))
+                .chain(std::iter::once(Coef::new(
+                    "(Intercept)",
+                    beta[ncols],
+                    0.0,
+                    0.0,
+                    0.0,
+                )))
                 .collect(),
             predicted,
             r2,

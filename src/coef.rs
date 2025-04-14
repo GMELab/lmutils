@@ -1,5 +1,6 @@
 #[derive(Debug, Clone)]
 pub struct Coef {
+    label: String,
     coef: f64,
     std_err: f64,
     t: f64,
@@ -7,13 +8,18 @@ pub struct Coef {
 }
 
 impl Coef {
-    pub fn new(coef: f64, std_err: f64, t: f64, p: f64) -> Self {
+    pub fn new(label: impl ToString, coef: f64, std_err: f64, t: f64, p: f64) -> Self {
         Coef {
+            label: label.to_string(),
             coef,
             std_err,
             t,
             p,
         }
+    }
+
+    pub fn label(&self) -> &str {
+        &self.label
     }
 
     pub fn coef(&self) -> f64 {

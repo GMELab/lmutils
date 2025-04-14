@@ -12,6 +12,7 @@ mod matrix;
 mod mean;
 mod norm;
 mod packing;
+mod spline;
 mod variance;
 
 use std::{mem::MaybeUninit, panic::AssertUnwindSafe, sync::Mutex};
