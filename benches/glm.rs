@@ -49,14 +49,14 @@ fn main() -> std::io::Result<()> {
 }
 
 fn irls(bencher: Bencher, Arg { nrow, ncol, xs, ys }: Arg) {
-    let xs = faer::mat::from_column_major_slice(xs.as_slice(), nrow, ncol);
+    let xs = MatRef::from_column_major_slice(xs.as_slice(), nrow, ncol);
     bencher.bench(|| {
         Glm::irls::<family::GaussianIdentity>(xs, &ys, 1e-8, 25);
     });
 }
 
 fn newton_raphson(bencher: Bencher, Arg { nrow, ncol, xs, ys }: Arg) {
-    let xs = faer::mat::from_column_major_slice(xs.as_slice(), nrow, ncol);
+    let xs = MatRef::from_column_major_slice(xs.as_slice(), nrow, ncol);
     bencher.bench(|| {
         Glm::newton_raphson::<family::GaussianIdentity>(xs, &ys, 1e-8, 25);
     });

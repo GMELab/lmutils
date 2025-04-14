@@ -11,7 +11,7 @@ use extendr_api::{
     io::Load, scalar::Scalar, single_threaded, wrapper, AsStrIter, Attributes, Conversions,
     FromRobj, IntoRobj, MatrixConversions, RMatrix, Rinternals, Robj, Rtype,
 };
-use faer::{linalg::qr, Mat, MatMut, MatRef};
+use faer::{linalg::qr, ColMut, Mat, MatMut, MatRef};
 use rand_distr::Distribution;
 use rayon::prelude::*;
 use regex::Regex;
@@ -130,9 +130,9 @@ impl Matrix {
     pub fn as_mat_ref_loaded(&self) -> MatRef<'_, f64> {
         match self {
             #[cfg(feature = "r")]
-            Matrix::R(m) => faer::mat::from_column_major_slice(m.data(), m.nrows(), m.ncols()),
+            Matrix::R(m) => MatRef::from_column_major_slice(m.data(), m.nrows(), m.ncols()),
             Matrix::Owned(m) => {
-                faer::mat::from_column_major_slice(m.data.as_slice(), m.nrows, m.ncols)
+                MatRef::from_column_major_slice(m.data.as_slice(), m.nrows, m.ncols)
             },
             Matrix::File(_) => panic!("cannot call this function on a file"),
             Matrix::Dyn(m) => m.as_mat_ref_loaded(),
@@ -146,7 +146,7 @@ impl Matrix {
             // SAFETY: We know that the data is valid
             #[cfg(feature = "r")]
             Matrix::R(m) => unsafe {
-                faer::mat::from_raw_parts_mut(
+                MatMut::from_raw_parts_mut(
                     m.data().as_ptr().cast_mut(),
                     m.nrows(),
                     m.ncols(),
@@ -155,7 +155,7 @@ impl Matrix {
                 )
             },
             Matrix::Owned(m) => {
-                faer::mat::from_column_major_slice_mut(m.data.as_mut(), m.nrows, m.ncols)
+                MatMut::from_column_major_slice_mut(m.data.as_mut(), m.nrows, m.ncols)
             },
             m @ (Matrix::File(_) | Matrix::Transform(..)) => m.into_owned()?.as_mat_mut()?,
             Matrix::Dyn(m) => m.as_mat_mut()?,
@@ -586,8 +586,9 @@ impl Matrix {
             (0..m.ncols()).into_par_iter().for_each(|c| unsafe {
                 let src = m
                     .get_unchecked(.., c)
-                    .try_as_slice()
-                    .expect("could not get slice");
+                    .try_as_col_major()
+                    .expect("could not get slice")
+                    .as_slice();
                 let dst = data
                     .as_ptr()
                     .add(m.nrows() * (c + cols_before))
@@ -648,8 +649,9 @@ impl Matrix {
             (0..ncols).into_par_iter().for_each(|c| unsafe {
                 let src = m
                     .get_unchecked(.., c)
-                    .try_as_slice()
-                    .expect("could not get slice");
+                    .try_as_col_major()
+                    .expect("could not get slice")
+                    .as_slice();
                 debug!("{i} {c} src: {:?}", src);
                 let dst = data
                     .as_ptr()
@@ -752,7 +754,7 @@ impl Matrix {
             .enumerate()
             // SAFETY: No two threads will write to the same location
             .for_each(|(n, o)| unsafe {
-                let src = m.get_unchecked(.., o).try_as_slice().expect("could not get slice");
+                let src = m.get_unchecked(.., o).try_as_col_major().expect("could not get slice").as_slice();
                 let dst = data.as_ptr().add(n * m.nrows()).cast::<f64>().cast_mut();
                 let slice = std::slice::from_raw_parts_mut(dst, m.nrows());
                 slice.copy_from_slice(src);
@@ -1394,7 +1396,12 @@ impl Matrix {
     pub fn nan_to_column_mean(&mut self) -> Result<&mut Self, crate::Error> {
         self.as_mat_mut()?.par_col_chunks_mut(1).for_each(|c| {
             let col = c.col_mut(0);
-            let m = mean::mean(col.as_ref().try_as_slice().unwrap());
+            let m = mean::mean(
+                col.as_ref()
+                    .try_as_col_major()
+                    .expect("could not get slice")
+                    .as_slice(),
+            );
             col.iter_mut().for_each(|x| {
                 if !x.is_finite() {
                     *x = m;
@@ -1414,8 +1421,8 @@ impl Matrix {
             let row = r.row_mut(0);
             let mut m = 0.0;
             faer::stats::col_mean(
-                faer::col::from_mut(&mut m),
-                row.as_ref().as_2d(),
+                ColMut::from_slice_mut(&mut [m]),
+                row.as_ref().as_mat(),
                 faer::stats::NanHandling::Ignore,
             );
             row.iter_mut().for_each(|x| {
@@ -1754,8 +1761,9 @@ impl Matrix {
         self.as_mat_ref().map(|x| {
             Some(unsafe {
                 x.get_unchecked(.., col)
-                    .try_as_slice()
+                    .try_as_col_major()
                     .expect("could not get slice")
+                    .as_slice()
             })
         })
     }
@@ -1768,8 +1776,9 @@ impl Matrix {
         Some(unsafe {
             self.as_mat_ref_loaded()
                 .get_unchecked(.., col)
-                .try_as_slice()
+                .try_as_col_major()
                 .expect("could not get slice")
+                .as_slice()
         })
     }
 

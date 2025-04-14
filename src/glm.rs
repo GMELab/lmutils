@@ -2,9 +2,9 @@ use std::mem::MaybeUninit;
 
 use faer::{
     get_global_parallelism,
+    linalg::solvers::{DenseSolveCore, Solve, SolveLstsqCore},
     mat::AsMatRef,
-    solvers::{SpSolver, SpSolverLstsq, Svd, ThinSvd},
-    Col, Mat, MatRef,
+    Col, ColRef, Mat, MatRef,
 };
 use rayon::iter::{
     IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
@@ -78,33 +78,46 @@ impl Glm {
                 });
             faer::linalg::matmul::matmul(
                 xtwx.as_mut(),
+                faer::Accum::Replace,
                 &xtw,
                 &x,
-                None,
                 1.0,
                 get_global_parallelism(),
             );
             faer::linalg::matmul::matmul(
                 xtwz.as_mut(),
+                faer::Accum::Replace,
                 &xtw,
-                faer::col::from_slice(z.as_slice()),
-                None,
+                ColRef::from_slice(z.as_slice()),
                 1.0,
                 get_global_parallelism(),
             );
 
-            let beta = match xtwx.cholesky(faer::Side::Lower) {
+            let beta = match xtwx.llt(faer::Side::Lower) {
                 Ok(chol) => chol.solve(&xtwz),
                 Err(_) => {
                     warn!("Using pseudo inverse");
-                    ThinSvd::new(xtwx.as_mat_ref()).pseudoinverse() * &xtwz
+                    match xtwx.as_mat_ref().thin_svd() {
+                        Ok(m) => m.pseudoinverse() * &xtwz,
+                        Err(_) => {
+                            tracing::error!("Failed to compute SVD");
+                            converged = false;
+                            break;
+                        },
+                    }
                 },
             };
-            let b = beta.try_as_slice().unwrap();
+            let b = beta
+                .try_as_col_major()
+                .expect("could not get slice")
+                .as_slice();
             slopes.as_mut_slice().copy_from_slice(&b[..xs.ncols()]);
             intercept = b[xs.ncols()];
             let eta = &x * beta;
-            let eta = eta.try_as_slice().unwrap();
+            let eta = eta
+                .try_as_col_major()
+                .expect("could not get slice")
+                .as_slice();
             for (mu, eta) in mu.iter_mut().zip(eta) {
                 *mu = F::linkinv(*eta);
             }
@@ -197,11 +210,11 @@ impl Glm {
         }
         let mut xw_vec = vec![0.0; xs.nrows() * x.ncols()];
         let mut xw: MatRef<f64> =
-            faer::mat::from_column_major_slice(xw_vec.as_slice(), xs.nrows(), x.ncols());
+            MatRef::from_column_major_slice(xw_vec.as_slice(), xs.nrows(), x.ncols());
         let mut zw_vec = vec![0.0; ys.len()];
         let mut zw_mut =
             unsafe { std::slice::from_raw_parts_mut(zw_vec.as_mut_ptr(), zw_vec.len()) };
-        let mut zw = faer::col::from_slice(&zw_vec);
+        let mut zw = ColRef::from_slice(&zw_vec);
         let mut dev = 0.0;
         for i in 0..ys.len() {
             dev += F::dev_resids(ys[i], mu[i]);
@@ -226,11 +239,17 @@ impl Glm {
             });
 
             let beta = xw.qr().solve_lstsq(&zw);
-            let b = beta.try_as_slice().unwrap();
+            let b = beta
+                .try_as_col_major()
+                .expect("could not get slice")
+                .as_slice();
             slopes.as_mut_slice().copy_from_slice(&b[..xs.ncols()]);
             intercept = b[xs.ncols()];
             let eta = &x * beta;
-            let eta = eta.try_as_slice().unwrap();
+            let eta = eta
+                .try_as_col_major()
+                .expect("could not get slice")
+                .as_slice();
             for (mu, eta) in mu.iter_mut().zip(eta) {
                 *mu = F::linkinv(*eta);
             }
@@ -316,13 +335,18 @@ impl Glm {
         for i in 0..max_iterations {
             faer::linalg::matmul::matmul(
                 linear_predictor.as_mut(),
+                faer::Accum::Replace,
                 &x,
-                faer::col::from_slice(beta.as_slice()),
-                None,
+                ColRef::from_slice(beta.as_slice()),
                 1.0,
                 get_global_parallelism(),
             );
-            for (mu, l) in mu.iter_mut().zip(linear_predictor.try_as_slice().unwrap()) {
+            for (mu, l) in mu.iter_mut().zip(
+                linear_predictor
+                    .try_as_col_major()
+                    .expect("could not get slice")
+                    .as_slice(),
+            ) {
                 *mu = F::linkinv(*l);
             }
             for (i, mu) in mu.iter().enumerate() {
@@ -334,9 +358,9 @@ impl Glm {
 
             faer::linalg::matmul::matmul(
                 jacobian.as_mut(),
+                faer::Accum::Replace,
                 xt,
-                faer::col::from_slice(ys_sub_mu.as_slice()),
-                None,
+                ColRef::from_slice(ys_sub_mu.as_slice()),
                 1.0,
                 get_global_parallelism(),
             );
@@ -352,29 +376,44 @@ impl Glm {
                 });
             faer::linalg::matmul::matmul(
                 hessian.as_mut(),
+                faer::Accum::Replace,
                 &xtw,
                 &x,
-                None,
                 1.0,
                 get_global_parallelism(),
             );
 
-            let beta_new = faer::col::from_slice(beta.as_slice())
-                + match hessian.cholesky(faer::Side::Lower) {
+            let beta_new = ColRef::from_slice(beta.as_slice())
+                + match hessian.llt(faer::Side::Lower) {
                     Ok(chol) => chol.solve(&jacobian),
                     Err(_) => {
                         warn!("Using pseudo inverse");
-                        ThinSvd::new(hessian.as_mat_ref()).pseudoinverse() * &jacobian
+                        hessian
+                            .as_mat_ref()
+                            .thin_svd()
+                            .expect("could not compute thin SVD for pseudoinverse")
+                            .pseudoinverse()
+                            * &jacobian
                     },
                 };
 
-            if (&beta_new - faer::col::from_slice(beta.as_slice())).norm_l1() < epsilon {
+            if (&beta_new - ColRef::from_slice(beta.as_slice())).norm_l1() < epsilon {
                 debug!("Converged after {} iterations", i);
                 converged = true;
-                beta.copy_from_slice(beta_new.try_as_slice().unwrap());
+                beta.copy_from_slice(
+                    beta_new
+                        .try_as_col_major()
+                        .expect("could not get slice")
+                        .as_slice(),
+                );
                 break;
             }
-            beta.copy_from_slice(beta_new.try_as_slice().unwrap());
+            beta.copy_from_slice(
+                beta_new
+                    .try_as_col_major()
+                    .expect("could not get slice")
+                    .as_slice(),
+            );
         }
         if !converged {
             warn!("Did not converge after {} iterations", max_iterations);
@@ -385,9 +424,10 @@ impl Glm {
         let predicted = if should_disable_predicted() {
             Vec::new()
         } else {
-            (&x * faer::col::from_slice(beta.as_slice()))
-                .try_as_slice()
-                .unwrap()
+            (&x * ColRef::from_slice(beta.as_slice()))
+                .try_as_col_major()
+                .expect("could not get slice")
+                .as_slice()
                 .iter()
                 .map(|x| F::linkinv(*x))
                 .collect()
@@ -1028,7 +1068,7 @@ mod tests {
     #[test]
     fn test_glm_irls() {
         let nrows = 50;
-        let xs = faer::mat::from_column_major_slice(XS.as_slice(), nrows, 4);
+        let xs = MatRef::from_column_major_slice(XS.as_slice(), nrows, 4);
         let m = Glm::irls::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 25);
         float_eq!(m.intercept().coef(), -0.10480279218218244152716);
         float_eq!(m.slopes()[0].coef(), 0.06970776481172229199768);
@@ -1040,7 +1080,7 @@ mod tests {
     // #[test]
     // fn test_glm_irls_r() {
     //     let nrows = 50;
-    //     let xs = faer::mat::from_column_major_slice(XS.as_slice(), nrows, 4);
+    //     let xs = MatRef::from_column_major_slice(XS.as_slice(), nrows, 4);
     //     let m = Glm::irls_r::<family::BinomialLogit>(xs, YS.as_slice(), 1e-100, 25);
     //     float_eq!(m.intercept().coef(), -0.10480279218218244152716);
     //     float_eq!(m.slopes()[0].coef(), 0.06970776481172229199768);
@@ -1052,7 +1092,7 @@ mod tests {
     #[test]
     fn test_glm_newton_raphson() {
         let nrows = 50;
-        let xs = faer::mat::from_column_major_slice(XS.as_slice(), nrows, 4);
+        let xs = MatRef::from_column_major_slice(XS.as_slice(), nrows, 4);
         let m = Glm::newton_raphson::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 25);
         float_eq!(m.intercept().coef(), -0.10480279218218244152716);
         float_eq!(m.slopes()[0].coef(), 0.06970776481172229199768);
@@ -1064,7 +1104,7 @@ mod tests {
     #[test]
     fn test_glm_irls_predict() {
         let nrows = 50;
-        let xs = faer::mat::from_column_major_slice(XS.as_slice(), nrows, 4);
+        let xs = MatRef::from_column_major_slice(XS.as_slice(), nrows, 4);
         let m = Glm::irls::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 25);
         float_eq!(
             m.predict::<family::BinomialLogit>(&[
@@ -1080,7 +1120,7 @@ mod tests {
     #[test]
     fn test_glm_newton_raphson_predict() {
         let nrows = 50;
-        let xs = faer::mat::from_column_major_slice(XS.as_slice(), nrows, 4);
+        let xs = MatRef::from_column_major_slice(XS.as_slice(), nrows, 4);
         let m = Glm::newton_raphson::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 25);
         float_eq!(
             m.predict::<family::BinomialLogit>(&[

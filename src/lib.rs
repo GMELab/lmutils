@@ -255,9 +255,17 @@ pub fn column_p_values(
         let p_values = (0..data.ncols())
             .into_par_iter()
             .flat_map(|x| {
-                let xs = data.get(.., x).try_as_slice().unwrap();
+                let xs = data
+                    .get(.., x)
+                    .try_as_col_major()
+                    .expect("could not get slice")
+                    .as_slice();
                 (0..or.ncols()).into_par_iter().map(move |y| {
-                    let ys = or.get(.., y).try_as_slice().unwrap();
+                    let ys = or
+                        .get(.., y)
+                        .try_as_col_major()
+                        .expect("could not get slice")
+                        .as_slice();
                     (x, y, p_value(xs, ys))
                 })
             })

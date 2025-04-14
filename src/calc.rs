@@ -5,9 +5,9 @@ use crate::{mean, variance};
 use faer::{
     diag::Diag,
     get_global_parallelism,
+    linalg::solvers::{DenseSolveCore, Solve},
     mat::AsMatRef,
-    solvers::{SolverCore, SpSolver, Svd, ThinSvd},
-    Col, ColMut, ColRef, ComplexField, Mat, MatMut, MatRef, RowMut, Side, SimpleEntity,
+    Col, ColMut, ColRef, Mat, MatMut, MatRef, RowMut, Side,
 };
 use pulp::{Arch, Simd, WithSimd};
 use rand_distr::{Distribution, StandardNormal};
@@ -112,12 +112,16 @@ pub fn get_r2s(data: MatRef<f64>, outcomes: MatRef<f64>) -> Vec<R2> {
     let c_all = data.transpose() * outcomes;
     trace!("Computed c_all");
     let c_matrix = data.transpose() * data;
-    trace!("Computed c_matrix");
-    let betas = match c_matrix.cholesky(Side::Lower) {
+    let betas = match c_matrix.llt(Side::Lower) {
         Ok(chol) => chol.solve(c_all),
         Err(_) => {
             warn!("Using pseudo inverse");
-            c_matrix.as_mat_ref().thin_svd().pseudoinverse() * c_all
+            c_matrix
+                .as_mat_ref()
+                .thin_svd()
+                .expect("could not compute thin SVD for pseudoinverse")
+                .pseudoinverse()
+                * c_all
         },
     };
 
@@ -127,11 +131,15 @@ pub fn get_r2s(data: MatRef<f64>, outcomes: MatRef<f64>) -> Vec<R2> {
         .into_par_iter()
         .map(|i| {
             let betas = betas.col(i);
-            let mut predicted = (data * betas).try_as_slice().unwrap().to_vec();
-            let actual = outcomes.col(i).try_as_slice().unwrap();
+            let mut predicted = (data * betas)
+                .try_as_col_major()
+                .unwrap()
+                .as_slice()
+                .to_vec();
+            let actual = outcomes.col(i).try_as_col_major().unwrap().as_slice();
             let r2 = R2Simd::new(actual, &predicted).calculate();
             let adj_r2 = calculate_adj_r2(r2, n, m);
-            let mut betas = betas.try_as_slice().unwrap().to_vec();
+            let mut betas = betas.try_as_col_major().unwrap().as_slice().to_vec();
             if should_disable_predicted() {
                 predicted = Vec::new();
                 betas = Vec::new();
@@ -228,21 +236,21 @@ pub fn p_value(xs: &[f64], ys: &[f64]) -> PValue {
         #[inline(always)]
         |i, j| if j == 0 { xs[i] } else { 1.0 },
     );
-    let y: MatRef<'_, f64> = faer::mat::from_column_major_slice(ys, ys.len(), 1);
+    let y: MatRef<'_, f64> = MatRef::from_column_major_slice(ys, ys.len(), 1);
     let c_all = x.transpose() * y;
     let mut c_matrix = faer::Mat::zeros(2, 2);
     faer::linalg::matmul::triangular::matmul(
         c_matrix.as_mut(),
         faer::linalg::matmul::triangular::BlockStructure::TriangularLower,
+        faer::Accum::Replace,
         x.transpose(),
         faer::linalg::matmul::triangular::BlockStructure::Rectangular,
         &x,
         faer::linalg::matmul::triangular::BlockStructure::Rectangular,
-        None,
         1.0,
         get_global_parallelism(),
     );
-    let chol = c_matrix.cholesky(Side::Lower).unwrap();
+    let chol = c_matrix.llt(Side::Lower).unwrap();
     let inv_matrix = chol.solve(Mat::<f64>::identity(2, 2));
     let betas = chol.solve(c_all);
     let m = betas.get(0, 0);
@@ -269,19 +277,8 @@ pub fn p_value(xs: &[f64], ys: &[f64]) -> PValue {
 }
 
 pub fn standardize_column(mut x: ColMut<f64>) {
-    let mut mean = 0.0;
-    let mut std: f64 = 0.0;
-    faer::stats::row_mean(
-        faer::row::from_mut(&mut mean),
-        x.as_ref().as_2d(),
-        faer::stats::NanHandling::Ignore,
-    );
-    faer::stats::row_varm(
-        faer::row::from_mut(&mut std),
-        x.as_ref().as_2d(),
-        faer::row::from_ref(&mean),
-        faer::stats::NanHandling::Ignore,
-    );
+    let mut mean = mean(x.as_ref().try_as_col_major().unwrap().as_slice());
+    let mut std = variance(x.as_ref().try_as_col_major().unwrap().as_slice(), 1);
     let std = std.sqrt();
     if std == 0.0 {
         x.fill(0.0);
@@ -289,7 +286,8 @@ pub fn standardize_column(mut x: ColMut<f64>) {
     }
     let xx = x.as_mut();
     let std_recip = 1.0 / std;
-    if let Some(x) = xx.try_as_slice_mut() {
+    if let Some(x) = xx.try_as_col_major_mut() {
+        let x = x.as_slice_mut();
         Arch::new().dispatch(|| {
             for x in x.iter_mut() {
                 *x = (*x - mean) * std_recip;
@@ -303,27 +301,29 @@ pub fn standardize_column(mut x: ColMut<f64>) {
 }
 
 pub fn standardize_row(mut x: RowMut<f64>) {
-    let mut mean = 0.0;
-    let mut std: f64 = 0.0;
+    let mut mean = [0.0];
+    let mut std = [0.0];
     faer::stats::col_mean(
-        faer::col::from_mut(&mut mean),
-        x.as_ref().as_2d(),
+        ColMut::from_slice_mut(&mut mean),
+        x.as_ref().as_mat(),
         faer::stats::NanHandling::Ignore,
     );
     faer::stats::col_varm(
-        faer::col::from_mut(&mut std),
-        x.as_ref().as_2d(),
-        faer::col::from_ref(&mean),
+        ColMut::from_slice_mut(&mut std),
+        x.as_ref().as_mat(),
+        ColRef::from_slice(&mean),
         faer::stats::NanHandling::Ignore,
     );
-    let std = std.sqrt();
+    let std = std[0].sqrt();
+    let mean = mean[0];
     if std == 0.0 {
         x.fill(0.0);
         return;
     }
     let xx = x.as_mut();
     let std_recip = 1.0 / std;
-    if let Some(x) = xx.try_as_slice_mut() {
+    if let Some(x) = xx.try_as_row_major_mut() {
+        let x = x.as_slice_mut();
         Arch::new().dispatch(|| {
             for x in x.iter_mut() {
                 *x = (*x - mean) * std_recip;
@@ -401,17 +401,22 @@ pub fn linear_regression(xs: MatRef<'_, f64>, ys: &[f64]) -> LinearModel {
         #[inline(always)]
         |_, _| 1.0,
     );
-    let y: MatRef<'_, f64> = faer::mat::from_column_major_slice(ys, ys.len(), 1);
+    let y: MatRef<'_, f64> = MatRef::from_column_major_slice(ys, ys.len(), 1);
     let c_all = x.transpose() * y;
     let c_matrix = x.transpose() * &x;
-    let betas = match c_matrix.cholesky(Side::Lower) {
+    let betas = match c_matrix.llt(Side::Lower) {
         Ok(chol) => chol.solve(c_all),
         Err(_) => {
             warn!("Using pseudo inverse");
-            Svd::new(c_matrix.as_mat_ref()).pseudoinverse() * &c_all
+            c_matrix
+                .as_mat_ref()
+                .thin_svd()
+                .expect("could not compute thin SVD for pseudoinverse")
+                .pseudoinverse()
+                * &c_all
         },
     };
-    let betas = betas.col(0).try_as_slice().unwrap();
+    let betas = betas.col(0).try_as_col_major().unwrap().as_slice();
     let intercept = betas[ncols];
     let mut predicted = (0..ys.len())
         .map(|i| intercept + (0..ncols).map(|j| betas[j] * x[(i, j)]).sum::<f64>())
@@ -663,28 +668,39 @@ pub fn logistic_regression_irls(xs: MatRef<'_, f64>, ys: &[f64]) -> LogisticMode
                         .for_each(|(i, x)| *x = xt[(i, j)] * w)
                 })
             });
-        faer::linalg::matmul::matmul(xtwx.as_mut(), &xtw, &x, None, 1.0, get_global_parallelism());
+        faer::linalg::matmul::matmul(
+            xtwx.as_mut(),
+            faer::Accum::Replace,
+            &xtw,
+            &x,
+            1.0,
+            get_global_parallelism(),
+        );
         faer::linalg::matmul::matmul(
             xtwz.as_mut(),
+            faer::Accum::Replace,
             &xtw,
-            faer::col::from_slice(z.as_slice()),
-            None,
+            ColRef::from_slice(z.as_slice()),
             1.0,
             get_global_parallelism(),
         );
 
-        let beta = match xtwx.cholesky(Side::Lower) {
+        let beta = match xtwx.llt(Side::Lower) {
             Ok(chol) => chol.solve(&xtwz),
             Err(_) => {
                 warn!("Using pseudo inverse");
-                ThinSvd::new(xtwx.as_mat_ref()).pseudoinverse() * &xtwz
+                xtwx.as_mat_ref()
+                    .thin_svd()
+                    .expect("could not compute thin SVD for pseudoinverse")
+                    .pseudoinverse()
+                    * &xtwz
             },
         };
-        let b = beta.try_as_slice().unwrap();
+        let b = beta.try_as_col_major().unwrap().as_slice();
         slopes.as_mut_slice().copy_from_slice(&b[..xs.ncols()]);
         intercept = b[xs.ncols()];
         let eta = &x * beta;
-        let eta = eta.try_as_slice().unwrap();
+        let eta = eta.try_as_col_major().unwrap().as_slice();
         for (mu, eta) in mu.iter_mut().zip(eta) {
             *mu = logistic(*eta);
         }
@@ -731,13 +747,16 @@ pub fn logistic_regression_newton_raphson(xs: MatRef<'_, f64>, ys: &[f64]) -> Lo
     for _ in 0..100 {
         faer::linalg::matmul::matmul(
             linear_predictor.as_mut(),
+            faer::Accum::Replace,
             &x,
-            faer::col::from_slice(beta.as_slice()),
-            None,
+            ColRef::from_slice(beta.as_slice()),
             1.0,
             get_global_parallelism(),
         );
-        for (mu, l) in mu.iter_mut().zip(linear_predictor.try_as_slice().unwrap()) {
+        for (mu, l) in mu
+            .iter_mut()
+            .zip(linear_predictor.try_as_col_major().unwrap().as_slice())
+        {
             *mu = logistic(*l);
         }
         for (i, mu) in mu.iter().enumerate() {
@@ -749,9 +768,9 @@ pub fn logistic_regression_newton_raphson(xs: MatRef<'_, f64>, ys: &[f64]) -> Lo
 
         faer::linalg::matmul::matmul(
             jacobian.as_mut(),
+            faer::Accum::Replace,
             xt,
-            faer::col::from_slice(ys_sub_mu.as_slice()),
-            None,
+            ColRef::from_slice(ys_sub_mu.as_slice()),
             1.0,
             get_global_parallelism(),
         );
@@ -778,26 +797,31 @@ pub fn logistic_regression_newton_raphson(xs: MatRef<'_, f64>, ys: &[f64]) -> Lo
             });
         faer::linalg::matmul::matmul(
             hessian.as_mut(),
+            faer::Accum::Replace,
             &xtw,
             &x,
-            None,
             1.0,
             get_global_parallelism(),
         );
 
-        let beta_new = faer::col::from_slice(beta.as_slice())
-            + match hessian.cholesky(Side::Lower) {
+        let beta_new = ColRef::from_slice(beta.as_slice())
+            + match hessian.llt(Side::Lower) {
                 Ok(chol) => chol.solve(&jacobian),
                 Err(_) => {
                     warn!("Using pseudo inverse");
-                    ThinSvd::new(hessian.as_mat_ref()).pseudoinverse() * &jacobian
+                    hessian
+                        .as_mat_ref()
+                        .thin_svd()
+                        .expect("could not compute thin SVD for pseudoinverse")
+                        .pseudoinverse()
+                        * &jacobian
                 },
             };
 
-        if (&beta_new - faer::col::from_slice(beta.as_slice())).norm_l1() < 1e-5 {
+        if (&beta_new - ColRef::from_slice(beta.as_slice())).norm_l1() < 1e-5 {
             break;
         }
-        beta.copy_from_slice(beta_new.try_as_slice().unwrap());
+        beta.copy_from_slice(beta_new.try_as_col_major().unwrap().as_slice());
     }
     let r2 = R2Simd::new(ys, &mu).calculate();
     let adj_r2 = calculate_adj_r2(r2, ys.len(), xs.ncols());
@@ -805,9 +829,10 @@ pub fn logistic_regression_newton_raphson(xs: MatRef<'_, f64>, ys: &[f64]) -> Lo
     let predicted = if should_disable_predicted() {
         Vec::new()
     } else {
-        (&x * faer::col::from_slice(beta.as_slice()))
-            .try_as_slice()
+        (&x * ColRef::from_slice(beta.as_slice()))
+            .try_as_col_major()
             .unwrap()
+            .as_slice()
             .iter()
             .map(|x| logistic(*x))
             .collect()
@@ -872,18 +897,19 @@ fn logistic_regression_glm(xs: MatRef<'_, f64>, ys: &[f64]) -> LogisticModel {
         std::io::stdout().flush().unwrap();
         let qr = xw.qr();
         // let beta = match xw.cholesky(Side::Lower) {
-        //     Ok(chol) => chol.solve(faer::col::from_slice(zw.as_slice())),
+        //     Ok(chol) => chol.solve([aer::col::from_slice(zw.as_slice())),
         //     Err(_) => {
         //         warn!("Using pseudo inverse");
         //         ThinSvd::new(xw.as_mat_ref()).pseudoinverse() *
         // faer::col::from_slice(zw.as_slice())     },
         // };
-        let beta = (qr.compute_thin_r().thin_svd().inverse()
-            * qr.compute_thin_q().transpose()
-            * faer::col::from_slice(zw.as_slice()));
-        slopes.copy_from_slice(&beta.try_as_slice().unwrap()[..xs.ncols()]);
-        intercept = beta.try_as_slice().unwrap()[xs.ncols()];
-        let eta = (&x * beta).try_as_slice().unwrap().to_vec();
+        let beta = (qr.thin_R().thin_svd().unwrap().inverse()
+            * qr.compute_thin_Q().transpose()
+            * ColRef::from_slice(zw.as_slice()));
+        let beta_slice = beta.try_as_col_major().unwrap().as_slice();
+        slopes.copy_from_slice(&beta_slice[..xs.ncols()]);
+        intercept = beta[xs.ncols()];
+        let eta = (&x * beta).try_as_col_major().unwrap().as_slice().to_vec();
         for (i, eta) in eta.iter().enumerate() {
             mu[i] = logistic(*eta);
         }
@@ -910,6 +936,7 @@ fn logistic_regression_glm(xs: MatRef<'_, f64>, ys: &[f64]) -> LogisticModel {
 
 #[cfg(test)]
 mod tests {
+    use faer::RowRef;
     use rand::SeedableRng;
     use test_log::test;
 
@@ -949,14 +976,14 @@ mod tests {
     #[test]
     fn test_standardize_column() {
         let mut data = [1.0, 2.0, 3.0];
-        standardize_column(faer::col::from_slice_mut(&mut data));
+        standardize_column(ColMut::from_slice_mut(&mut data));
         assert_eq!(data, [-1.0, 0.0, 1.0]);
     }
 
     #[test]
     fn test_standardize_row() {
         let mut data = [1.0, 2.0, 3.0];
-        standardize_row(faer::row::from_slice_mut(&mut data));
+        standardize_row(RowMut::from_slice_mut(&mut data));
         assert_eq!(data, [-1.0, 0.0, 1.0]);
     }
 
@@ -1009,16 +1036,9 @@ mod tests {
     #[test]
     fn test_get_r2s_not_normalized() {
         std::env::set_var("LMUTILS_ENABLE_PREDICTED", "1");
-        let data = faer::mat::from_column_major_slice::<f64>(
-            &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 9.0],
-            4,
-            2,
-        );
-        let outcomes = faer::mat::from_column_major_slice::<f64>(
-            &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 8.0],
-            4,
-            2,
-        );
+        let data = MatRef::from_column_major_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 9.0], 4, 2);
+        let outcomes =
+            MatRef::from_column_major_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 8.0], 4, 2);
         let r2s = get_r2s(data.as_mat_ref(), outcomes.as_mat_ref());
         assert_eq!(r2s.len(), 2);
         float_eq!(r2s[0].r2(), 1.0);
@@ -1062,7 +1082,7 @@ mod tests {
 
     #[test]
     fn test_linear_regression() {
-        let xs = faer::mat::from_column_major_slice::<f64>(&[1.0, 2.0, 3.0, 4.0, 5.0], 5, 1);
+        let xs = MatRef::from_column_major_slice(&[1.0, 2.0, 3.0, 4.0, 5.0], 5, 1);
         let ys = [1.0, 2.0, 3.0, 4.0, 5.0];
         let model = linear_regression(xs.as_mat_ref(), &ys);
         assert_eq!(model.slopes().len(), 1);
@@ -1084,15 +1104,11 @@ mod tests {
 
     #[test]
     fn test_linear_regression_predict() {
-        let xs = faer::mat::from_column_major_slice::<f64>(&[1.0, 2.0, 3.0, 4.0, 5.0], 5, 1);
+        let xs = MatRef::from_column_major_slice(&[1.0, 2.0, 3.0, 4.0, 5.0], 5, 1);
         let ys = [1.0, 2.0, 3.0, 4.0, 5.0];
         let model = linear_regression(xs.as_mat_ref(), &ys);
         float_eq!(model.predict(&[6.0]), 6.0);
-        let xs = faer::mat::from_column_major_slice::<f64>(
-            &[1.0, 2.0, 3.0, 4.0, 1.0, 2.0, 3.0, 4.0],
-            4,
-            2,
-        );
+        let xs = MatRef::from_column_major_slice(&[1.0, 2.0, 3.0, 4.0, 1.0, 2.0, 3.0, 4.0], 4, 2);
         let ys = [2.0, 4.0, 6.0, 8.0];
         let model = linear_regression(xs.as_mat_ref(), &ys);
         float_eq!(model.predict(&[1.0, 1.0]), 2.0);
@@ -1135,7 +1151,7 @@ mod tests {
             .sample_iter(rand::thread_rng())
             .take(nrows)
             .collect::<Vec<_>>();
-        let xs = faer::mat::from_column_major_slice(xs.as_slice(), nrows, 1);
+        let xs = MatRef::from_column_major_slice(xs.as_slice(), nrows, 1);
         let m1 = logistic_regression_irls(xs, ys.as_slice());
         let m2 = logistic_regression_newton_raphson(xs, ys.as_slice());
         for (a, b) in m1.slopes.iter().zip(m2.slopes.iter()) {

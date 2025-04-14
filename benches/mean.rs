@@ -1,4 +1,5 @@
 use diol::prelude::*;
+use faer::MatRef;
 use lmutils::{mean_avx2, mean_avx512, mean_naive, mean_sse4};
 
 fn main() -> std::io::Result<()> {
@@ -57,10 +58,10 @@ fn avx512(bencher: Bencher, len: usize) {
 fn faer_(bencher: Bencher, len: usize) {
     let data = data(len);
     bencher.bench(|| {
-        let mut mean = 0.0;
+        let mut mean = [0.0];
         faer::stats::row_mean(
             faer::row::from_mut(&mut mean),
-            faer::mat::from_column_major_slice(data.as_slice(), data.len(), 1),
+            MatRef::from_column_major_slice(data.as_slice(), data.len(), 1),
             faer::stats::NanHandling::Ignore,
         );
     });
