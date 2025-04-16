@@ -49,7 +49,7 @@ default = []
 r = ["dep:extendr-api"]
 
 [[bench]]
-name = "r2_simd"
+name = "r2"
 harness = false
 
 [[bench]]

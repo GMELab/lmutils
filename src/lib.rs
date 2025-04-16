@@ -12,7 +12,9 @@ mod matrix;
 mod mean;
 mod norm;
 mod packing;
+mod r2;
 mod spline;
+mod standardize;
 mod variance;
 
 use std::{mem::MaybeUninit, panic::AssertUnwindSafe, sync::Mutex};
@@ -22,7 +24,7 @@ use tracing::{debug, debug_span, error, info, trace, warn};
 
 pub use crate::{
     calc::*, coef::*, error::*, file::*, glm::*, lm::*, matrix::*, mean::*, norm::*, packing::*,
-    variance::*,
+    r2::*, standardize::*, variance::*,
 };
 
 #[cfg_attr(coverage_nightly, coverage(off))]

@@ -25,17 +25,23 @@ impl Debug for Arg {
 fn main() -> std::io::Result<()> {
     let mut bench = Bench::new(BenchConfig::from_args()?);
     let mut rng = rand::rngs::StdRng::seed_from_u64(0);
-    let args = [1, 2, 3, 4, 5].iter().map(|len| {
+    let args = [1, 2, 3, 5];
+    let args = args.iter().flat_map(|len| {
         let nrow = 10_usize.pow(*len);
-        let ncol = 5_usize.pow(*len);
-        let xs = statrs::distribution::Normal::new(0.0, 1.0).unwrap();
-        let ys = statrs::distribution::Bernoulli::new(0.5).unwrap();
-        let xs = xs
-            .sample_iter(&mut rng)
-            .take(nrow * ncol)
-            .collect::<Vec<_>>();
-        let ys = ys.sample_iter(&mut rng).take(nrow).collect::<Vec<_>>();
-        Arg { nrow, ncol, xs, ys }
+        args.iter()
+            .map(|len| {
+                let ncol = 5_usize.pow(*len);
+                let xs = statrs::distribution::Normal::new(0.0, 1.0).unwrap();
+                let ys = statrs::distribution::Bernoulli::new(0.5).unwrap();
+                let xs = xs
+                    .sample_iter(&mut rng)
+                    .take(nrow * ncol)
+                    .collect::<Vec<_>>();
+                let ys = ys.sample_iter(&mut rng).take(nrow).collect::<Vec<_>>();
+
+                Arg { nrow, ncol, xs, ys }
+            })
+            .collect::<Vec<_>>()
     });
     bench.register_many(list![irls, newton_raphson, r], args);
     bench.run()?;

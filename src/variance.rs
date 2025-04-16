@@ -1,24 +1,22 @@
 #![allow(clippy::needless_range_loop, clippy::missing_safety_doc)]
 
-use crate::mean_sse4;
-
-use super::mean::{mean_avx2, mean_avx512, mean_naive};
+use super::mean::{mean_avx2, mean_avx512, mean_naive, mean_sse4};
 
 #[inline(always)]
 pub fn variance(data: &[f64], df: usize) -> f64 {
     if is_x86_feature_detected!("avx512f") {
-        unsafe { variance_avx512(data, df) }
+        unsafe { variance_avx512(data, df).1 }
     } else if is_x86_feature_detected!("avx2") {
-        unsafe { variance_avx2(data, df) }
+        unsafe { variance_avx2(data, df).1 }
     } else if is_x86_feature_detected!("sse4.1") {
-        unsafe { variance_sse4(data, df) }
+        unsafe { variance_sse4(data, df).1 }
     } else {
-        variance_naive(data, df)
+        variance_naive(data, df).1
     }
 }
 
 #[inline(always)]
-pub fn variance_naive(data: &[f64], df: usize) -> f64 {
+pub fn variance_naive(data: &[f64], df: usize) -> (f64, f64) {
     let (m, count) = mean_naive(data);
     let mut sum = 0.0;
     for i in 0..data.len() {
@@ -29,13 +27,13 @@ pub fn variance_naive(data: &[f64], df: usize) -> f64 {
     }
     let df = df as u64;
     if count <= df {
-        return 0.0;
+        return (m, 0.0);
     }
-    sum / (count - df) as f64
+    (m, sum / (count - df) as f64)
 }
 
 #[inline(always)]
-pub unsafe fn variance_sse4(data: &[f64], df: usize) -> f64 {
+pub unsafe fn variance_sse4(data: &[f64], df: usize) -> (f64, f64) {
     let (m, count) = mean_sse4(data);
     let mut sum = 0.0;
     core::arch::asm! {
@@ -82,13 +80,13 @@ pub unsafe fn variance_sse4(data: &[f64], df: usize) -> f64 {
     }
     let df = df as u64;
     if count <= df {
-        return 0.0;
+        return (m, 0.0);
     }
-    sum / (count - df) as f64
+    (m, sum / (count - df) as f64)
 }
 
 #[inline(always)]
-pub unsafe fn variance_avx2(data: &[f64], df: usize) -> f64 {
+pub unsafe fn variance_avx2(data: &[f64], df: usize) -> (f64, f64) {
     let (m, count) = mean_avx2(data);
     let mut sum = 0.0;
     core::arch::asm! {
@@ -137,13 +135,13 @@ pub unsafe fn variance_avx2(data: &[f64], df: usize) -> f64 {
     }
     let df = df as u64;
     if count <= df {
-        return 0.0;
+        return (m, 0.0);
     }
-    sum / (count - df) as f64
+    (m, sum / (count - df) as f64)
 }
 
 #[inline(always)]
-pub unsafe fn variance_avx512(data: &[f64], df: usize) -> f64 {
+pub unsafe fn variance_avx512(data: &[f64], df: usize) -> (f64, f64) {
     let (m, count) = mean_avx512(data);
     let mut sum = 0.0;
     core::arch::asm! {
@@ -190,9 +188,9 @@ pub unsafe fn variance_avx512(data: &[f64], df: usize) -> f64 {
     }
     let df = df as u64;
     if count <= df {
-        return 0.0;
+        return (m, 0.0);
     }
-    sum / (count - df) as f64
+    (m, sum / (count - df) as f64)
 }
 
 #[cfg(test)]
@@ -233,53 +231,53 @@ mod tests {
 
     #[test]
     fn test_variance_naive() {
-        assert_eq!(variance_naive(&data(), 0), VARIANCE);
+        assert_eq!(variance_naive(&data(), 0).1, VARIANCE);
     }
 
     #[test]
     fn test_variance_naive_nan() {
-        assert_eq!(variance_naive(&data_nan(), 0), VARIANCE_NAN);
+        assert_eq!(variance_naive(&data_nan(), 0).1, VARIANCE_NAN);
     }
 
     #[test]
     fn test_variance_sse4() {
         if is_x86_feature_detected!("sse4.1") {
-            float_eq!(unsafe { variance_sse4(&data(), 0) }, VARIANCE);
+            float_eq!(unsafe { variance_sse4(&data(), 0).1 }, VARIANCE);
         }
     }
 
     #[test]
     fn test_variance_sse4_nan() {
         if is_x86_feature_detected!("sse4.1") {
-            float_eq!(unsafe { variance_sse4(&data_nan(), 0) }, VARIANCE_NAN);
+            float_eq!(unsafe { variance_sse4(&data_nan(), 0).1 }, VARIANCE_NAN);
         }
     }
 
     #[test]
     fn test_variance_avx2() {
         if is_x86_feature_detected!("avx") {
-            float_eq!(unsafe { variance_avx2(&data(), 0) }, VARIANCE);
+            float_eq!(unsafe { variance_avx2(&data(), 0).1 }, VARIANCE);
         }
     }
 
     #[test]
     fn test_variance_avx2_nan() {
         if is_x86_feature_detected!("avx") {
-            float_eq!(unsafe { variance_avx2(&data_nan(), 0) }, VARIANCE_NAN);
+            float_eq!(unsafe { variance_avx2(&data_nan(), 0).1 }, VARIANCE_NAN);
         }
     }
 
     #[test]
     fn test_variance_avx512() {
         if is_x86_feature_detected!("avx512f") {
-            float_eq!(unsafe { variance_avx512(&data(), 0) }, VARIANCE);
+            float_eq!(unsafe { variance_avx512(&data(), 0).1 }, VARIANCE);
         }
     }
 
     #[test]
     fn test_variance_avx512_nan() {
         if is_x86_feature_detected!("avx512f") {
-            float_eq!(unsafe { variance_avx512(&data_nan(), 0) }, VARIANCE_NAN);
+            float_eq!(unsafe { variance_avx512(&data_nan(), 0).1 }, VARIANCE_NAN);
         }
     }
 }

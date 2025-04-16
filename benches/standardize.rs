@@ -1,100 +1,88 @@
 use diol::prelude::*;
-use faer::Col;
-use pulp::Arch;
 
 fn main() -> std::io::Result<()> {
     let mut bench = Bench::new(BenchConfig::from_args()?);
     bench.register_many(
         list![
-            standardize,
-            standardize_recip,
-            standardize_auto_vectorize,
-            standardize_auto_vectorize_recip
+            naive,
+            naive_recip,
+            sse4,
+            sse4_recip,
+            avx2,
+            avx2_recip,
+            avx512,
+            avx512_recip,
         ],
-        [100, 1000, 10000, 100000, 1000000, 10000000],
+        [8, 80, 800, 8000, 80000, 800000, 8000000],
     );
     bench.run()?;
     Ok(())
 }
 
-fn bench_standardize<F>(bencher: Bencher, len: usize, f: impl Fn(Col<f64>, f64, f64) -> F)
-where
-    F: FnMut(),
-{
-    let v = (0..len).map(|x| x as f64).collect::<Vec<_>>();
-    let x = faer::col::Col::from_fn(len, |i| v[i]);
-    let mut mean = 0.0;
-    let mut std: f64 = 0.0;
-    faer::stats::row_mean(
-        faer::row::from_mut(&mut mean),
-        x.as_ref().as_2d(),
-        faer::stats::NanHandling::Ignore,
-    );
-    faer::stats::row_varm(
-        faer::row::from_mut(&mut std),
-        x.as_ref().as_2d(),
-        faer::row::from_ref(&mean),
-        faer::stats::NanHandling::Ignore,
-    );
-    let std = std.sqrt();
-    bencher.bench(f(x, mean, std));
-}
-
-fn standardize(bencher: Bencher, len: usize) {
-    bench_standardize(bencher, len, |mut x, mean, std| {
-        move || {
-            for x in x.iter_mut() {
-                *x = (*x - mean) / std;
-            }
-        }
+fn naive(bencher: Bencher, len: usize) {
+    let mut x = (0..len).map(|x| x as f64).collect::<Vec<_>>();
+    bencher.bench(|| {
+        lmutils::standardize_naive(&mut x, 1);
     });
 }
-fn standardize_recip(bencher: Bencher, len: usize) {
-    bench_standardize(bencher, len, |mut x, mean, std| {
-        move || {
-            let std_recip = 1.0 / std;
-            for x in x.iter_mut() {
-                *x = (*x - mean) * std_recip;
-            }
+
+fn naive_recip(bencher: Bencher, len: usize) {
+    let mut x = (0..len).map(|x| x as f64).collect::<Vec<_>>();
+    bencher.bench(|| {
+        lmutils::standardize_naive_recip(&mut x, 1);
+    });
+}
+
+fn sse4(bencher: Bencher, len: usize) {
+    let mut x = (0..len).map(|x| x as f64).collect::<Vec<_>>();
+    bencher.bench(|| unsafe {
+        if is_x86_feature_detected!("sse4.1") {
+            lmutils::standardize_sse4(&mut x, 1);
         }
     });
 }
 
-fn standardize_auto_vectorize(bencher: Bencher, len: usize) {
-    bench_standardize(bencher, len, |mut x, mean, std| {
-        move || {
-            let xx = x.as_mut();
-            if let Some(x) = xx.try_as_slice_mut() {
-                Arch::new().dispatch(|| {
-                    for x in x.iter_mut() {
-                        *x = (*x - mean) / std;
-                    }
-                });
-            } else {
-                for x in x.iter_mut() {
-                    *x = (*x - mean) / std;
-                }
-            }
+fn sse4_recip(bencher: Bencher, len: usize) {
+    let mut x = (0..len).map(|x| x as f64).collect::<Vec<_>>();
+    bencher.bench(|| unsafe {
+        if is_x86_feature_detected!("sse4.1") {
+            lmutils::standardize_sse4_recip(&mut x, 1);
         }
     });
 }
 
-fn standardize_auto_vectorize_recip(bencher: Bencher, len: usize) {
-    bench_standardize(bencher, len, |mut x, mean, std| {
-        move || {
-            let xx = x.as_mut();
-            let std_recip = 1.0 / std;
-            if let Some(x) = xx.try_as_slice_mut() {
-                Arch::new().dispatch(|| {
-                    for x in x.iter_mut() {
-                        *x = (*x - mean) * std_recip;
-                    }
-                });
-            } else {
-                for x in x.iter_mut() {
-                    *x = (*x - mean) * std_recip;
-                }
-            }
+fn avx2(bencher: Bencher, len: usize) {
+    let mut x = (0..len).map(|x| x as f64).collect::<Vec<_>>();
+    bencher.bench(|| unsafe {
+        if is_x86_feature_detected!("avx2") {
+            lmutils::standardize_avx2(&mut x, 1);
+        }
+    });
+}
+
+fn avx2_recip(bencher: Bencher, len: usize) {
+    let mut x = (0..len).map(|x| x as f64).collect::<Vec<_>>();
+    bencher.bench(|| unsafe {
+        if is_x86_feature_detected!("avx2") {
+            lmutils::standardize_avx2_recip(&mut x, 1);
+        }
+    });
+}
+
+fn avx512(bencher: Bencher, len: usize) {
+    let mut x = (0..len).map(|x| x as f64).collect::<Vec<_>>();
+    bencher.bench(|| unsafe {
+        if is_x86_feature_detected!("avx512f") {
+            lmutils::standardize_avx512(&mut x, 1);
+        }
+    });
+}
+
+fn avx512_recip(bencher: Bencher, len: usize) {
+    let mut x = (0..len).map(|x| x as f64).collect::<Vec<_>>();
+    bencher.bench(|| unsafe {
+        if is_x86_feature_detected!("avx512f") {
+            lmutils::standardize_avx512_recip(&mut x, 1);
         }
     });
 }
