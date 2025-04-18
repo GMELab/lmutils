@@ -219,7 +219,7 @@ pub fn pack_avx512_sync(out: &mut [u8], data: &[f64], zero: f64, one: f64) {
             "jz 3f",
                 "2:",
                 "vmovupd zmm1, zmmword ptr [rsi]", // move the next 8 f64s into the input
-                "vcmpeqpd k1, zmm1, zmm0", // compare the input to one
+                "vpcmpeqq k1, zmm1, zmm0", // compare the input to one
                 "kmovb byte ptr [rdi], k1", // move the next output byte from k1
 
                 "add rsi, 64", // increment the input pointer
@@ -335,8 +335,13 @@ pub fn pack_naive(out: &mut [u8], data: &[f64], zero: f64, one: f64) {
 
 pub fn pack_naive_sync(out: &mut [u8], data: &[f64], zero: f64, one: f64) {
     out.fill(0);
+    let one = one.to_bits();
     for i in 0..data.len() {
-        out[i / 8] |= if data[i] == one { 1 << (i % 8) } else { 0 };
+        out[i / 8] |= if data[i].to_bits() == one {
+            1 << (i % 8)
+        } else {
+            0
+        };
     }
 }
 

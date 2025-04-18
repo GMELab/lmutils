@@ -30,30 +30,30 @@ pub fn write_mat(mut writer: impl std::io::Write, mat: &mut Matrix) -> Result<()
     let ncols = mat.ncols_loaded();
     let nrows = mat.nrows_loaded();
     let data = mat.data()?;
-    let mut unique = [data[0], 0.0];
+    let mut unique: [u64; 2] = [data[0].to_bits(), 0];
     let mut iter = data.iter();
     // get second unique value
     for i in &mut iter {
-        if *i != unique[0] {
-            unique[1] = *i;
+        if i.to_bits() != unique[0] {
+            unique[1] = i.to_bits();
             break;
         }
     }
     for i in &mut iter {
-        if *i != unique[0] && *i != unique[1] {
+        if i.to_bits() != unique[0] && i.to_bits() != unique[1] {
             // more than two unique values, but could still be two unique per column so
             // we can't write as a float matrix yet
             for col in 0..ncols {
-                let mut unique = [data[col * nrows], 0.0];
+                let mut unique = [data[col * nrows].to_bits(), 0];
                 let mut iter = data[col * nrows..(col + 1) * nrows].iter();
                 for i in &mut iter {
-                    if *i != unique[0] {
-                        unique[1] = *i;
+                    if i.to_bits() != unique[0] {
+                        unique[1] = i.to_bits();
                         break;
                     }
                 }
                 for i in &mut iter {
-                    if *i != unique[0] && *i != unique[1] {
+                    if i.to_bits() != unique[0] && i.to_bits() != unique[1] {
                         // more than two unique values in a column, can't write as a binary column
                         // matrix
                         writer.write_all(&[FloatMatrix::VERSION])?;
@@ -70,8 +70,8 @@ pub fn write_mat(mut writer: impl std::io::Write, mat: &mut Matrix) -> Result<()
     // otherwise, write as binary matrix
     writer.write_all(&[BinaryMatrix::VERSION])?;
     BinaryMatrix {
-        zero: unique[0],
-        one: unique[1],
+        zero: f64::from_bits(unique[0]),
+        one: f64::from_bits(unique[1]),
     }
     .write(writer, mat);
     Ok(())
@@ -346,10 +346,10 @@ impl Mat for BinaryColumnMatrix {
         self.write_colnames(&mut writer, mat)?;
         let mut data = mat.data()?;
         for col in 0..ncols {
-            let zero = data[col * nrows];
+            let zero = data[col * nrows].to_bits();
             let mut one = 0.0;
             for i in data[col * nrows..(col + 1) * nrows].iter() {
-                if *i != one {
+                if i.to_bits() != zero {
                     one = *i;
                     break;
                 }
@@ -359,7 +359,12 @@ impl Mat for BinaryColumnMatrix {
             let mut buf = Vec::with_capacity(nrows / 8 + (nrows % 8 != 0) as usize);
             let mut spare =
                 unsafe { std::slice::from_raw_parts_mut(buf.as_mut_ptr(), buf.capacity()) };
-            crate::pack(spare, &data[col * nrows..(col + 1) * nrows], zero, one);
+            crate::pack(
+                spare,
+                &data[col * nrows..(col + 1) * nrows],
+                f64::from_bits(zero),
+                one,
+            );
             unsafe {
                 buf.set_len(buf.capacity());
             }
