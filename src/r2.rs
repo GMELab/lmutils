@@ -177,11 +177,8 @@ pub unsafe fn r2_avx512(actual: &[f64], predicted: &[f64]) -> f64 {
             // actual - mean
             "vsubpd zmm4, zmm4, zmm0",
             // square the differences
-            "vmulpd zmm3, zmm3, zmm3",
-            "vmulpd zmm4, zmm4, zmm4",
-            // add to the sums
-            "vaddpd zmm1, zmm1, zmm3",
-            "vaddpd zmm2, zmm2, zmm4",
+            "vfmaddsub231pd zmm1, zmm3, zmm3",
+            "vfmaddsub231pd zmm2, zmm4, zmm4",
 
             "add rsi, 64",
             "add rdx, 64",

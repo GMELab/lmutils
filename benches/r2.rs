@@ -1,9 +1,10 @@
 use diol::prelude::*;
+use lmutils::R2Simd;
 
 fn main() -> std::io::Result<()> {
     let mut bench = Bench::new(BenchConfig::from_args()?);
     bench.register_many(
-        list![naive, sse4, avx2, avx512,],
+        list![naive, naive_simd, sse4, avx2, avx512, simd],
         [8, 80, 800, 8000, 80000, 800000, 8000000],
     );
     bench.run()?;
@@ -46,4 +47,22 @@ fn avx512(bencher: Bencher, len: usize) {
             lmutils::r2_avx512(&actual, &predicted);
         });
     }
+}
+
+fn naive_simd(bencher: Bencher, len: usize) {
+    let actual = (0..len).map(|x| x as f64).collect::<Vec<_>>();
+    let predicted = (0..len).map(|x| (x as f64) * 2.0).collect::<Vec<_>>();
+    let r2 = R2Simd::new(&actual, &predicted);
+    bencher.bench(|| {
+        r2.clone().calculate_no_simd();
+    });
+}
+
+fn simd(bencher: Bencher, len: usize) {
+    let actual = (0..len).map(|x| x as f64).collect::<Vec<_>>();
+    let predicted = (0..len).map(|x| (x as f64) * 2.0).collect::<Vec<_>>();
+    let r2 = R2Simd::new(&actual, &predicted);
+    bencher.bench(|| {
+        r2.clone().calculate();
+    });
 }
