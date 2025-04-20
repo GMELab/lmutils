@@ -149,7 +149,9 @@ pub fn calculate_r2s(
     let colnames = outcomes
         .colnames()?
         .map(|x| x.into_iter().map(|x| x.to_string()).collect::<Vec<_>>());
+    debug!("Loading outcomes");
     let or = outcomes.as_mat_ref()?;
+    debug!("Loaded outcomes");
     // let data = Mutex::new(
     //     data.into_iter()
     //         .enumerate()
@@ -165,16 +167,16 @@ pub fn calculate_r2s(
         x => x,
     };
     core_parallelize(data, Some(or.ncols()), |i, mat| {
-        info!(
-            "Calculating R^2 for data set {}",
-            if let Some(data_names) = &data_names {
-                data_names[i].to_string()
-            } else {
-                (i + 1).to_string()
-            }
-        );
+        let data_set = if let Some(data_names) = &data_names {
+            data_names[i].to_string()
+        } else {
+            (i + 1).to_string()
+        };
+        info!("Calculating R^2 for data set {}", data_set);
         if !mat.is_loaded() {
+            debug!("Loading data set {}", data_set);
             mat.into_owned()?;
+            debug!("Loaded data set {}", data_set);
         }
         if mat.has_column_loaded("eid") || mat.has_column_loaded("IID") {
             mat.remove_column_by_name_if_exists("eid")?;
@@ -197,7 +199,6 @@ pub fn calculate_r2s(
                 r
             })
             .collect::<Vec<_>>();
-        debug!("Writing results");
         info!(
             "Finished calculating R^2 for data set {}",
             if let Some(data_names) = &data_names {
