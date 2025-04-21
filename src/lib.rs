@@ -177,6 +177,8 @@ pub fn calculate_r2s(
             debug!("Loading data set {}", data_set);
             mat.into_owned()?;
             debug!("Loaded data set {}", data_set);
+        } else {
+            debug!("Data set {} already loaded", data_set);
         }
         if mat.has_column_loaded("eid") || mat.has_column_loaded("IID") {
             mat.remove_column_by_name_if_exists("eid")?;
