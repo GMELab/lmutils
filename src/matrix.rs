@@ -1418,7 +1418,8 @@ impl Matrix {
             .enumerate()
             .filter(|(_, c)| c.sum() < sum)
             .map(|(i, _)| i)
-            .collect();
+            .collect::<HashSet<_>>();
+        debug!("Removed {} columns with sum < {}", removing.len(), sum);
         self.remove_columns(&removing)
     }
 

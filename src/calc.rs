@@ -13,7 +13,7 @@ use pulp::{Arch, Simd, WithSimd};
 use rand_distr::{Distribution, StandardNormal};
 use rayon::{iter::IntoParallelIterator, prelude::*};
 use statrs::distribution::{ContinuousCDF, StudentsT};
-use tracing::{debug, error, warn};
+use tracing::{debug, error, trace, warn};
 
 pub fn should_disable_predicted() -> bool {
     let enabled = std::env::var("LMUTILS_ENABLE_PREDICTED").is_ok();
@@ -110,7 +110,9 @@ pub fn get_r2s(data: MatRef<f64>, outcomes: MatRef<f64>) -> Vec<R2> {
     let m = data.ncols();
 
     let c_all = data.transpose() * outcomes;
+    trace!("Computed c_all");
     let c_matrix = data.transpose() * data;
+    trace!("Computed c_matrix");
     let betas = match c_matrix.cholesky(Side::Lower) {
         Ok(chol) => chol.solve(c_all),
         Err(_) => {
