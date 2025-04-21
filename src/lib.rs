@@ -174,11 +174,11 @@ pub fn calculate_r2s(
         };
         info!("Calculating R^2 for data set {}", data_set);
         if !mat.is_loaded() {
-            debug!("Loading data set {}", data_set);
+            info!("Loading data set {}", data_set);
             mat.into_owned()?;
-            debug!("Loaded data set {}", data_set);
+            info!("Loaded data set {}", data_set);
         } else {
-            debug!("Data set {} already loaded", data_set);
+            info!("Data set {} already loaded", data_set);
         }
         if mat.has_column_loaded("eid") || mat.has_column_loaded("IID") {
             mat.remove_column_by_name_if_exists("eid")?;
