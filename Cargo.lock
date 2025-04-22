@@ -793,6 +793,7 @@ dependencies = [
  "rand",
  "rand_distr",
  "rayon",
+ "regex",
  "rkyv",
  "serde",
  "serde_cbor",

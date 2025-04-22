@@ -30,6 +30,7 @@ rand_distr = "0.4.3"
 num_cpus = "1.16.0"
 diol = { version = "0.8.3", default-features = false }
 aligned-vec = "0.6.1"
+regex = "1.11.1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.155"

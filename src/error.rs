@@ -68,6 +68,8 @@ pub enum Error {
     ),
     #[error("cbor error: {0}")]
     Cbor(#[from] serde_cbor::Error),
+    #[error("regex error: {0}")]
+    Regex(#[from] regex::Error),
 }
 
 #[cfg(feature = "r")]

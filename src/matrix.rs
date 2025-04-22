@@ -14,6 +14,7 @@ use extendr_api::{
 use faer::{linalg::qr, Mat, MatMut, MatRef};
 use rand_distr::Distribution;
 use rayon::prelude::*;
+use regex::Regex;
 use tracing::{debug, error, info, trace};
 
 use crate::{file::File, mean, standardize_column, standardize_row, Error};
@@ -409,6 +410,26 @@ impl Matrix {
             Matrix::File(_) => None,
             Matrix::Dyn(_) => None,
             Matrix::Transform(..) => None,
+        }
+    }
+
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn set_colnames(&mut self, colnames: Vec<String>) -> Result<&mut Self, crate::Error> {
+        if colnames.len() != self.ncols()? {
+            return Err(crate::Error::ColumnNamesMismatch);
+        }
+        match self {
+            #[cfg(feature = "r")]
+            Matrix::R(m) => {
+                m.set_attrib(extendr_api::symbol::dimnames_symbol(), colnames.into_robj())?;
+                Ok(self)
+            },
+            Matrix::Owned(m) => {
+                m.colnames = Some(colnames);
+                Ok(self)
+            },
+            m @ (Matrix::File(_) | Matrix::Transform(..)) => m.into_owned()?.set_colnames(colnames),
+            Matrix::Dyn(m) => m.set_colnames(colnames),
         }
     }
 
@@ -1658,6 +1679,32 @@ impl Matrix {
         }
         let cols = cols.into_iter().map(|x| x.unwrap()).collect::<HashSet<_>>();
         self.subset_columns(&cols)
+    }
+
+    pub fn t_rename_columns_with_regex(&mut self, regex: &str, replacement: &str) -> &mut Self {
+        let regex = regex.to_string();
+        let replacement = replacement.to_string();
+        self.add_transformation(move |m| m.rename_columns_with_regex(&regex, &replacement))
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn rename_columns_with_regex(
+        &mut self,
+        regex: &str,
+        replacement: &str,
+    ) -> Result<&mut Self, crate::Error> {
+        let colnames = self.colnames()?;
+        if colnames.is_none() {
+            return Err(crate::Error::MissingColumnNames);
+        }
+        let re = Regex::new(regex)?;
+        let colnames = colnames
+            .expect("colnames should be present")
+            .iter()
+            .map(|x| re.replace_all(x, replacement).to_string())
+            .collect::<Vec<_>>();
+        self.set_colnames(colnames)?;
+        Ok(self)
     }
 }
 
@@ -3331,6 +3378,28 @@ mod tests {
         assert_eq!(
             m.colnames().unwrap().unwrap(),
             &["a".to_string(), "c".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_rename_columns_with_regex() {
+        let mut m = OwnedMatrix::new(
+            3,
+            3,
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+            Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]),
+        )
+        .into_matrix();
+        let m = m.t_rename_columns_with_regex("a", "x");
+        assert_eq!(
+            m.data().unwrap(),
+            &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]
+        );
+        assert_eq!(m.nrows().unwrap(), 3);
+        assert_eq!(m.ncols().unwrap(), 3);
+        assert_eq!(
+            m.colnames().unwrap().unwrap(),
+            &["x".to_string(), "b".to_string(), "c".to_string()]
         );
     }
 }
