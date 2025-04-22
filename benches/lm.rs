@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 
 use diol::prelude::*;
+use faer::MatRef;
 use lmutils::{File, IntoMatrix, Lm, OwnedMatrix};
 use rand::SeedableRng;
 use rand_distr::Distribution;

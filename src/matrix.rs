@@ -11,7 +11,7 @@ use extendr_api::{
     io::Load, scalar::Scalar, single_threaded, wrapper, AsStrIter, Attributes, Conversions,
     FromRobj, IntoRobj, MatrixConversions, RMatrix, Rinternals, Robj, Rtype,
 };
-use faer::{linalg::qr, ColMut, Mat, MatMut, MatRef};
+use faer::{linalg::qr, ColMut, Mat, MatMut, MatRef, RowMut};
 use rand_distr::Distribution;
 use rayon::prelude::*;
 use regex::Regex;
@@ -1420,8 +1420,8 @@ impl Matrix {
         self.as_mat_mut()?.par_row_chunks_mut(1).for_each(|r| {
             let row = r.row_mut(0);
             let mut m = 0.0;
-            faer::stats::col_mean(
-                ColMut::from_slice_mut(&mut [m]),
+            faer::stats::row_mean(
+                RowMut::from_mut(&mut m),
                 row.as_ref().as_mat(),
                 faer::stats::NanHandling::Ignore,
             );

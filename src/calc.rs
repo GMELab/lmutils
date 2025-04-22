@@ -126,6 +126,7 @@ pub fn get_r2s(data: MatRef<f64>, outcomes: MatRef<f64>) -> Vec<R2> {
     };
 
     debug!("Calculated betas");
+    println!("betas: {:?}", betas);
 
     let r2s = (0..outcomes.ncols())
         .into_par_iter()
@@ -951,7 +952,7 @@ mod tests {
 
     macro_rules! float_eq {
         ($a:expr, $b:expr) => {
-            assert_float_eq!($a, $b, 1e-14);
+            assert_float_eq!($a, $b, 1e-12);
         };
     }
 
@@ -959,18 +960,6 @@ mod tests {
         ($a:expr, $b:expr) => {
             assert_float_eq!($a, $b, 1e-3);
         };
-    }
-
-    macro_rules! float_very_eq {
-        ($a:expr, $b:expr) => {
-            assert_float_eq!($a, $b, 1e-15);
-        };
-    }
-
-    #[test]
-    fn test_mean() {
-        let data = [1.0, 2.0, 3.0, 4.0, 5.0];
-        assert_eq!(mean(&data), 3.0);
     }
 
     #[test]

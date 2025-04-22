@@ -4,6 +4,7 @@ use faer::{
     get_global_parallelism,
     linalg::solvers::{DenseSolveCore, Solve, SolveLstsqCore},
     mat::AsMatRef,
+    prelude::SolveLstsq,
     Col, ColRef, Mat, MatRef,
 };
 use rayon::iter::{

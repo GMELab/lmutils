@@ -1,4 +1,5 @@
 use diol::prelude::*;
+use faer::{MatRef, RowMut, RowRef};
 use lmutils::{mean, variance_avx2, variance_avx512, variance_naive};
 
 fn main() -> std::io::Result<()> {
@@ -51,9 +52,9 @@ fn faer_(bencher: Bencher, len: usize) {
         let mean = mean(&data);
         let mut variance = 0.0;
         faer::stats::row_varm(
-            faer::row::from_mut(&mut variance),
+            RowMut::from_mut(&mut variance),
             MatRef::from_column_major_slice(data.as_slice(), data.len(), 1),
-            faer::row::from_ref(&mean),
+            RowRef::from_ref(&mean),
             faer::stats::NanHandling::Ignore,
         );
     });
