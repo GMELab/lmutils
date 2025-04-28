@@ -9,7 +9,7 @@ use std::{
 #[cfg(feature = "r")]
 use extendr_api::{
     io::Load, scalar::Scalar, single_threaded, wrapper, AsStrIter, Attributes, Conversions,
-    FromRobj, IntoRobj, MatrixConversions, RMatrix, Rinternals, Robj, Rtype,
+    IntoRobj, MatrixConversions, RMatrix, Rinternals, Robj, Rtype,
 };
 use faer::{c64, linalg::qr, ColMut, Mat, MatMut, MatRef, RowMut};
 use rand_distr::Distribution;
@@ -32,9 +32,11 @@ pub enum Join {
 const INVALID_JOIN_TYPE: &str = "invalid join type, must be one of 0, 1, or 2";
 
 #[cfg(feature = "r")]
-impl FromRobj<'_> for Join {
+impl TryFrom<Robj> for Join {
+    type Error = &'static str;
+
     #[cfg_attr(coverage_nightly, coverage(off))]
-    fn from_robj(obj: &Robj) -> Result<Self, &'static str> {
+    fn try_from(obj: Robj) -> Result<Self, Self::Error> {
         let val = if obj.is_integer() {
             obj.as_integer().unwrap()
         } else if obj.is_real() {
@@ -202,7 +204,7 @@ impl Matrix {
             Matrix::Owned(m) => {
                 use extendr_api::prelude::*;
 
-                let mat = RMatrix::new_matrix(
+                let mut mat = RMatrix::new_matrix(
                     m.nrows,
                     m.ncols,
                     #[inline(always)]
@@ -235,7 +237,11 @@ impl Matrix {
         if buf != *b"RDX3\n" {
             return Err(crate::Error::InvalidRdataFile);
         }
-        let obj = Robj::from_reader(&mut reader, extendr_api::io::PstreamFormat::XdrFormat, None)?;
+        let obj = Robj::from_reader(
+            &mut reader,
+            extendr_api::io::PstreamFormat::R_pstream_xdr_format,
+            None,
+        )?;
         let mat = obj
             .as_pairlist()
             .ok_or(crate::Error::InvalidRdataFile)?

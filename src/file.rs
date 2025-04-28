@@ -359,7 +359,7 @@ impl File {
                 writer.write_all(b"RDX3\n")?;
                 pl.to_writer(
                     &mut writer,
-                    extendr_api::io::PstreamFormat::XdrFormat,
+                    extendr_api::io::PstreamFormat::R_pstream_xdr_format,
                     3,
                     None,
                 )?;

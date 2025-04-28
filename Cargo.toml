@@ -5,9 +5,10 @@ edition = "2021"
 description = "A set of utilities for working with linear regression models"
 license = "MIT"
 repository = "https://github.com/mrvillage/lmutils"
+rust-version = "1.80.0"
 
 [dependencies]
-extendr-api = { version = "0.6.0", features = ["either"], optional = true }
+extendr-api = { version = "0.8.0", features = ["either"], optional = true }
 faer = "0.22"
 flate2 = "1.0.30"
 rayon = "1.10.0"
