@@ -1,6 +1,6 @@
-use core::panic;
 use std::{
     collections::{HashMap, HashSet},
+    f64,
     mem::MaybeUninit,
     ops::{Deref, DerefMut},
     str::FromStr,
@@ -11,7 +11,7 @@ use extendr_api::{
     io::Load, scalar::Scalar, single_threaded, wrapper, AsStrIter, Attributes, Conversions,
     FromRobj, IntoRobj, MatrixConversions, RMatrix, Rinternals, Robj, Rtype,
 };
-use faer::{linalg::qr, ColMut, Mat, MatMut, MatRef, RowMut};
+use faer::{c64, linalg::qr, ColMut, Mat, MatMut, MatRef, RowMut};
 use rand_distr::Distribution;
 use rayon::prelude::*;
 use regex::Regex;
@@ -498,6 +498,131 @@ impl Matrix {
 
     pub fn generate_standard_normal_matrix(rows: usize, cols: usize) -> Self {
         Self::generate_normal_matrix(rows, cols, 0.0, 1.0)
+    }
+
+    pub fn eigen(&mut self, symmetric: Option<bool>) -> Result<Eigen, crate::Error> {
+        Eigen::new(self, symmetric)
+    }
+
+    pub fn is_symmetric(&mut self) -> Result<bool, crate::Error> {
+        let m = self.as_mat_ref()?;
+        if m.nrows() != m.ncols() {
+            return Err(crate::Error::MatrixDimensionsMismatch);
+        }
+        let mut is_symmetric = true;
+        'outer: for i in 1..m.nrows() {
+            for j in 0..i {
+                if (m.get(i, j) - m.get(j, i)).abs() >= 100.0 * f64::EPSILON {
+                    is_symmetric = false;
+                    break 'outer;
+                }
+            }
+        }
+        Ok(is_symmetric)
+    }
+}
+
+pub enum Eigen {
+    Real { values: Vec<f64>, vectors: Vec<f64> },
+    Complex { values: Vec<c64>, vectors: Vec<c64> },
+}
+
+impl Eigen {
+    pub fn new(m: &mut Matrix, symmetric: Option<bool>) -> Result<Self, crate::Error> {
+        enum E {
+            Generic(faer::linalg::solvers::Eigen<f64>),
+            SelfAdjoint(faer::linalg::solvers::SelfAdjointEigen<f64>),
+        }
+        let symmetric = match symmetric {
+            Some(s) => s,
+            None => m.is_symmetric()?,
+        };
+        let m = m.as_mat_ref()?;
+        if m.nrows() != m.ncols() {
+            return Err(crate::Error::MatrixDimensionsMismatch);
+        }
+        if symmetric {
+            let eigen = m.self_adjoint_eigen(faer::Side::Lower)?;
+            let s = eigen.S();
+            let u = eigen.U();
+            let mut values = Vec::with_capacity(m.nrows());
+            for i in 0..m.nrows() {
+                values.push(s[i]);
+            }
+            let mut zero = 0.0;
+            let mut vectors: Vec<f64> = vec![zero; m.nrows() * m.nrows()];
+            u.par_col_chunks(1).enumerate().for_each(|(i, c)| {
+                let col = c.col(0);
+                let mut vector = unsafe {
+                    std::slice::from_raw_parts_mut(
+                        vectors.as_ptr().cast_mut().add(i * m.nrows()),
+                        m.nrows(),
+                    )
+                };
+                for (j, x) in col.iter().enumerate() {
+                    vector[j] = *x;
+                }
+            });
+            Ok(Eigen::Real { values, vectors })
+        } else {
+            let eigen = m.eigen()?;
+            let s = eigen.S();
+            let u = eigen.U();
+            let complex = (0..m.nrows()).into_par_iter().any(|i| {
+                if s[i].im != 0.0 {
+                    // is complex
+                    return true;
+                }
+                let col = u.col(i);
+                for j in 0..m.nrows() {
+                    if col[j].im != 0.0 {
+                        return true;
+                    }
+                }
+                false
+            });
+            if complex {
+                let mut values = Vec::with_capacity(m.nrows());
+                for i in 0..m.nrows() {
+                    values.push(s[i]);
+                }
+                let mut zero = c64::new(0.0, 0.0);
+                let mut vectors: Vec<c64> = vec![zero; m.nrows() * m.nrows()];
+                u.par_col_chunks(1).enumerate().for_each(|(i, c)| {
+                    let col = c.col(0);
+                    let mut vector = unsafe {
+                        std::slice::from_raw_parts_mut(
+                            vectors.as_ptr().cast_mut().add(i * m.nrows()),
+                            m.nrows(),
+                        )
+                    };
+                    for (j, x) in col.iter().enumerate() {
+                        vector[j] = *x;
+                    }
+                });
+                Ok(Eigen::Complex { values, vectors })
+            } else {
+                let mut values = Vec::with_capacity(m.nrows());
+                for i in 0..m.nrows() {
+                    values.push(s[i].re);
+                }
+                let mut zero = 0.0;
+                let mut vectors: Vec<f64> = vec![zero; m.nrows() * m.nrows()];
+                u.par_col_chunks(1).enumerate().for_each(|(i, c)| {
+                    let col = c.col(0);
+                    let mut vector = unsafe {
+                        std::slice::from_raw_parts_mut(
+                            vectors.as_ptr().cast_mut().add(i * m.nrows()),
+                            m.nrows(),
+                        )
+                    };
+                    for (j, x) in col.iter().enumerate() {
+                        vector[j] = x.re;
+                    }
+                });
+                Ok(Eigen::Real { values, vectors })
+            }
+        }
     }
 }
 
@@ -2010,9 +2135,28 @@ where
 
 #[cfg(test)]
 mod tests {
+    use faer::traits::pulp::num_complex::Complex;
     use test_log::test;
 
     use super::*;
+
+    macro_rules! assert_float_eq {
+        ($a:expr, $b:expr, $tol:expr) => {
+            assert!(($a - $b).abs() < $tol, "{:.22} != {:.22}", $a, $b);
+        };
+    }
+
+    macro_rules! float_eq {
+        ($a:expr, $b:expr) => {
+            assert_float_eq!($a, $b, 1e-12);
+        };
+    }
+
+    macro_rules! rough_eq {
+        ($a:expr, $b:expr) => {
+            assert_float_eq!($a, $b, 1e-3);
+        };
+    }
 
     #[test]
     fn test_combine_columns_success() {
@@ -3410,5 +3554,95 @@ mod tests {
             m.colnames().unwrap().unwrap(),
             &["x".to_string(), "b".to_string(), "c".to_string()]
         );
+    }
+
+    #[test]
+    fn test_eigen_symmetric_real() {
+        let mut m = OwnedMatrix::new(
+            3,
+            3,
+            vec![1.0, 2.0, 3.0, 2.0, 5.0, 6.0, 3.0, 6.0, 9.0],
+            Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]),
+        )
+        .into_matrix();
+        let Eigen::Real { values, vectors } = m.eigen(None).unwrap() else {
+            panic!("Expected real decomposition");
+        };
+        assert_eq!(values.len(), 3);
+        float_eq!(values[0], -4.3296658397194226e-16);
+        float_eq!(values[1], 0.6992647456322797);
+        float_eq!(values[2], 14.300735254367696);
+        assert_eq!(vectors.len(), 9);
+        let expected = [
+            0.9486832980505138,
+            -1.3877787807814457e-15,
+            -0.3162277660168371,
+            0.17781910596911185,
+            -0.8269242138935418,
+            0.5334573179073411,
+            0.26149639682478465,
+            0.5623133863572407,
+            0.7844891904743533,
+        ];
+        for (i, &v) in vectors.iter().enumerate() {
+            float_eq!(v, expected[i]);
+        }
+    }
+
+    #[test]
+    fn test_eigen_not_symmetric_real() {
+        let mut m = OwnedMatrix::new(
+            3,
+            3,
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+            Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]),
+        )
+        .into_matrix();
+        let Eigen::Real { values, vectors } = m.eigen(None).unwrap() else {
+            panic!("Expected real decomposition");
+        };
+        assert_eq!(values.len(), 3);
+        float_eq!(values[0], 16.116843969807025);
+        float_eq!(values[1], -1.116843969807056);
+        float_eq!(values[2], 0.0);
+        assert_eq!(vectors.len(), 9);
+        let expected = [
+            -0.46454727338767027,
+            -0.5707955312285774,
+            -0.6770437890694855,
+            -0.9178859873651294,
+            -0.24901002745731335,
+            0.4198659324505014,
+            0.4082482904638624,
+            -0.8164965809277261,
+            0.40824829046386313,
+        ];
+        for (i, &v) in vectors.iter().enumerate() {
+            float_eq!(v, expected[i]);
+        }
+    }
+
+    #[test]
+    fn test_is_symmetric() {
+        let mut m = OwnedMatrix::new(
+            3,
+            3,
+            vec![1.0, 2.0, 3.0, 2.0, 5.0, 6.0, 3.0, 6.0, 9.0],
+            Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]),
+        )
+        .into_matrix();
+        assert!(m.is_symmetric().unwrap());
+    }
+
+    #[test]
+    fn test_is_not_symmetric() {
+        let mut m = OwnedMatrix::new(
+            3,
+            3,
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+            Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]),
+        )
+        .into_matrix();
+        assert!(!m.is_symmetric().unwrap());
     }
 }

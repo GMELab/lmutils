@@ -70,6 +70,8 @@ pub enum Error {
     Cbor(#[from] serde_cbor::Error),
     #[error("regex error: {0}")]
     Regex(#[from] regex::Error),
+    #[error("eigen error")]
+    Eigen(faer::linalg::evd::EvdError),
 }
 
 #[cfg(feature = "r")]
@@ -85,5 +87,12 @@ impl From<Error> for extendr_api::Error {
     #[cfg_attr(coverage_nightly, coverage(off))]
     fn from(e: Error) -> Self {
         extendr_api::Error::Other(e.to_string())
+    }
+}
+
+impl From<faer::linalg::evd::EvdError> for Error {
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    fn from(err: faer::linalg::evd::EvdError) -> Self {
+        Error::Eigen(err)
     }
 }
