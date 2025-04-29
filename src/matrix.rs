@@ -1551,8 +1551,8 @@ impl Matrix {
         self.as_mat_mut()?.par_row_chunks_mut(1).for_each(|r| {
             let row = r.row_mut(0);
             let mut m = 0.0;
-            faer::stats::row_mean(
-                RowMut::from_mut(&mut m),
+            faer::stats::col_mean(
+                ColMut::from_mut(&mut m),
                 row.as_ref().as_mat(),
                 faer::stats::NanHandling::Ignore,
             );
