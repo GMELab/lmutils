@@ -58,7 +58,9 @@ impl File {
 
     pub fn read(&self) -> Result<Matrix, crate::Error> {
         #[cfg(all(unix, feature = "r"))]
-        if self.file_type == FileType::Rdata && std::env::var("LMUTILS_FD").is_err() {
+        if (self.file_type == FileType::Rdata || self.file_type == FileType::Rds)
+            && std::env::var("LMUTILS_FD").is_err()
+        {
             use std::{io::Seek, os::fd::AsRawFd, os::unix::process::CommandExt};
 
             let tmp_path = std::env::current_dir()
@@ -82,7 +84,7 @@ impl File {
                 std::process::Command::new("Rscript")
                     .arg("-e")
                     .arg(format!(
-                        "lmutils::internal_lmutils_file_into_fd('{}', {})",
+                        "devtools::load_all();lmutils::internal_lmutils_file_into_fd('{}', {})",
                         self.path.to_string_lossy(),
                         p2,
                     ))
@@ -120,7 +122,7 @@ impl File {
         }
         let file = std::fs::File::open(&self.path)?;
         #[cfg(feature = "r")]
-        if self.file_type == FileType::Rdata {
+        if (self.file_type == FileType::Rdata || self.file_type == FileType::Rds) {
             let decoder = flate2::read::GzDecoder::new(file);
             return self.read_from_reader(decoder);
         }
@@ -142,6 +144,8 @@ impl File {
             FileType::Txt => Self::read_text_file(reader, b' ')?,
             #[cfg(feature = "r")]
             FileType::Rdata => Matrix::from_rdata(&mut reader)?,
+            #[cfg(feature = "r")]
+            FileType::Rds => Matrix::from_rds(&mut reader)?,
             FileType::Rkyv => {
                 let mut bytes = vec![];
                 reader.read_to_end(&mut bytes)?;
@@ -270,7 +274,9 @@ impl File {
 
     pub fn write(&self, mat: &mut Matrix) -> Result<(), crate::Error> {
         #[cfg(all(unix, feature = "r"))]
-        if self.file_type == FileType::Rdata && std::env::var("LMUTILS_FD").is_err() {
+        if (self.file_type == FileType::Rdata || self.file_type == FileType::Rds)
+            && std::env::var("LMUTILS_FD").is_err()
+        {
             use std::{
                 io::Seek,
                 os::{
@@ -328,7 +334,7 @@ impl File {
         }
         let file = std::fs::File::create(&self.path)?;
         #[cfg(feature = "r")]
-        if self.file_type == FileType::Rdata {
+        if (self.file_type == FileType::Rdata || self.file_type == FileType::Rds) {
             let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
             return self.write_matrix_to_writer(encoder, mat);
         }
@@ -354,10 +360,20 @@ impl File {
             FileType::Txt => Self::write_text_file(writer, mat, b' ')?,
             #[cfg(feature = "r")]
             FileType::Rdata => {
-                let mat = mat.to_rmatrix();
+                let mat = mat.to_rmatrix()?;
                 let pl = pairlist!(mat = mat);
                 writer.write_all(b"RDX3\n")?;
                 pl.to_writer(
+                    &mut writer,
+                    extendr_api::io::PstreamFormat::R_pstream_xdr_format,
+                    3,
+                    None,
+                )?;
+            },
+            #[cfg(feature = "r")]
+            FileType::Rds => {
+                let mat = mat.to_rmatrix()?;
+                mat.to_writer(
                     &mut writer,
                     extendr_api::io::PstreamFormat::R_pstream_xdr_format,
                     3,
@@ -462,6 +478,9 @@ pub enum FileType {
     /// RData file.
     #[cfg(feature = "r")]
     Rdata,
+    /// RDS file
+    #[cfg(feature = "r")]
+    Rds,
     /// Serialized matrix type.
     Rkyv,
     /// Serialied matrix type.
@@ -482,6 +501,8 @@ impl FromStr for FileType {
             "txt" => Self::Txt,
             #[cfg(feature = "r")]
             "rdata" | "RData" => Self::Rdata,
+            #[cfg(feature = "r")]
+            "rds" | "Rds" => Self::Rds,
             "rkyv" => Self::Rkyv,
             "cbor" => Self::Cbor,
             "mat" => Self::Mat,
@@ -594,6 +615,20 @@ mod tests {
     //     assert_eq!(mat, mat2);
     // }
 
+    // #[test]
+    // fn test_rds() {
+    //     let mut mat = Matrix::Owned(OwnedMatrix::new(
+    //         3,
+    //         2,
+    //         vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+    //         Some(vec!["a".to_string(), "b".to_string()]),
+    //     ));
+    //     let file = crate::File::new("tests/test.rds", crate::FileType::Rds, false);
+    //     file.write(&mut mat).unwrap();
+    //     let mat2 = file.read().unwrap();
+    //     assert_eq!(mat, mat2);
+    // }
+
     #[test]
     fn test_mat() {
         let mut mat = Matrix::Owned(OwnedMatrix::new(
@@ -622,6 +657,8 @@ mod tests {
         {
             let file = crate::File::from_path("tests/test.rdata").unwrap();
             assert_eq!(file.file_type, crate::FileType::Rdata);
+            let file = crate::File::from_path("tests/test.rds").unwrap();
+            assert_eq!(file.file_type, crate::FileType::Rds);
         }
         let file = crate::File::from_path("tests/test.rkyv").unwrap();
         assert_eq!(file.file_type, crate::FileType::Rkyv);
@@ -649,6 +686,9 @@ mod tests {
         {
             let file = crate::File::from_path("tests/test.rdata.gz").unwrap();
             assert_eq!(file.file_type, crate::FileType::Rdata);
+            assert!(file.gz);
+            let file = crate::File::from_path("tests/test.rds.gz").unwrap();
+            assert_eq!(file.file_type, crate::FileType::Rds);
             assert!(file.gz);
         }
         let file = crate::File::from_path("tests/test.rkyv.gz").unwrap();

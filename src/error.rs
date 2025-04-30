@@ -44,6 +44,8 @@ pub enum Error {
     InvalidItemType,
     #[error("invalid rdata file")]
     InvalidRdataFile,
+    #[error("invalid rds file")]
+    InvalidRdsFile,
     #[error("invalid mat file")]
     InvalidMatFile,
     #[error("unsupported mat file version {0}")]

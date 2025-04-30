@@ -254,6 +254,17 @@ impl Matrix {
 
     #[cfg_attr(coverage_nightly, coverage(off))]
     #[cfg(feature = "r")]
+    pub fn from_rds(mut reader: impl std::io::Read) -> Result<Self, crate::Error> {
+        let obj = Robj::from_reader(
+            &mut reader,
+            extendr_api::io::PstreamFormat::R_pstream_xdr_format,
+            None,
+        )?;
+        Matrix::from_robj(obj)
+    }
+
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    #[cfg(feature = "r")]
     pub fn from_robj(r: Robj) -> Result<Self, crate::Error> {
         if r.is_matrix() {
             let float = RMatrix::<f64>::try_from(r);
