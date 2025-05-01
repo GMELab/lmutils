@@ -36,12 +36,20 @@ where
     R: Send + Sync,
     E: std::error::Error,
 {
-    let core_parallelism = std::env::var("LMUTILS_CORE_PARALLELISM")
+    let mut core_parallelism = std::env::var("LMUTILS_CORE_PARALLELISM")
         .ok()
         .or_else(|| std::env::var("LMUTILS_NUM_MAIN_THREADS").ok())
         .and_then(|x| x.parse::<usize>().ok())
-        .unwrap_or(16)
-        .clamp(1, data.len().min(num_cpus::get()));
+        .unwrap_or(16);
+    if core_parallelism > data.len() {
+        core_parallelism = data.len();
+    }
+    if core_parallelism == 0 {
+        core_parallelism = 1;
+    }
+    if core_parallelism > num_cpus::get() {
+        core_parallelism = num_cpus::get();
+    }
     let ignore_errors = std::env::var("LMUTILS_IGNORE_CORE_PARALLEL_ERRORS")
         .ok()
         .map(|x| x == "1")
