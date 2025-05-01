@@ -118,7 +118,7 @@ where
                                 );
                                 std::thread::sleep(duration);
                                 tries += 1;
-                                if tries > 5 {
+                                if tries > 4 {
                                     if ignore_errors {
                                         error!("Error in core scope, ignoring");
                                         break;
