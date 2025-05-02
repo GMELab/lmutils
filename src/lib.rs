@@ -193,6 +193,17 @@ pub fn calculate_r2s(
             mat.remove_column_by_name_if_exists("IID")?;
         }
         let r = mat.as_mat_ref_loaded();
+        if r.ncols() == 0 || r.nrows() == 0 {
+            warn!(
+                "Data set {} has no columns or no rows, skipping",
+                if let Some(data_names) = &data_names {
+                    data_names[i].to_string()
+                } else {
+                    (i + 1).to_string()
+                }
+            );
+            return Ok(vec![]);
+        }
         let r2s = get_r2s(r, or)
             .into_iter()
             .enumerate()
