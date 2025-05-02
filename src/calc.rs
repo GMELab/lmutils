@@ -126,7 +126,6 @@ pub fn get_r2s(data: MatRef<f64>, outcomes: MatRef<f64>) -> Vec<R2> {
     };
 
     debug!("Calculated betas");
-    println!("betas: {:?}", betas);
 
     let r2s = (0..outcomes.ncols())
         .into_par_iter()
