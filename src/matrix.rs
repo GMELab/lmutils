@@ -3530,7 +3530,7 @@ mod tests {
             Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]),
         )
         .into_matrix();
-        let m = m.t_subset_columns_by_name(["a", "c"].iter().map(|s| s.to_string()).collect());
+        let m = m.t_subset_columns_by_name(["a", "c", "d"].iter().map(|s| s.to_string()).collect());
         assert_eq!(m.data().unwrap(), &[1.0, 2.0, 3.0, 7.0, 8.0, 9.0]);
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 2);
