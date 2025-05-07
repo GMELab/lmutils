@@ -1806,27 +1806,16 @@ impl Matrix {
         if colnames.is_none() {
             return Err(crate::Error::MissingColumnNames);
         }
-        let cols = cols
-            .iter()
-            .map(|x| {
-                colnames
-                    .as_ref()
-                    .expect("colnames should be present")
-                    .iter()
-                    .position(|y| *y == *x)
-            })
+        let colnames = colnames
+            .expect("colnames should be present")
+            .into_iter()
+            .map(|x| x.to_string())
             .collect::<Vec<_>>();
-        if cols.iter().any(|x| x.is_none()) {
-            return Err(crate::Error::ColumnNameNotFound(
-                cols.iter()
-                    .find(|x| x.is_none())
-                    .unwrap()
-                    .as_ref()
-                    .unwrap()
-                    .to_string(),
-            ));
-        }
-        let cols = cols.into_iter().map(|x| x.unwrap()).collect::<HashSet<_>>();
+        let cols = colnames
+            .iter()
+            .enumerate()
+            .filter_map(|(i, x)| if cols.contains(x) { Some(i) } else { None })
+            .collect::<HashSet<_>>();
         self.subset_columns(&cols)
     }
 
