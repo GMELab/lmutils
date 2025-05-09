@@ -31,14 +31,14 @@ pub fn should_disable_predicted() -> bool {
 
 #[derive(Debug, Clone)]
 pub struct R2 {
-    r2: f64,
-    adj_r2: f64,
-    predicted: Vec<f64>,
-    betas: Vec<f64>,
+    pub(crate) r2: f64,
+    pub(crate) adj_r2: f64,
+    pub(crate) predicted: Vec<f64>,
+    pub(crate) betas: Vec<f64>,
     pub(crate) data: Option<String>,
     pub(crate) outcome: Option<String>,
-    n: u32,
-    m: u32,
+    pub(crate) n: u32,
+    pub(crate) m: u32,
 }
 
 impl R2 {

@@ -202,7 +202,18 @@ pub fn calculate_r2s(
                     (i + 1).to_string()
                 }
             );
-            return Ok(vec![]);
+            return Ok((0..or.ncols())
+                .map(|_| R2 {
+                    r2: 0.0,
+                    adj_r2: 0.0,
+                    predicted: vec![],
+                    betas: vec![],
+                    data: None,
+                    outcome: None,
+                    n: 0,
+                    m: 0,
+                })
+                .collect::<Vec<_>>());
         }
         let r2s = get_r2s(r, or)
             .into_iter()
@@ -229,6 +240,11 @@ pub fn calculate_r2s(
             }
         );
         Ok(r2s)
+    })
+    .map(|x| {
+        x.into_iter()
+            .filter(|x| x.n > 0 && x.m > 0)
+            .collect::<Vec<_>>()
     })
 }
 
