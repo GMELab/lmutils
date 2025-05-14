@@ -438,7 +438,12 @@ impl Matrix {
         match self {
             #[cfg(feature = "r")]
             Matrix::R(m) => {
-                m.set_attrib(extendr_api::symbol::dimnames_symbol(), colnames.into_robj())?;
+                use extendr_api::prelude::*;
+
+                let mut dimnames = List::from_values([NULL, NULL]);
+                dimnames.set_elt(1, colnames.into_robj()).unwrap();
+                m.set_attrib(wrapper::symbol::dimnames_symbol(), dimnames)
+                    .unwrap();
                 Ok(self)
             },
             Matrix::Owned(m) => {
