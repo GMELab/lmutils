@@ -266,6 +266,14 @@ impl Matrix {
     #[cfg_attr(coverage_nightly, coverage(off))]
     #[cfg(feature = "r")]
     pub fn from_robj(r: Robj) -> Result<Self, crate::Error> {
+        fn r_int_to_f64(r: i32) -> f64 {
+            if r == i32::MIN {
+                f64::NAN
+            } else {
+                r as f64
+            }
+        }
+
         if r.is_matrix() {
             let float = RMatrix::<f64>::try_from(r);
             match float {
@@ -282,7 +290,7 @@ impl Matrix {
                 .as_integer_slice()
                 .expect("data is an integer vector")
                 .iter()
-                .map(|i| *i as f64)
+                .map(|i| r_int_to_f64(*i))
                 .collect::<Vec<_>>();
             Ok(Matrix::Owned(OwnedMatrix::new(v.len(), 1, v, None)))
         } else if r.is_real() {
@@ -312,7 +320,7 @@ impl Matrix {
                             Ok(r.as_integer_slice()
                                 .unwrap()
                                 .iter()
-                                .map(|x| *x as f64)
+                                .map(|x| r_int_to_f64(*x))
                                 .collect())
                         } else if r.is_real() {
                             Ok(r.as_real_vector().unwrap().to_vec())
