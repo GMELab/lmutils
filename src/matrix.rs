@@ -328,7 +328,7 @@ impl Matrix {
                             Ok(r.as_logical_slice()
                                 .unwrap()
                                 .iter()
-                                .map(|x| x.inner() as f64)
+                                .map(|x| r_int_to_f64(x.inner()))
                                 .collect())
                         } else {
                             Err(crate::Error::InvalidItemType)
