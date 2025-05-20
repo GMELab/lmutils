@@ -1977,7 +1977,7 @@ impl Matrix {
     #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn has_column_loaded(&self, name: &str) -> bool {
         self.colnames_loaded()
-            .map(|x| x.iter().any(|x| *x == name))
+            .map(|x| x.contains(&name))
             .unwrap_or(false)
     }
 
