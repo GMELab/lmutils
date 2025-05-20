@@ -332,132 +332,156 @@ mod tests {
 
     #[test]
     fn test_standardize_sse4() {
-        let mut data = data();
-        unsafe { standardize_sse4(&mut data, 1) };
-        for i in 0..data.len() {
-            float_eq!(data[i], EXPECTED[i]);
+        if is_x86_feature_detected!("sse4.1") {
+            let mut data = data();
+            unsafe { standardize_sse4(&mut data, 1) };
+            for i in 0..data.len() {
+                float_eq!(data[i], EXPECTED[i]);
+            }
         }
     }
 
     #[test]
     fn test_standardize_sse4_nan() {
-        let mut data = data_nan();
-        unsafe { standardize_sse4(&mut data, 1) };
-        for i in 0..data.len() {
-            if data[i].is_nan() {
-                assert!(EXPECTED_NAN[i].is_nan());
-            } else {
-                float_eq!(data[i], EXPECTED_NAN[i]);
+        if is_x86_feature_detected!("sse4.1") {
+            let mut data = data_nan();
+            unsafe { standardize_sse4(&mut data, 1) };
+            for i in 0..data.len() {
+                if data[i].is_nan() {
+                    assert!(EXPECTED_NAN[i].is_nan());
+                } else {
+                    float_eq!(data[i], EXPECTED_NAN[i]);
+                }
             }
         }
     }
 
     #[test]
     fn test_standardize_sse4_recip() {
-        let mut data = data();
-        unsafe { standardize_sse4_recip(&mut data, 1) };
-        for i in 0..data.len() {
-            float_eq!(data[i], EXPECTED[i]);
+        if is_x86_feature_detected!("sse4.1") {
+            let mut data = data();
+            unsafe { standardize_sse4_recip(&mut data, 1) };
+            for i in 0..data.len() {
+                float_eq!(data[i], EXPECTED[i]);
+            }
         }
     }
 
     #[test]
     fn test_standardize_sse4_recip_nan() {
-        let mut data = data_nan();
-        unsafe { standardize_sse4_recip(&mut data, 1) };
-        for i in 0..data.len() {
-            if data[i].is_nan() {
-                assert!(EXPECTED_NAN[i].is_nan());
-            } else {
-                float_eq!(data[i], EXPECTED_NAN[i]);
+        if is_x86_feature_detected!("sse4.1") {
+            let mut data = data_nan();
+            unsafe { standardize_sse4_recip(&mut data, 1) };
+            for i in 0..data.len() {
+                if data[i].is_nan() {
+                    assert!(EXPECTED_NAN[i].is_nan());
+                } else {
+                    float_eq!(data[i], EXPECTED_NAN[i]);
+                }
             }
         }
     }
 
     #[test]
     fn test_standardize_avx2() {
-        let mut data = data();
-        unsafe { standardize_avx2(&mut data, 1) };
-        for i in 0..data.len() {
-            float_eq!(data[i], EXPECTED[i]);
+        if is_x86_feature_detected!("avx2") {
+            let mut data = data();
+            unsafe { standardize_avx2(&mut data, 1) };
+            for i in 0..data.len() {
+                float_eq!(data[i], EXPECTED[i]);
+            }
         }
     }
 
     #[test]
     fn test_standardize_avx2_nan() {
-        let mut data = data_nan();
-        unsafe { standardize_avx2(&mut data, 1) };
-        for i in 0..data.len() {
-            if data[i].is_nan() {
-                assert!(EXPECTED_NAN[i].is_nan());
-            } else {
-                float_eq!(data[i], EXPECTED_NAN[i]);
+        if is_x86_feature_detected!("avx2") {
+            let mut data = data_nan();
+            unsafe { standardize_avx2(&mut data, 1) };
+            for i in 0..data.len() {
+                if data[i].is_nan() {
+                    assert!(EXPECTED_NAN[i].is_nan());
+                } else {
+                    float_eq!(data[i], EXPECTED_NAN[i]);
+                }
             }
         }
     }
 
     #[test]
     fn test_standardize_avx2_recip() {
-        let mut data = data();
-        unsafe { standardize_avx2_recip(&mut data, 1) };
-        for i in 0..data.len() {
-            float_eq!(data[i], EXPECTED[i]);
+        if is_x86_feature_detected!("avx2") {
+            let mut data = data();
+            unsafe { standardize_avx2_recip(&mut data, 1) };
+            for i in 0..data.len() {
+                float_eq!(data[i], EXPECTED[i]);
+            }
         }
     }
 
     #[test]
     fn test_standardize_avx2_recip_nan() {
-        let mut data = data_nan();
-        unsafe { standardize_avx2_recip(&mut data, 1) };
-        for i in 0..data.len() {
-            if data[i].is_nan() {
-                assert!(EXPECTED_NAN[i].is_nan());
-            } else {
-                float_eq!(data[i], EXPECTED_NAN[i]);
+        if is_x86_feature_detected!("avx2") {
+            let mut data = data_nan();
+            unsafe { standardize_avx2_recip(&mut data, 1) };
+            for i in 0..data.len() {
+                if data[i].is_nan() {
+                    assert!(EXPECTED_NAN[i].is_nan());
+                } else {
+                    float_eq!(data[i], EXPECTED_NAN[i]);
+                }
             }
         }
     }
 
     #[test]
     fn test_standardize_avx512() {
-        let mut data = data();
-        unsafe { standardize_avx512(&mut data, 1) };
-        for i in 0..data.len() {
-            float_eq!(data[i], EXPECTED[i]);
+        if is_x86_feature_detected!("avx512f") {
+            let mut data = data();
+            unsafe { standardize_avx512(&mut data, 1) };
+            for i in 0..data.len() {
+                float_eq!(data[i], EXPECTED[i]);
+            }
         }
     }
 
     #[test]
     fn test_standardize_avx512_nan() {
-        let mut data = data_nan();
-        unsafe { standardize_avx512(&mut data, 1) };
-        for i in 0..data.len() {
-            if data[i].is_nan() {
-                assert!(EXPECTED_NAN[i].is_nan());
-            } else {
-                float_eq!(data[i], EXPECTED_NAN[i]);
+        if is_x86_feature_detected!("avx512f") {
+            let mut data = data_nan();
+            unsafe { standardize_avx512(&mut data, 1) };
+            for i in 0..data.len() {
+                if data[i].is_nan() {
+                    assert!(EXPECTED_NAN[i].is_nan());
+                } else {
+                    float_eq!(data[i], EXPECTED_NAN[i]);
+                }
             }
         }
     }
 
     #[test]
     fn test_standardize_avx512_recip() {
-        let mut data = data();
-        unsafe { standardize_avx512_recip(&mut data, 1) };
-        for i in 0..data.len() {
-            float_eq!(data[i], EXPECTED[i]);
+        if is_x86_feature_detected!("avx512f") {
+            let mut data = data();
+            unsafe { standardize_avx512_recip(&mut data, 1) };
+            for i in 0..data.len() {
+                float_eq!(data[i], EXPECTED[i]);
+            }
         }
     }
 
     #[test]
     fn test_standardize_avx512_recip_nan() {
-        let mut data = data_nan();
-        unsafe { standardize_avx512_recip(&mut data, 1) };
-        for i in 0..data.len() {
-            if data[i].is_nan() {
-                assert!(EXPECTED_NAN[i].is_nan());
-            } else {
-                float_eq!(data[i], EXPECTED_NAN[i]);
+        if is_x86_feature_detected!("avx512f") {
+            let mut data = data_nan();
+            unsafe { standardize_avx512_recip(&mut data, 1) };
+            for i in 0..data.len() {
+                if data[i].is_nan() {
+                    assert!(EXPECTED_NAN[i].is_nan());
+                } else {
+                    float_eq!(data[i], EXPECTED_NAN[i]);
+                }
             }
         }
     }
