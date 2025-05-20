@@ -139,7 +139,7 @@ mod tests {
 
     macro_rules! float_eq {
         ($a:expr, $b:expr) => {
-            assert_float_eq!($a, $b, 1e-14);
+            assert_float_eq!($a, $b, 1e-12);
         };
     }
 

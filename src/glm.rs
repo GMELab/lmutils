@@ -128,7 +128,7 @@ impl Glm {
             for i in 0..ys.len() {
                 new_dev += F::dev_resids(ys[i], mu[i]);
             }
-            delta = (new_dev - dev);
+            delta = (new_dev - dev).abs();
             dev = new_dev;
             if i >= max_iterations {
                 warn!("Did not converge after {} iterations", max_iterations);
@@ -1062,7 +1062,7 @@ mod tests {
 
     macro_rules! float_eq {
         ($a:expr, $b:expr) => {
-            assert_float_eq!($a, $b, 1e-10);
+            assert_float_eq!($a, $b, 1e-12);
         };
     }
 
