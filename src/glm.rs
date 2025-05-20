@@ -1069,8 +1069,8 @@ mod tests {
     #[test]
     fn test_glm_irls() {
         let nrows = 50;
-        let xs = MatRef::from_column_major_slice(XS.as_slice(), nrows, 4);
-        let m = Glm::irls::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 25);
+        let xs = MatRef::from_column_major_slice(XS.as_slice(), nrows, 5);
+        let m = Glm::irls::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 4);
         float_eq!(m.intercept().coef(), -0.10480279218218244152716);
         float_eq!(m.slopes()[0].coef(), 0.06970776481172229199768);
         float_eq!(m.slopes()[1].coef(), 0.31341357257259599977672);
@@ -1094,7 +1094,7 @@ mod tests {
     fn test_glm_newton_raphson() {
         let nrows = 50;
         let xs = MatRef::from_column_major_slice(XS.as_slice(), nrows, 4);
-        let m = Glm::newton_raphson::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 25);
+        let m = Glm::newton_raphson::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 5);
         float_eq!(m.intercept().coef(), -0.10480279218218244152716);
         float_eq!(m.slopes()[0].coef(), 0.06970776481172229199768);
         float_eq!(m.slopes()[1].coef(), 0.31341357257259599977672);
