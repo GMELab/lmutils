@@ -1,6 +1,7 @@
 use std::mem::MaybeUninit;
 
 use faer::{
+    diag::DiagRef,
     get_global_parallelism,
     linalg::solvers::{DenseSolveCore, Solve, SolveLstsqCore},
     mat::AsMatRef,
@@ -48,6 +49,7 @@ impl Glm {
         let mut intercept = 0.0;
         let mut z = vec![0.0; ys.len()];
         // let mut w = Mat::zeros(ys.len(), ys.len());
+        // let mut w = Mat::zeros(ys.len(), ys.len());
         let mut w = vec![0.0; ys.len()];
         let xt = x.transpose();
         let mut xtw = Mat::<f64>::zeros(x.ncols(), ys.len());
@@ -64,6 +66,7 @@ impl Glm {
                 *z = F::linkfun(*mu) + (y - mu) * F::mu_eta(*mu);
             }
             for (i, mu) in mu.iter().enumerate() {
+                // w[(i, i)] = 1.0 / (F::mu_eta(*mu).powi(2) * F::variance(*mu));
                 w[i] = 1.0 / (F::mu_eta(*mu).powi(2) * F::variance(*mu));
             }
 
@@ -77,6 +80,35 @@ impl Glm {
                             .for_each(|(i, x)| *x = xt[(i, j)] * w)
                     })
                 });
+            // (0..xtw.ncols()).into_par_iter().for_each(|c| {
+            //     let w = w[c];
+            //     let xtw = xtw.col(c).try_as_col_major().unwrap().as_slice();
+            //     let mut xtw =
+            //         unsafe { std::slice::from_raw_parts_mut(xtw.as_ptr().cast_mut(), xtw.len()) };
+            //     let xt = xt.col(c);
+            //     for r in 0..xtw.len() {
+            //         xtw[r] = xt[r] * w;
+            //     }
+            // });
+            // faer::linalg::matmul::matmul(
+            //     xtw.as_mut(),
+            //     faer::Accum::Replace,
+            //     xt,
+            //     &w,
+            //     1.0,
+            //     get_global_parallelism(),
+            // );
+            // faer::linalg::matmul::triangular::matmul(
+            //     xtw.as_mut(),
+            //     faer::linalg::matmul::triangular::BlockStructure::Rectangular,
+            //     faer::Accum::Replace,
+            //     xt,
+            //     faer::linalg::matmul::triangular::BlockStructure::Rectangular,
+            //     &w,
+            //     faer::linalg::matmul::triangular::BlockStructure::TriangularLower,
+            //     1.0,
+            //     get_global_parallelism(),
+            // );
             faer::linalg::matmul::matmul(
                 xtwx.as_mut(),
                 faer::Accum::Replace,
@@ -98,14 +130,11 @@ impl Glm {
                 Ok(chol) => chol.solve(&xtwz),
                 Err(_) => {
                     warn!("Using pseudo inverse");
-                    match xtwx.as_mat_ref().thin_svd() {
-                        Ok(m) => m.pseudoinverse() * &xtwz,
-                        Err(_) => {
-                            tracing::error!("Failed to compute SVD");
-                            converged = false;
-                            break;
-                        },
-                    }
+                    xtwx.as_mat_ref()
+                        .thin_svd()
+                        .expect("could not compute thin SVD for pseudoinverse")
+                        .pseudoinverse()
+                        * &xtwz
                 },
             };
             let b = beta

@@ -24,11 +24,13 @@ impl Debug for Arg {
 }
 
 fn main() -> std::io::Result<()> {
+    println!("Threads: {}", rayon::current_num_threads());
     let mut bench = Bench::new(BenchConfig::from_args()?);
     let mut rng = rand::rngs::StdRng::seed_from_u64(0);
-    let args = [1, 2, 3, 5];
+    let args = [1, 2, 3, 4];
+    // let args = [4];
     let args = args.iter().flat_map(|len| {
-        let nrow = 10_usize.pow(*len);
+        let nrow = 10_usize.pow(len + 2);
         args.iter()
             .map(|len| {
                 let ncol = 5_usize.pow(*len);
@@ -44,7 +46,13 @@ fn main() -> std::io::Result<()> {
             })
             .collect::<Vec<_>>()
     });
-    bench.register_many(list![irls, newton_raphson, r], args);
+    bench.register_many(
+        list![
+            irls, // newton_raphson,
+                  // r
+        ],
+        args,
+    );
     bench.run()?;
     Ok(())
 }
@@ -68,22 +76,20 @@ fn r(bencher: Bencher, Arg { nrow, ncol, xs, ys }: Arg) {
     File::new("glm.mat", lmutils::FileType::Mat, false)
         .write(&mut mat)
         .unwrap();
+    let mut mat = OwnedMatrix::new(nrow, 1, ys, None).into_matrix();
+    File::new("glm_ys.mat", lmutils::FileType::Mat, false)
+        .write(&mut mat)
+        .unwrap();
     std::fs::write(
         "glm.r",
-        format!(
-            r#"
+        r#"
             xs <- lmutils::load("glm.mat")[[1]]
-            ys <- c({})
+            ys <- lmutils::load("glm_ys.mat")[[1]][,1]
             start <- Sys.time()
             m <- glm(ys ~ xs, family = gaussian(link="identity"))
             elapsed <- Sys.time() - start
-            cat(as.character(as.numeric(elapsed), digits = 22))
+            cat(as.character(as.numeric(elapsed, units = "secs"), digits = 22))
             "#,
-            ys.iter()
-                .map(|y| y.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
     )
     .unwrap();
     let timings = (0..5)
@@ -105,4 +111,5 @@ fn r(bencher: Bencher, Arg { nrow, ncol, xs, ys }: Arg) {
     bencher.bench(|| std::thread::sleep(duration));
     std::fs::remove_file("glm.r").unwrap();
     std::fs::remove_file("glm.mat").unwrap();
+    std::fs::remove_file("glm_ys.mat").unwrap();
 }

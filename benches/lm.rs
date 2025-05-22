@@ -55,22 +55,20 @@ fn r(bencher: Bencher, Arg { nrow, ncol, xs, ys }: Arg) {
     File::new("lm.mat", lmutils::FileType::Mat, false)
         .write(&mut mat)
         .unwrap();
+    let mut mat = OwnedMatrix::new(nrow, 1, ys, None).into_matrix();
+    File::new("lm_ys.mat", lmutils::FileType::Mat, false)
+        .write(&mut mat)
+        .unwrap();
     std::fs::write(
         "lm.r",
-        format!(
-            r#"
+        r#"
             xs <- lmutils::load("lm.mat")[[1]]
-            ys <- c({})
+            ys <- lmutils::load("lm_ys.mat")[[1]][,1]
             start <- Sys.time()
             m <- lm(ys ~ xs)
             elapsed <- Sys.time() - start
-            cat(as.character(as.numeric(elapsed), digits = 22))
+            cat(as.character(as.numeric(elapsed, units = "secs"), digits = 22))
             "#,
-            ys.iter()
-                .map(|y| y.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
     )
     .unwrap();
     let timings = (0..5)
@@ -92,4 +90,5 @@ fn r(bencher: Bencher, Arg { nrow, ncol, xs, ys }: Arg) {
     bencher.bench(|| std::thread::sleep(duration));
     std::fs::remove_file("lm.r").unwrap();
     std::fs::remove_file("lm.mat").unwrap();
+    std::fs::remove_file("lm_ys.mat").unwrap();
 }
