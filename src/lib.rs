@@ -13,6 +13,7 @@ mod mean;
 mod norm;
 mod packing;
 mod r2;
+mod scale;
 mod spline;
 mod standardize;
 mod variance;
@@ -24,7 +25,7 @@ use tracing::{debug, debug_span, error, info, trace, warn};
 
 pub use crate::{
     calc::*, coef::*, error::*, file::*, glm::*, lm::*, matrix::*, mean::*, norm::*, packing::*,
-    r2::*, standardize::*, variance::*,
+    r2::*, scale::*, standardize::*, variance::*,
 };
 
 #[cfg_attr(coverage_nightly, coverage(off))]
