@@ -74,6 +74,8 @@ pub enum Error {
     Regex(#[from] regex::Error),
     #[error("eigen error")]
     Eigen(faer::linalg::evd::EvdError),
+    #[error("invalid scale length {0}")]
+    InvalidScaleLength(usize),
 }
 
 #[cfg(feature = "r")]

@@ -1857,6 +1857,25 @@ impl Matrix {
         self.set_colnames(colnames)?;
         Ok(self)
     }
+
+    pub fn t_scale_columns(&mut self, scale: Vec<f64>) -> &mut Self {
+        self.add_transformation(move |m| m.scale_columns(&scale))
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn scale_columns(&mut self, scale: &[f64]) -> Result<&mut Self, crate::Error> {
+        let ncols = self.ncols()?;
+        if scale.len() != 1 && scale.len() != ncols {
+            return Err(crate::Error::InvalidScaleLength(scale.len()));
+        }
+        if scale.len() == 1 {
+            crate::scale::scale_scalar_in_place(self.as_mat_mut()?, scale[0]);
+        } else {
+            crate::scale::scale_vector_in_place(self.as_mat_mut()?, scale);
+        }
+
+        Ok(self)
+    }
 }
 
 impl Matrix {
@@ -3663,5 +3682,49 @@ mod tests {
         )
         .into_matrix();
         assert!(!m.is_symmetric().unwrap());
+    }
+
+    #[test]
+    fn test_scale_columns_scalar() {
+        let mut m = OwnedMatrix::new(
+            3,
+            3,
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+            Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]),
+        )
+        .into_matrix();
+        let m = m.t_scale_columns(vec![2.0]);
+        assert_eq!(
+            m.data().unwrap(),
+            &[2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0]
+        );
+        assert_eq!(m.nrows().unwrap(), 3);
+        assert_eq!(m.ncols().unwrap(), 3);
+        assert_eq!(
+            m.colnames().unwrap().unwrap(),
+            &["a".to_string(), "b".to_string(), "c".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_scale_columns_vector() {
+        let mut m = OwnedMatrix::new(
+            3,
+            3,
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+            Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]),
+        )
+        .into_matrix();
+        let m = m.t_scale_columns(vec![2.0, 3.0, 4.0]);
+        assert_eq!(
+            m.data().unwrap(),
+            &[2.0, 4.0, 6.0, 12.0, 15.0, 18.0, 28.0, 32.0, 36.0]
+        );
+        assert_eq!(m.nrows().unwrap(), 3);
+        assert_eq!(m.ncols().unwrap(), 3);
+        assert_eq!(
+            m.colnames().unwrap().unwrap(),
+            &["a".to_string(), "b".to_string(), "c".to_string()]
+        );
     }
 }
