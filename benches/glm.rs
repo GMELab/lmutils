@@ -46,13 +46,7 @@ fn main() -> std::io::Result<()> {
             })
             .collect::<Vec<_>>()
     });
-    bench.register_many(
-        list![
-            irls, // newton_raphson,
-                  // r
-        ],
-        args,
-    );
+    bench.register_many(list![irls, newton_raphson, r], args);
     bench.run()?;
     Ok(())
 }
