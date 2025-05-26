@@ -94,7 +94,3 @@ harness = false
 [[bench]]
 name = "lm"
 harness = false
-
-[[bench]]
-name = "scale"
-harness = false
