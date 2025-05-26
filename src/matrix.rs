@@ -1864,14 +1864,53 @@ impl Matrix {
 
     #[tracing::instrument(skip(self))]
     pub fn scale_columns(&mut self, scale: &[f64]) -> Result<&mut Self, crate::Error> {
-        let ncols = self.ncols()?;
-        if scale.len() != 1 && scale.len() != ncols {
+        if scale.len() == 1 {
+            let mut mat = self.as_mat_mut()?;
+            let scale = scale[0];
+            for i in 0..mat.ncols() {
+                for j in 0..mat.nrows() {
+                    mat[(j, i)] *= scale;
+                }
+            }
+        } else if scale.len() == self.ncols()? {
+            let mut mat = self.as_mat_mut()?;
+            for i in 0..mat.ncols() {
+                let scale = scale[i];
+                for j in 0..mat.nrows() {
+                    mat[(j, i)] *= scale;
+                }
+            }
+        } else {
             return Err(crate::Error::InvalidScaleLength(scale.len()));
         }
+
+        Ok(self)
+    }
+
+    pub fn t_scale_rows(&mut self, scale: Vec<f64>) -> &mut Self {
+        self.add_transformation(move |m| m.scale_rows(&scale))
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn scale_rows(&mut self, scale: &[f64]) -> Result<&mut Self, crate::Error> {
         if scale.len() == 1 {
-            crate::scale::scale_scalar_in_place(self.as_mat_mut()?, scale[0]);
+            let mut mat = self.as_mat_mut()?;
+            let scale = scale[0];
+            for i in 0..mat.nrows() {
+                for j in 0..mat.ncols() {
+                    mat[(i, j)] *= scale;
+                }
+            }
+        } else if scale.len() == self.nrows()? {
+            let mut mat = self.as_mat_mut()?;
+            for i in 0..mat.nrows() {
+                let scale = scale[i];
+                for j in 0..mat.ncols() {
+                    mat[(i, j)] *= scale;
+                }
+            }
         } else {
-            crate::scale::scale_vector_in_place(self.as_mat_mut()?, scale);
+            return Err(crate::Error::InvalidScaleLength(scale.len()));
         }
 
         Ok(self)
@@ -3719,6 +3758,50 @@ mod tests {
         assert_eq!(
             m.data().unwrap(),
             &[2.0, 4.0, 6.0, 12.0, 15.0, 18.0, 28.0, 32.0, 36.0]
+        );
+        assert_eq!(m.nrows().unwrap(), 3);
+        assert_eq!(m.ncols().unwrap(), 3);
+        assert_eq!(
+            m.colnames().unwrap().unwrap(),
+            &["a".to_string(), "b".to_string(), "c".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_scale_rows_scalar() {
+        let mut m = OwnedMatrix::new(
+            3,
+            3,
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+            Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]),
+        )
+        .into_matrix();
+        let m = m.t_scale_rows(vec![2.0]);
+        assert_eq!(
+            m.data().unwrap(),
+            &[2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0]
+        );
+        assert_eq!(m.nrows().unwrap(), 3);
+        assert_eq!(m.ncols().unwrap(), 3);
+        assert_eq!(
+            m.colnames().unwrap().unwrap(),
+            &["a".to_string(), "b".to_string(), "c".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_scale_rows_vector() {
+        let mut m = OwnedMatrix::new(
+            3,
+            3,
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+            Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]),
+        )
+        .into_matrix();
+        let m = m.t_scale_rows(vec![2.0, 3.0, 4.0]);
+        assert_eq!(
+            m.data().unwrap(),
+            &[2.0, 6.0, 12.0, 8.0, 15.0, 24.0, 14.0, 24.0, 36.0]
         );
         assert_eq!(m.nrows().unwrap(), 3);
         assert_eq!(m.ncols().unwrap(), 3);
