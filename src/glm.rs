@@ -33,6 +33,7 @@ impl Glm {
         ys: &[f64],
         epsilon: f64,
         max_iterations: usize,
+        firth: bool,
     ) -> Self {
         let ncols = xs.ncols();
         let mut mu = ys.iter().map(|y| F::mu_start(*y)).collect::<Vec<_>>();
@@ -567,7 +568,7 @@ fn ll(p: &[f64], y: &[f64]) -> f64 {
         .sum()
 }
 
-pub trait Family<const FIRTH: bool = false> {
+pub trait Family {
     fn linkfun(mu: f64) -> f64;
     fn linkinv(eta: f64) -> f64;
     fn variance(mu: f64) -> f64;
@@ -1135,7 +1136,7 @@ mod tests {
     fn test_glm_irls() {
         let nrows = 50;
         let xs = MatRef::from_column_major_slice(XS.as_slice(), nrows, 4);
-        let m = Glm::irls::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 5);
+        let m = Glm::irls::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 5, false);
         float_eq!(m.intercept().coef(), -0.10480279218218244152716);
         float_eq!(m.slopes()[0].coef(), 0.06970776481172229199768);
         float_eq!(m.slopes()[1].coef(), 0.31341357257259599977672);
@@ -1171,7 +1172,7 @@ mod tests {
     fn test_glm_irls_predict() {
         let nrows = 50;
         let xs = MatRef::from_column_major_slice(XS.as_slice(), nrows, 4);
-        let m = Glm::irls::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 25);
+        let m = Glm::irls::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 25, false);
         float_eq!(
             m.predict::<family::BinomialLogit>(&[
                 -0.7639264113390733523801,
