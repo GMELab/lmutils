@@ -1,7 +1,5 @@
 use std::{convert::identity, io::Write, ops::SubAssign};
 
-use crate::{mean, variance};
-
 use faer::{
     diag::Diag,
     get_global_parallelism,
@@ -14,6 +12,8 @@ use rand_distr::{Distribution, StandardNormal};
 use rayon::{iter::IntoParallelIterator, prelude::*};
 use statrs::distribution::{ContinuousCDF, StudentsT};
 use tracing::{debug, error, trace, warn};
+
+use crate::{mean, variance};
 
 pub fn should_disable_predicted() -> bool {
     if cfg!(test) {

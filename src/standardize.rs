@@ -241,8 +241,7 @@ pub unsafe fn standardize_avx512_recip(data: &mut [f64], df: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mean::mean_naive;
-    use crate::variance::variance_naive;
+    use crate::{mean::mean_naive, variance::variance_naive};
 
     macro_rules! assert_float_eq {
         ($a:expr, $b:expr, $tol:expr) => {

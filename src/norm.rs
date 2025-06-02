@@ -73,7 +73,7 @@ pub fn qnorm5(p: f64, mu: f64, sigma: f64, lower_tail: bool, log_p: bool) -> f64
             return if lower_tail { left } else { right };
         }
     } else {
-        /* !log_p */
+        // !log_p
         if !(0.0..=1.0).contains(&p) {
             return f64::NAN;
         }
@@ -474,7 +474,7 @@ fn pnorm_both(x: f64, p: f64, i_tail: i32, log_p: bool) -> (f64, f64) {
         || (lower && -38.4674 < x && x < 8.2924)
         || (upper && -8.2924 < x && x < 38.4674)
     {
-        xsq = 1.0 / (x * x); /* (1./x)*(1./x) might be better */
+        xsq = 1.0 / (x * x); // (1./x)*(1./x) might be better
         xnum = p[5] * xsq;
         xden = xsq;
         for i in 0..4 {
@@ -611,8 +611,9 @@ pub fn dcauchy_inner(x: f64, location: f64, scale: f64, give_log: bool) -> f64 {
 mod tests {
     use std::f64::consts::FRAC_1_PI;
 
-    use super::*;
     use test_log::test;
+
+    use super::*;
 
     #[test]
     fn test_qnorm() {

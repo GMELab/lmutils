@@ -25,6 +25,7 @@ impl Lm {
             .next()
             .unwrap()
     }
+
     pub fn fit_many(xs: MatRef<'_, f64>, ys: MatRef<'_, f64>) -> Vec<Self> {
         let ncols = xs.ncols();
         let mut x = xs.to_owned();

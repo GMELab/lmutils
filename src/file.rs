@@ -61,7 +61,10 @@ impl File {
         if (self.file_type == FileType::Rdata || self.file_type == FileType::Rds)
             && std::env::var("LMUTILS_FD").is_err()
         {
-            use std::{io::Seek, os::fd::AsRawFd, os::unix::process::CommandExt};
+            use std::{
+                io::Seek,
+                os::{fd::AsRawFd, unix::process::CommandExt},
+            };
 
             let tmp_path = std::env::current_dir()
                 .unwrap_or_else(|_| std::env::temp_dir())
@@ -623,8 +626,8 @@ mod tests {
     //         vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
     //         Some(vec!["a".to_string(), "b".to_string()]),
     //     ));
-    //     let file = crate::File::new("tests/test.rds", crate::FileType::Rds, false);
-    //     file.write(&mut mat).unwrap();
+    //     let file = crate::File::new("tests/test.rds", crate::FileType::Rds,
+    // false);     file.write(&mut mat).unwrap();
     //     let mat2 = file.read().unwrap();
     //     assert_eq!(mat, mat2);
     // }

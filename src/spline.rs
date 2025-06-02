@@ -8,14 +8,14 @@ pub struct BsOptions<'a> {
     warn_outside: bool,
 }
 
-// pub fn bs(x: &[f64], BsOptions { df, knots, degree, intercept, boundary_knots, warn_outside }: BsOptions) {
-//     let ord = 1 + degree;
+// pub fn bs(x: &[f64], BsOptions { df, knots, degree, intercept,
+// boundary_knots, warn_outside }: BsOptions) {     let ord = 1 + degree;
 //     let outside = if let Some(boundary_knots) = boundary_knots {
 //         let boundary_knots = boundary_knots;
-//         let ol = x.iter().map(|&x| x < boundary_knots[0]).collect::<Vec<_>>();
-//         let or = x.iter().map(|&x| x > boundary_knots[1]).collect::<Vec<_>>();
-//         ol.iter().zip(or.iter()).map(|(&ol, &or)| ol || or).collect::<Vec<_>>()
-//     } else {
+//         let ol = x.iter().map(|&x| x <
+// boundary_knots[0]).collect::<Vec<_>>();         let or = x.iter().map(|&x| x
+// > boundary_knots[1]).collect::<Vec<_>>();         ol.iter().zip(or.iter()).
+// map(|(&ol, &or)| ol || or).collect::<Vec<_>>()     } else {
 //         vec![false; x.len()]
 //     };
 //     outside <- if(!missing(Boundary.knots)) {
@@ -33,13 +33,13 @@ pub struct BsOptions<'a> {
 //         knots <-
 //             if(nIknots > 0L) {
 //                 knots <- seq.int(from = 0, to = 1,
-//                                  length.out = nIknots + 2L)[-c(1L, nIknots + 2L)]
-//                 quantile(x[!outside], knots, names=FALSE)
+//                                  length.out = nIknots + 2L)[-c(1L, nIknots +
+// 2L)]                 quantile(x[!outside], knots, names=FALSE)
 //             }
 //     }
 //     else if(!all(is.finite(knots))) stop("non-finite knots")
-//     if(mk.knots && length(knots) && any(lrEq <- range(knots) %in% Boundary.knots)) {
-//         if(lrEq[1L]) {
+//     if(mk.knots && length(knots) && any(lrEq <- range(knots) %in%
+// Boundary.knots)) {         if(lrEq[1L]) {
 //             aE <- all(i <- knots == (piv <- Boundary.knots[1L]))
 //             if(aE)
 //                 warning("all interior knots match left boundary knot")
@@ -54,12 +54,12 @@ pub struct BsOptions<'a> {
 //                 knots[i] <- knots[i] - (piv - max(knots[knots < piv]))/8
 //         }
 //         if(!(lrEq[1L] && aE || lrEq[2L] && aE2)) # haven't warned yet
-//             warning("shoving 'interior' knots matching boundary knots to inside")
-//     }
+//             warning("shoving 'interior' knots matching boundary knots to
+// inside")     }
 //     Aknots <- sort(c(rep(Boundary.knots, ord), knots))
 //     if(any(outside)) {
-//         if(warn.outside) warning("some 'x' values beyond boundary knots may cause ill-conditioned bases")
-//         derivs <- 0:degree
+//         if(warn.outside) warning("some 'x' values beyond boundary knots may
+// cause ill-conditioned bases")         derivs <- 0:degree
 //         scalef <- gamma(1L:ord)# factorials
 //         basis <- array(0, c(length(x), length(Aknots) - degree - 1L))
 // 	e <- 1/4 # in theory anything in (0,1); was (implicitly) 0 in R <= 3.2.2
@@ -90,8 +90,8 @@ pub struct BsOptions<'a> {
 //         basis <- nmat
 //     }
 //     dimnames(basis) <- list(nx, 1L:n.col)
-//     a <- list(degree = degree, knots = if(is.null(knots)) numeric(0L) else knots,
-//               Boundary.knots = Boundary.knots, intercept = intercept)
+//     a <- list(degree = degree, knots = if(is.null(knots)) numeric(0L) else
+// knots,               Boundary.knots = Boundary.knots, intercept = intercept)
 //     attributes(basis) <- c(attributes(basis), a)
 //     class(basis) <- c("bs", "basis", "matrix")
 //     basis
@@ -125,15 +125,15 @@ pub struct BsOptions<'a> {
 //         knots <-
 //             if(nIknots > 0L) {
 //                 knots <- seq.int(from = 0, to = 1,
-//                                  length.out = nIknots + 2L)[-c(1L, nIknots + 2L)]
-//                 quantile(x[!outside], knots, names=FALSE)
+//                                  length.out = nIknots + 2L)[-c(1L, nIknots +
+// 2L)]                 quantile(x[!outside], knots, names=FALSE)
 //             }
 //     } else {
 //         if(!all(is.finite(knots))) stop("non-finite knots")
 //         nIknots <- length(knots)
 //     }
-//     if(mk.knots && length(knots) && any(lrEq <- range(knots) %in% Boundary.knots)) {
-//         if(lrEq[1L]) {
+//     if(mk.knots && length(knots) && any(lrEq <- range(knots) %in%
+// Boundary.knots)) {         if(lrEq[1L]) {
 //             i <- knots == (piv <- Boundary.knots[1L])
 //             if(all(i)) stop("all interior knots match left boundary knot")
 //             knots[i] <- knots[i] + (min(knots[knots > piv]) - piv)/8
@@ -164,14 +164,14 @@ pub struct BsOptions<'a> {
 //             basis[inside,  ] <- splineDesign(Aknots, x[inside], 4)
 //     }
 //     else basis <- splineDesign(Aknots, x, ord = 4L)
-//     const <- splineDesign(Aknots, Boundary.knots, ord = 4L, derivs = c(2L, 2L))
-//     if(!intercept) {
+//     const <- splineDesign(Aknots, Boundary.knots, ord = 4L, derivs = c(2L,
+// 2L))     if(!intercept) {
 //         const <- const[, -1 , drop = FALSE]
 //         basis <- basis[, -1 , drop = FALSE]
 //     }
 //     qr.const <- qr(t(const))
-//     basis <- as.matrix((t(qr.qty(qr.const, t(basis))))[,  - (1L:2L), drop = FALSE])
-//     n.col <- ncol(basis)
+//     basis <- as.matrix((t(qr.qty(qr.const, t(basis))))[,  - (1L:2L), drop =
+// FALSE])     n.col <- ncol(basis)
 //     if(nas) {
 //         nmat <- matrix(NA, length(nax), n.col)
 //         nmat[!nax, ] <- basis
@@ -211,32 +211,32 @@ pub struct BsOptions<'a> {
 //              domain = NA)
 //
 //     degree <- ord - 1L
-// ### FIXME: the 'outer.ok && need.outer' handling would more efficiently happen
-// ###        in the underlying C code - with some programming effort though..
-//     if(need.outer <- any(x < knots[ord] | knots[nk - degree] < x)) {
+// ### FIXME: the 'outer.ok && need.outer' handling would more efficiently
+// happen ###        in the underlying C code - with some programming effort
+// though..     if(need.outer <- any(x < knots[ord] | knots[nk - degree] < x)) {
 //         if(outer.ok) { ## x[] is allowed to be 'anywhere'
 // 	    in.x <- knots[1L] <= x & x <= knots[nk]
 // 	    if((x.out <- !all(in.x))) {
 // 		x <- x[in.x]
 // 		nnx <- length(x)
 // 	    }
-// 	    ## extend knots set "temporarily": the boundary knots must be repeated >= 'ord' times.
-//             ## NB: If these are already repeated originally, then, on the *right* only, we need
-//             ##    to make sure not to add more than needed
-//             dkn <- diff(knots)[(nk-1L):1] # >= 0, since they are sorted
-// 	    knots <- knots[c(rep.int(1L, degree),
+// 	    ## extend knots set "temporarily": the boundary knots must be repeated
+// >= 'ord' times.             ## NB: If these are already repeated originally,
+// then, on the *right* only, we need             ##    to make sure not to add
+// more than needed             dkn <- diff(knots)[(nk-1L):1] # >= 0, since they
+// are sorted 	    knots <- knots[c(rep.int(1L, degree),
 //                              seq_len(nk),
-//                              rep.int(nk, max(0L, ord - match(TRUE, dkn > 0))))]
-// 	} else
-// 	    stop(gettextf("the 'x' data must be in the range %g to %g unless you set '%s'",
-// 			  knots[ord], knots[nk - degree], "outer.ok = TRUE"),
+//                              rep.int(nk, max(0L, ord - match(TRUE, dkn >
+// 0))))] 	} else
+// 	    stop(gettextf("the 'x' data must be in the range %g to %g unless you set
+// '%s'", 			  knots[ord], knots[nk - degree], "outer.ok = TRUE"),
 // 		 domain = NA)
 //     }
 //     temp <- .Call(C_spline_basis, knots, ord, x, derivs)
 //     ncoef <- nk - ord
 //
-//     ii <- if(need.outer && x.out) { # only assign non-zero for x[]'s "inside" knots
-//         rep.int((1L:nx)[in.x], rep.int(ord, nnx))
+//     ii <- if(need.outer && x.out) { # only assign non-zero for x[]'s "inside"
+// knots         rep.int((1L:nx)[in.x], rep.int(ord, nnx))
 //     } else rep.int(1L:nx, rep.int(ord, nx))
 //     jj <- c(outer(1L:ord, attr(temp, "Offsets"), `+`))
 //     ## stopifnot(length(ii) == length(jj))
