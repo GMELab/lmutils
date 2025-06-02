@@ -46,7 +46,13 @@ fn main() -> std::io::Result<()> {
             })
             .collect::<Vec<_>>()
     });
-    bench.register_many(list![irls, newton_raphson, r], args);
+    bench.register_many(
+        list![
+            irls, // _newton_raphson,
+                  // r
+        ],
+        args,
+    );
     bench.run()?;
     Ok(())
 }
@@ -58,7 +64,7 @@ fn irls(bencher: Bencher, Arg { nrow, ncol, xs, ys }: Arg) {
     });
 }
 
-fn newton_raphson(bencher: Bencher, Arg { nrow, ncol, xs, ys }: Arg) {
+fn _newton_raphson(bencher: Bencher, Arg { nrow, ncol, xs, ys }: Arg) {
     let xs = MatRef::from_column_major_slice(xs.as_slice(), nrow, ncol);
     bencher.bench(|| {
         Glm::newton_raphson::<family::GaussianIdentity>(xs, &ys, 1e-8, 25);

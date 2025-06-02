@@ -16,6 +16,9 @@ use statrs::distribution::{ContinuousCDF, StudentsT};
 use tracing::{debug, error, trace, warn};
 
 pub fn should_disable_predicted() -> bool {
+    if cfg!(test) {
+        return false;
+    }
     let enabled = std::env::var("LMUTILS_ENABLE_PREDICTED").is_ok();
     let disabled = std::env::var("LMUTILS_DISABLE_PREDICTED").is_ok();
     // disabled overrides

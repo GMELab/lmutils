@@ -4,7 +4,7 @@ use faer::{
     diag::DiagRef,
     get_global_parallelism,
     linalg::solvers::{DenseSolveCore, Solve, SolveLstsqCore},
-    mat::AsMatRef,
+    mat::{AsMatMut, AsMatRef},
     prelude::SolveLstsq,
     Col, ColRef, Mat, MatRef,
 };
@@ -37,7 +37,7 @@ impl Glm {
         let ncols = xs.ncols();
         let mut mu = ys.iter().map(|y| F::mu_start(*y)).collect::<Vec<_>>();
         let mut delta = 1.0;
-        // let mut l = 0.0;
+        let mut l = 0.0;
         let mut x = xs.to_owned();
         x.resize_with(
             xs.nrows(),
@@ -57,10 +57,24 @@ impl Glm {
         let mut xtwz = Col::zeros(x.ncols());
         let mut i = 0;
         let mut converged = true;
-        let mut dev = 0.0;
-        for i in 0..ys.len() {
-            dev += F::dev_resids(ys[i], mu[i]);
-        }
+        // let mut dev = 0.0;
+        // for i in 0..ys.len() {
+        //     dev += F::dev_resids(ys[i], mu[i]);
+        // }
+
+        // cholesky scratch stuff
+        let par = faer::Par::Seq;
+        let n = xtwx.nrows();
+        let mut chol_l = Mat::zeros(n, n);
+        let mut mem = faer::dyn_stack::MemBuffer::new(
+            faer::linalg::cholesky::llt::factor::cholesky_in_place_scratch::<f64>(
+                n,
+                faer::Par::Seq,
+                Default::default(),
+            ),
+        );
+        let stack = faer::dyn_stack::MemStack::new(&mut mem);
+
         while delta > epsilon {
             for ((z, mu), y) in z.iter_mut().zip(mu.iter()).zip(ys) {
                 *z = F::linkfun(*mu) + (y - mu) * F::mu_eta(*mu);
@@ -70,26 +84,26 @@ impl Glm {
                 w[i] = 1.0 / (F::mu_eta(*mu).powi(2) * F::variance(*mu));
             }
 
-            xtw.par_col_chunks_mut(1)
-                .zip(w.par_iter())
-                .enumerate()
-                .for_each(|(j, (mut xtw, w))| {
-                    xtw.col_iter_mut().for_each(|x| {
-                        x.iter_mut()
-                            .enumerate()
-                            .for_each(|(i, x)| *x = xt[(i, j)] * w)
-                    })
-                });
-            // (0..xtw.ncols()).into_par_iter().for_each(|c| {
-            //     let w = w[c];
-            //     let xtw = xtw.col(c).try_as_col_major().unwrap().as_slice();
-            //     let mut xtw =
-            //         unsafe { std::slice::from_raw_parts_mut(xtw.as_ptr().cast_mut(), xtw.len()) };
-            //     let xt = xt.col(c);
-            //     for r in 0..xtw.len() {
-            //         xtw[r] = xt[r] * w;
-            //     }
-            // });
+            // xtw.par_col_chunks_mut(1)
+            //     .zip(w.par_iter())
+            //     .enumerate()
+            //     .for_each(|(j, (mut xtw, w))| {
+            //         xtw.col_iter_mut().for_each(|x| {
+            //             x.iter_mut()
+            //                 .enumerate()
+            //                 .for_each(|(i, x)| *x = xt[(i, j)] * w)
+            //         })
+            //     });
+            (0..xtw.ncols()).for_each(|c| {
+                let w = w[c];
+                let xtw = xtw.col(c).try_as_col_major().unwrap().as_slice();
+                let mut xtw =
+                    unsafe { std::slice::from_raw_parts_mut(xtw.as_ptr().cast_mut(), xtw.len()) };
+                let xt = xt.col(c);
+                for r in 0..xtw.len() {
+                    xtw[r] = xt[r] * w;
+                }
+            });
             // faer::linalg::matmul::matmul(
             //     xtw.as_mut(),
             //     faer::Accum::Replace,
@@ -109,25 +123,51 @@ impl Glm {
             //     1.0,
             //     get_global_parallelism(),
             // );
-            faer::linalg::matmul::matmul(
-                xtwx.as_mut(),
-                faer::Accum::Replace,
-                &xtw,
-                &x,
-                1.0,
-                get_global_parallelism(),
-            );
+            faer::linalg::matmul::matmul(xtwx.as_mut(), faer::Accum::Replace, &xtw, &x, 1.0, par);
             faer::linalg::matmul::matmul(
                 xtwz.as_mut(),
                 faer::Accum::Replace,
                 &xtw,
                 ColRef::from_slice(z.as_slice()),
                 1.0,
-                get_global_parallelism(),
+                par,
             );
 
-            let beta = match xtwx.llt(faer::Side::Lower) {
-                Ok(chol) => chol.solve(&xtwz),
+            // we inline this to use faer::Par::Seq
+            let llt = {
+                chol_l.as_mat_mut().copy_from_triangular_lower(&xtwx);
+
+                let res = faer::linalg::cholesky::llt::factor::cholesky_in_place(
+                    chol_l.as_mut(),
+                    Default::default(),
+                    par,
+                    stack,
+                    Default::default(),
+                );
+                match res {
+                    Ok(_) => {
+                        faer::zip!(&mut chol_l).for_each_triangular_upper(
+                            faer::linalg::zip::Diag::Skip,
+                            |faer::unzip!(x)| {
+                                *x = 0.0;
+                            },
+                        );
+                        Ok(())
+                    },
+                    Err(e) => Err(e),
+                }
+            };
+
+            let beta = match llt {
+                Ok(_) => {
+                    faer::linalg::cholesky::llt::solve::solve_in_place(
+                        chol_l.as_mat_ref(),
+                        xtwz.as_mat_mut(),
+                        par,
+                        stack,
+                    );
+                    xtwz.clone()
+                },
                 Err(_) => {
                     warn!("Using pseudo inverse");
                     xtwx.as_mat_ref()
@@ -151,14 +191,15 @@ impl Glm {
             for (mu, eta) in mu.iter_mut().zip(eta) {
                 *mu = F::linkinv(*eta);
             }
-            // let old_ll = l;
-            // l = ll(mu.as_slice(), ys);
-            let mut new_dev = 0.0;
-            for i in 0..ys.len() {
-                new_dev += F::dev_resids(ys[i], mu[i]);
-            }
-            delta = (new_dev - dev).abs();
-            dev = new_dev;
+            // let mut new_dev = 0.0;
+            // for i in 0..ys.len() {
+            //     new_dev += F::dev_resids(ys[i], mu[i]);
+            // }
+            // delta = (new_dev - dev).abs();
+            // dev = new_dev;
+            let old_ll = l;
+            l = ll(mu.as_slice(), ys);
+            delta = (l - old_ll).abs();
             if i >= max_iterations {
                 warn!("Did not converge after {} iterations", max_iterations);
                 converged = false;
@@ -526,12 +567,7 @@ fn ll(p: &[f64], y: &[f64]) -> f64 {
         .sum()
 }
 
-pub trait Link {
-    fn fun(mu: f64) -> f64;
-    fn inv(eta: f64) -> f64;
-}
-
-pub trait Family {
+pub trait Family<const FIRTH: bool = false> {
     fn linkfun(mu: f64) -> f64;
     fn linkinv(eta: f64) -> f64;
     fn variance(mu: f64) -> f64;

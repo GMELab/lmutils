@@ -48,8 +48,8 @@ libc = "0.2.155"
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)'] }
 
-[profile.bench]
-debug = true
+# [profile.bench]
+# debug = true
 
 [features]
 default = []
