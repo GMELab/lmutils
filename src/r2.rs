@@ -177,8 +177,8 @@ pub unsafe fn r2_avx512(actual: &[f64], predicted: &[f64]) -> f64 {
             // actual - mean
             "vsubpd zmm4, zmm4, zmm0",
             // square the differences
-            "vfmaddsub231pd zmm1, zmm3, zmm3",
-            "vfmaddsub231pd zmm2, zmm4, zmm4",
+            "vfmadd231pd zmm1, zmm3, zmm3",
+            "vfmadd231pd zmm2, zmm4, zmm4",
 
             "add rsi, 64",
             "add rdx, 64",
@@ -232,9 +232,15 @@ mod tests {
         };
     }
 
-    const DATA_1: &[f64] = &[1.0, 2.0, 3.0, 4.0, 5.0];
+    const DATA_1: &[f64] = &[
+        1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 3.0,
+        4.0, 5.0,
+    ];
     const R2_1: f64 = 1.0;
-    const DATA_2: &[f64] = &[1.0, 2.0, 3.0, 5.0, 6.0];
+    const DATA_2: &[f64] = &[
+        1.0, 2.0, 3.0, 5.0, 6.0, 1.0, 2.0, 3.0, 5.0, 6.0, 1.0, 2.0, 3.0, 5.0, 6.0, 1.0, 2.0, 3.0,
+        5.0, 6.0,
+    ];
     const R2_2: f64 = 0.8837209302325582;
 
     #[test]
