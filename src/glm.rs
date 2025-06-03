@@ -53,27 +53,53 @@ impl Glm {
         let xt = x.transpose();
         let mut xtw = Mat::<f64>::zeros(x.ncols(), ys.len());
         let mut xtwx = Mat::zeros(x.ncols(), x.ncols());
+        // each element of xtwz is the score function for the corresponding parameter
         let mut xtwz = Col::zeros(x.ncols());
-        let mut i = 0;
+        let mut iter = 0;
         let mut converged = true;
 
         // cholesky scratch stuff
-        let par = faer::Par::Seq;
+        // let par = faer::Par::Seq;
+        let par = get_global_parallelism();
         let n = xtwx.nrows();
         let mut chol_l = Mat::zeros(n, n);
-        let mut mem = faer::dyn_stack::MemBuffer::new(
+        let mut chol_mem = faer::dyn_stack::MemBuffer::new(
             faer::linalg::cholesky::llt::factor::cholesky_in_place_scratch::<f64>(
                 n,
                 faer::Par::Seq,
                 Default::default(),
             ),
         );
-        let stack = faer::dyn_stack::MemStack::new(&mut mem);
+        let chol_stack = faer::dyn_stack::MemStack::new(&mut chol_mem);
+
+        let mut inv_mem = faer::dyn_stack::MemBuffer::new(
+            faer::linalg::cholesky::llt::inverse::inverse_scratch::<f64>(n, par),
+        );
+        let inv_stack = faer::dyn_stack::MemStack::new(&mut inv_mem);
+
+        // For Firth penalization
+        let mut h_diag = if firth {
+            vec![0.0; ys.len()]
+        } else {
+            Vec::new()
+        };
+        let mut xtwx_inv = if firth {
+            Mat::zeros(n, n)
+        } else {
+            Mat::zeros(0, 0)
+        };
+        let mut x_xtwx_inv = if firth {
+            Mat::zeros(x.nrows(), n)
+        } else {
+            Mat::zeros(0, 0)
+        };
+        let mut firth_adjustment: Col<f64> = if firth {
+            Col::zeros(x.ncols())
+        } else {
+            Col::zeros(0)
+        };
 
         while delta > epsilon {
-            for ((z, mu), y) in z.iter_mut().zip(mu.iter()).zip(ys) {
-                *z = F::linkfun(*mu) + (y - mu) * F::mu_eta(*mu);
-            }
             for (i, mu) in mu.iter().enumerate() {
                 // w[(i, i)] = 1.0 / (F::mu_eta(*mu).powi(2) * F::variance(*mu));
                 w[i] = 1.0 / (F::mu_eta(*mu).powi(2) * F::variance(*mu));
@@ -119,14 +145,6 @@ impl Glm {
             //     get_global_parallelism(),
             // );
             faer::linalg::matmul::matmul(xtwx.as_mut(), faer::Accum::Replace, &xtw, &x, 1.0, par);
-            faer::linalg::matmul::matmul(
-                xtwz.as_mut(),
-                faer::Accum::Replace,
-                &xtw,
-                ColRef::from_slice(z.as_slice()),
-                1.0,
-                par,
-            );
 
             // we inline this to use faer::Par::Seq
             let llt = {
@@ -136,7 +154,7 @@ impl Glm {
                     chol_l.as_mut(),
                     Default::default(),
                     par,
-                    stack,
+                    chol_stack,
                     Default::default(),
                 );
                 match res {
@@ -153,13 +171,84 @@ impl Glm {
                 }
             };
 
+            // Apply Firth penalization if enabled
+            if firth {
+                // Calculate the inverse of xtwx (information matrix)
+                match llt {
+                    Ok(_) => {
+                        // Create identity matrix
+                        xtwx_inv.fill(0.0);
+                        for j in 0..n {
+                            xtwx_inv[(j, j)] = 1.0;
+                        }
+
+                        // Solve for inverse using Cholesky decomposition
+
+                        faer::linalg::cholesky::llt::inverse::inverse(
+                            xtwx_inv.as_mut(),
+                            chol_l.as_ref(),
+                            par,
+                            inv_stack,
+                        );
+
+                        // make self adjoint (symmetric across the diagonal)
+                        for j in 0..xtwx_inv.nrows() {
+                            for i in 0..j {
+                                xtwx_inv[(i, j)] = xtwx_inv[(j, i)];
+                            }
+                        }
+
+                        faer::linalg::matmul::matmul(
+                            x_xtwx_inv.as_mut(),
+                            faer::Accum::Replace,
+                            &x,
+                            xtwx_inv.as_ref(),
+                            1.0,
+                            par,
+                        );
+
+                        // Calculate hat matrix diagonal elements (leverage values)
+                        // We have x_xtwx_inv as X * (X'WX)^(-1)
+                        // Now we need to calculate the diagonal of H = W * X * (X'WX)^(-1) * X'
+                        for i in 0..5 {
+                            let mut h_i = 0.0;
+                            for j in 0..n {
+                                h_i += x_xtwx_inv[(i, j)] * xt[(j, i)];
+                            }
+                            h_diag[i] = w[i] * h_i;
+                        }
+
+                        // Calculate working variable
+                        for i in 0..ys.len() {
+                            let adj = (0.5 * F::k3i_k2i(mu[i]) * h_diag[i]);
+                            z[i] = F::linkfun(mu[i]) + (ys[i] + adj - mu[i]) * F::mu_eta(mu[i]);
+                        }
+                    },
+                    Err(_) => {
+                        warn!("Could not compute Firth adjustment due to matrix inversion failure");
+                    },
+                }
+            } else {
+                for ((z, mu), y) in z.iter_mut().zip(mu.iter()).zip(ys) {
+                    *z = F::linkfun(*mu) + (y - mu) * F::mu_eta(*mu);
+                }
+            }
+            faer::linalg::matmul::matmul(
+                xtwz.as_mut(),
+                faer::Accum::Replace,
+                &xtw,
+                ColRef::from_slice(z.as_slice()),
+                1.0,
+                par,
+            );
+
             let beta = match llt {
                 Ok(_) => {
                     faer::linalg::cholesky::llt::solve::solve_in_place(
                         chol_l.as_mat_ref(),
                         xtwz.as_mat_mut(),
                         par,
-                        stack,
+                        chol_stack,
                     );
                     xtwz.clone()
                 },
@@ -193,20 +282,36 @@ impl Glm {
             // delta = (new_dev - dev).abs();
             // dev = new_dev;
             let old_ll = l;
-            l = ll(mu.as_slice(), ys);
+            l = if firth {
+                // Add the log determinant of the information matrix to the log-likelihood
+                let log_det = match llt {
+                    Ok(_) => {
+                        // For Cholesky decomposition, det = prod(diag(L))^2
+                        let mut det = 1.0;
+                        for j in 0..n {
+                            det *= chol_l[(j, j)];
+                        }
+                        2.0 * det.ln() // log(det) = 2 * sum(log(diag(L)))
+                    },
+                    Err(_) => 0.0, // In case of failure, don't adjust
+                };
+                ll(mu.as_slice(), ys) + 0.5 * log_det
+            } else {
+                ll(mu.as_slice(), ys)
+            };
             delta = (l - old_ll).abs();
-            if i >= max_iterations {
+            if iter >= max_iterations {
                 warn!("Did not converge after {} iterations", max_iterations);
                 converged = false;
                 break;
             }
-            i += 1;
+            iter += 1;
         }
         if converged {
-            debug!("Converged after {} iterations", i);
+            debug!("Converged after {} iterations", iter);
         }
 
-        let r2 = R2Simd::new(ys, &mu).calculate();
+        let r2 = crate::r2(ys, &mu);
         let adj_r2 = calculate_adj_r2(r2, ys.len(), xs.ncols());
 
         if should_disable_predicted() {
@@ -569,6 +674,7 @@ pub trait Family {
     fn mu_eta(eta: f64) -> f64;
     fn dev_resids(y: f64, mu: f64) -> f64;
     fn mu_start(y: f64) -> f64;
+    fn k3i_k2i(mu: f64) -> f64;
 }
 
 #[inline(always)]
@@ -610,63 +716,67 @@ pub mod family {
         fn mu_start(y: f64) -> f64 {
             y
         }
-    }
 
-    /// Gaussian family with log link function
-    pub struct GaussianLog;
-    impl Family for GaussianLog {
-        fn linkfun(mu: f64) -> f64 {
-            mu.ln()
-        }
-
-        fn linkinv(eta: f64) -> f64 {
-            eta.exp().max(f64::EPSILON)
-        }
-
-        fn variance(_mu: f64) -> f64 {
-            1.0
-        }
-
-        fn mu_eta(eta: f64) -> f64 {
-            eta.exp().max(f64::EPSILON)
-        }
-
-        fn dev_resids(y: f64, mu: f64) -> f64 {
-            (y - mu).powi(2)
-        }
-
-        fn mu_start(y: f64) -> f64 {
-            y
+        fn k3i_k2i(mu: f64) -> f64 {
+            0.0
         }
     }
 
-    /// Gaussian family with inverse link function
-    pub struct GaussianInverse;
-    impl Family for GaussianInverse {
-        fn linkfun(mu: f64) -> f64 {
-            1.0 / mu
-        }
+    // /// Gaussian family with log link function
+    // pub struct GaussianLog;
+    // impl Family for GaussianLog {
+    //     fn linkfun(mu: f64) -> f64 {
+    //         mu.ln()
+    //     }
+    //
+    //     fn linkinv(eta: f64) -> f64 {
+    //         eta.exp().max(f64::EPSILON)
+    //     }
+    //
+    //     fn variance(_mu: f64) -> f64 {
+    //         1.0
+    //     }
+    //
+    //     fn mu_eta(eta: f64) -> f64 {
+    //         eta.exp().max(f64::EPSILON)
+    //     }
+    //
+    //     fn dev_resids(y: f64, mu: f64) -> f64 {
+    //         (y - mu).powi(2)
+    //     }
+    //
+    //     fn mu_start(y: f64) -> f64 {
+    //         y
+    //     }
+    // }
 
-        fn linkinv(eta: f64) -> f64 {
-            1.0 / eta
-        }
-
-        fn variance(mu: f64) -> f64 {
-            1.0
-        }
-
-        fn mu_eta(eta: f64) -> f64 {
-            -1.0 / eta.powi(2)
-        }
-
-        fn dev_resids(y: f64, mu: f64) -> f64 {
-            (y - mu).powi(2)
-        }
-
-        fn mu_start(y: f64) -> f64 {
-            y
-        }
-    }
+    // /// Gaussian family with inverse link function
+    // pub struct GaussianInverse;
+    // impl Family for GaussianInverse {
+    //     fn linkfun(mu: f64) -> f64 {
+    //         1.0 / mu
+    //     }
+    //
+    //     fn linkinv(eta: f64) -> f64 {
+    //         1.0 / eta
+    //     }
+    //
+    //     fn variance(mu: f64) -> f64 {
+    //         1.0
+    //     }
+    //
+    //     fn mu_eta(eta: f64) -> f64 {
+    //         -1.0 / eta.powi(2)
+    //     }
+    //
+    //     fn dev_resids(y: f64, mu: f64) -> f64 {
+    //         (y - mu).powi(2)
+    //     }
+    //
+    //     fn mu_start(y: f64) -> f64 {
+    //         y
+    //     }
+    // }
 
     /// Binomial family with logit link function
     pub struct BinomialLogit;
@@ -694,124 +804,128 @@ pub mod family {
         fn mu_start(y: f64) -> f64 {
             (y + 0.5) / 2.0
         }
-    }
 
-    /// Binomial family with probit link function
-    pub struct BinomialProbit;
-    impl Family for BinomialProbit {
-        fn linkfun(mu: f64) -> f64 {
-            qnorm(mu)
-        }
-
-        fn linkinv(eta: f64) -> f64 {
-            let thresh = qnorm(f64::EPSILON);
-            pnorm(eta.clamp(-thresh, thresh))
-        }
-
-        fn variance(mu: f64) -> f64 {
-            mu * (1.0 - mu)
-        }
-
-        fn mu_eta(eta: f64) -> f64 {
-            dnorm(eta).max(f64::EPSILON)
-        }
-
-        fn dev_resids(y: f64, mu: f64) -> f64 {
-            2.0 * (y_log_y(y, mu) + y_log_y(1.0 - y, 1.0 - mu))
-        }
-
-        fn mu_start(y: f64) -> f64 {
-            (y + 0.5) / 2.0
+        fn k3i_k2i(mu: f64) -> f64 {
+            1.0 - 2.0 * mu
         }
     }
 
-    /// Binomial family with cauchit link function
-    pub struct BinomialCauchit;
-    impl Family for BinomialCauchit {
-        fn linkfun(mu: f64) -> f64 {
-            qcauchy(mu)
-        }
+    // /// Binomial family with probit link function
+    // pub struct BinomialProbit;
+    // impl Family for BinomialProbit {
+    //     fn linkfun(mu: f64) -> f64 {
+    //         qnorm(mu)
+    //     }
+    //
+    //     fn linkinv(eta: f64) -> f64 {
+    //         let thresh = qnorm(f64::EPSILON);
+    //         pnorm(eta.clamp(-thresh, thresh))
+    //     }
+    //
+    //     fn variance(mu: f64) -> f64 {
+    //         mu * (1.0 - mu)
+    //     }
+    //
+    //     fn mu_eta(eta: f64) -> f64 {
+    //         dnorm(eta).max(f64::EPSILON)
+    //     }
+    //
+    //     fn dev_resids(y: f64, mu: f64) -> f64 {
+    //         2.0 * (y_log_y(y, mu) + y_log_y(1.0 - y, 1.0 - mu))
+    //     }
+    //
+    //     fn mu_start(y: f64) -> f64 {
+    //         (y + 0.5) / 2.0
+    //     }
+    // }
 
-        fn linkinv(eta: f64) -> f64 {
-            let thresh = qcauchy(f64::EPSILON);
-            qcauchy(eta.clamp(-thresh, thresh))
-        }
+    // /// Binomial family with cauchit link function
+    // pub struct BinomialCauchit;
+    // impl Family for BinomialCauchit {
+    //     fn linkfun(mu: f64) -> f64 {
+    //         qcauchy(mu)
+    //     }
+    //
+    //     fn linkinv(eta: f64) -> f64 {
+    //         let thresh = qcauchy(f64::EPSILON);
+    //         qcauchy(eta.clamp(-thresh, thresh))
+    //     }
+    //
+    //     fn variance(mu: f64) -> f64 {
+    //         mu * (1.0 - mu)
+    //     }
+    //
+    //     fn mu_eta(eta: f64) -> f64 {
+    //         dcauchy(eta).max(f64::EPSILON)
+    //     }
+    //
+    //     fn dev_resids(y: f64, mu: f64) -> f64 {
+    //         2.0 * (y_log_y(y, mu) + y_log_y(1.0 - y, 1.0 - mu))
+    //     }
+    //
+    //     fn mu_start(y: f64) -> f64 {
+    //         (y + 0.5) / 2.0
+    //     }
+    // }
 
-        fn variance(mu: f64) -> f64 {
-            mu * (1.0 - mu)
-        }
+    // /// Binomial family with log link function
+    // pub struct BinomialLog;
+    // impl Family for BinomialLog {
+    //     fn linkfun(mu: f64) -> f64 {
+    //         mu.ln()
+    //     }
+    //
+    //     fn linkinv(eta: f64) -> f64 {
+    //         eta.exp().max(f64::EPSILON)
+    //     }
+    //
+    //     fn variance(mu: f64) -> f64 {
+    //         mu * (1.0 - mu)
+    //     }
+    //
+    //     fn mu_eta(eta: f64) -> f64 {
+    //         eta.exp().max(f64::EPSILON)
+    //     }
+    //
+    //     fn dev_resids(y: f64, mu: f64) -> f64 {
+    //         2.0 * (y_log_y(y, mu) + y_log_y(1.0 - y, 1.0 - mu))
+    //     }
+    //
+    //     fn mu_start(y: f64) -> f64 {
+    //         (y + 0.5) / 2.0
+    //     }
+    // }
 
-        fn mu_eta(eta: f64) -> f64 {
-            dcauchy(eta).max(f64::EPSILON)
-        }
-
-        fn dev_resids(y: f64, mu: f64) -> f64 {
-            2.0 * (y_log_y(y, mu) + y_log_y(1.0 - y, 1.0 - mu))
-        }
-
-        fn mu_start(y: f64) -> f64 {
-            (y + 0.5) / 2.0
-        }
-    }
-
-    /// Binomial family with log link function
-    pub struct BinomialLog;
-    impl Family for BinomialLog {
-        fn linkfun(mu: f64) -> f64 {
-            mu.ln()
-        }
-
-        fn linkinv(eta: f64) -> f64 {
-            eta.exp().max(f64::EPSILON)
-        }
-
-        fn variance(mu: f64) -> f64 {
-            mu * (1.0 - mu)
-        }
-
-        fn mu_eta(eta: f64) -> f64 {
-            eta.exp().max(f64::EPSILON)
-        }
-
-        fn dev_resids(y: f64, mu: f64) -> f64 {
-            2.0 * (y_log_y(y, mu) + y_log_y(1.0 - y, 1.0 - mu))
-        }
-
-        fn mu_start(y: f64) -> f64 {
-            (y + 0.5) / 2.0
-        }
-    }
-
-    /// Binomial family with complementary log-log link function
-    pub struct BinomialComplementaryLogLog;
-    impl Family for BinomialComplementaryLogLog {
-        fn linkfun(mu: f64) -> f64 {
-            (-(1.0 - mu).ln()).ln()
-        }
-
-        fn linkinv(eta: f64) -> f64 {
-            (-(-eta).exp())
-                .exp_m1()
-                .clamp(f64::EPSILON, 1.0 - f64::EPSILON)
-        }
-
-        fn variance(mu: f64) -> f64 {
-            mu * (1.0 - mu)
-        }
-
-        fn mu_eta(eta: f64) -> f64 {
-            let eta = eta.min(700.0);
-            (eta.exp() * (-eta.exp()).exp()).max(f64::EPSILON)
-        }
-
-        fn dev_resids(y: f64, mu: f64) -> f64 {
-            2.0 * (y_log_y(y, mu) + y_log_y(1.0 - y, 1.0 - mu))
-        }
-
-        fn mu_start(y: f64) -> f64 {
-            (y + 0.5) / 2.0
-        }
-    }
+    // /// Binomial family with complementary log-log link function
+    // pub struct BinomialComplementaryLogLog;
+    // impl Family for BinomialComplementaryLogLog {
+    //     fn linkfun(mu: f64) -> f64 {
+    //         (-(1.0 - mu).ln()).ln()
+    //     }
+    //
+    //     fn linkinv(eta: f64) -> f64 {
+    //         (-(-eta).exp())
+    //             .exp_m1()
+    //             .clamp(f64::EPSILON, 1.0 - f64::EPSILON)
+    //     }
+    //
+    //     fn variance(mu: f64) -> f64 {
+    //         mu * (1.0 - mu)
+    //     }
+    //
+    //     fn mu_eta(eta: f64) -> f64 {
+    //         let eta = eta.min(700.0);
+    //         (eta.exp() * (-eta.exp()).exp()).max(f64::EPSILON)
+    //     }
+    //
+    //     fn dev_resids(y: f64, mu: f64) -> f64 {
+    //         2.0 * (y_log_y(y, mu) + y_log_y(1.0 - y, 1.0 - mu))
+    //     }
+    //
+    //     fn mu_start(y: f64) -> f64 {
+    //         (y + 0.5) / 2.0
+    //     }
+    // }
 
     /// Gamma family with inverse link function
     pub struct GammaInverse;
@@ -839,63 +953,67 @@ pub mod family {
         fn mu_start(y: f64) -> f64 {
             y
         }
-    }
 
-    /// Gamma family with identity link function
-    pub struct GammaIdentity;
-    impl Family for GammaIdentity {
-        fn linkfun(mu: f64) -> f64 {
+        fn k3i_k2i(mu: f64) -> f64 {
             mu
         }
-
-        fn linkinv(eta: f64) -> f64 {
-            eta
-        }
-
-        fn variance(mu: f64) -> f64 {
-            mu.powi(2)
-        }
-
-        fn mu_eta(_eta: f64) -> f64 {
-            1.0
-        }
-
-        fn dev_resids(y: f64, mu: f64) -> f64 {
-            -2.0 * ((if y == 0.0 { 1.0 } else { y / mu }).ln() - ((y - mu) / mu))
-        }
-
-        fn mu_start(y: f64) -> f64 {
-            y
-        }
     }
 
-    /// Gamma family with log link function
-    pub struct GammaLog;
-    impl Family for GammaLog {
-        fn linkfun(mu: f64) -> f64 {
-            mu.ln()
-        }
+    // /// Gamma family with identity link function
+    // pub struct GammaIdentity;
+    // impl Family for GammaIdentity {
+    //     fn linkfun(mu: f64) -> f64 {
+    //         mu
+    //     }
+    //
+    //     fn linkinv(eta: f64) -> f64 {
+    //         eta
+    //     }
+    //
+    //     fn variance(mu: f64) -> f64 {
+    //         mu.powi(2)
+    //     }
+    //
+    //     fn mu_eta(_eta: f64) -> f64 {
+    //         1.0
+    //     }
+    //
+    //     fn dev_resids(y: f64, mu: f64) -> f64 {
+    //         -2.0 * ((if y == 0.0 { 1.0 } else { y / mu }).ln() - ((y - mu) / mu))
+    //     }
+    //
+    //     fn mu_start(y: f64) -> f64 {
+    //         y
+    //     }
+    // }
 
-        fn linkinv(eta: f64) -> f64 {
-            eta.exp().max(f64::EPSILON)
-        }
-
-        fn variance(mu: f64) -> f64 {
-            mu.powi(2)
-        }
-
-        fn mu_eta(eta: f64) -> f64 {
-            eta.exp().max(f64::EPSILON)
-        }
-
-        fn dev_resids(y: f64, mu: f64) -> f64 {
-            -2.0 * ((if y == 0.0 { 1.0 } else { y / mu }).ln() - ((y - mu) / mu))
-        }
-
-        fn mu_start(y: f64) -> f64 {
-            y
-        }
-    }
+    // /// Gamma family with log link function
+    // pub struct GammaLog;
+    // impl Family for GammaLog {
+    //     fn linkfun(mu: f64) -> f64 {
+    //         mu.ln()
+    //     }
+    //
+    //     fn linkinv(eta: f64) -> f64 {
+    //         eta.exp().max(f64::EPSILON)
+    //     }
+    //
+    //     fn variance(mu: f64) -> f64 {
+    //         mu.powi(2)
+    //     }
+    //
+    //     fn mu_eta(eta: f64) -> f64 {
+    //         eta.exp().max(f64::EPSILON)
+    //     }
+    //
+    //     fn dev_resids(y: f64, mu: f64) -> f64 {
+    //         -2.0 * ((if y == 0.0 { 1.0 } else { y / mu }).ln() - ((y - mu) / mu))
+    //     }
+    //
+    //     fn mu_start(y: f64) -> f64 {
+    //         y
+    //     }
+    // }
 
     /// Poisson family with log link function
     pub struct PoissonLog;
@@ -927,183 +1045,187 @@ pub mod family {
         fn mu_start(y: f64) -> f64 {
             y + 0.1
         }
-    }
 
-    /// Poisson family with identity link function
-    pub struct PoissonIdentity;
-    impl Family for PoissonIdentity {
-        fn linkfun(mu: f64) -> f64 {
-            mu
-        }
-
-        fn linkinv(eta: f64) -> f64 {
-            eta
-        }
-
-        fn variance(mu: f64) -> f64 {
-            mu
-        }
-
-        fn mu_eta(_eta: f64) -> f64 {
+        fn k3i_k2i(mu: f64) -> f64 {
             1.0
         }
-
-        fn dev_resids(y: f64, mu: f64) -> f64 {
-            2.0 * if y == 0.0 {
-                mu
-            } else {
-                y * (y / mu).ln() - (y - mu)
-            }
-        }
-
-        fn mu_start(y: f64) -> f64 {
-            y + 0.1
-        }
     }
 
-    /// Poisson family with sqrt link function
-    pub struct PoissonSqrt;
-    impl Family for PoissonSqrt {
-        fn linkfun(mu: f64) -> f64 {
-            mu.sqrt()
-        }
+    // /// Poisson family with identity link function
+    // pub struct PoissonIdentity;
+    // impl Family for PoissonIdentity {
+    //     fn linkfun(mu: f64) -> f64 {
+    //         mu
+    //     }
+    //
+    //     fn linkinv(eta: f64) -> f64 {
+    //         eta
+    //     }
+    //
+    //     fn variance(mu: f64) -> f64 {
+    //         mu
+    //     }
+    //
+    //     fn mu_eta(_eta: f64) -> f64 {
+    //         1.0
+    //     }
+    //
+    //     fn dev_resids(y: f64, mu: f64) -> f64 {
+    //         2.0 * if y == 0.0 {
+    //             mu
+    //         } else {
+    //             y * (y / mu).ln() - (y - mu)
+    //         }
+    //     }
+    //
+    //     fn mu_start(y: f64) -> f64 {
+    //         y + 0.1
+    //     }
+    // }
 
-        fn linkinv(eta: f64) -> f64 {
-            eta.powi(2)
-        }
+    // /// Poisson family with sqrt link function
+    // pub struct PoissonSqrt;
+    // impl Family for PoissonSqrt {
+    //     fn linkfun(mu: f64) -> f64 {
+    //         mu.sqrt()
+    //     }
+    //
+    //     fn linkinv(eta: f64) -> f64 {
+    //         eta.powi(2)
+    //     }
+    //
+    //     fn variance(mu: f64) -> f64 {
+    //         mu
+    //     }
+    //
+    //     fn mu_eta(eta: f64) -> f64 {
+    //         2.0 * eta
+    //     }
+    //
+    //     fn dev_resids(y: f64, mu: f64) -> f64 {
+    //         2.0 * if y == 0.0 {
+    //             mu
+    //         } else {
+    //             y * (y / mu).ln() - (y - mu)
+    //         }
+    //     }
+    //
+    //     fn mu_start(y: f64) -> f64 {
+    //         y + 0.1
+    //     }
+    // }
 
-        fn variance(mu: f64) -> f64 {
-            mu
-        }
+    // /// Inverse Gaussian family with 1/mu^2 link function
+    // pub struct InverseGaussian;
+    // impl Family for InverseGaussian {
+    //     fn linkfun(mu: f64) -> f64 {
+    //         1.0 / mu.powi(2)
+    //     }
+    //
+    //     fn linkinv(eta: f64) -> f64 {
+    //         1.0 / eta.sqrt()
+    //     }
+    //
+    //     fn variance(mu: f64) -> f64 {
+    //         mu.powi(3)
+    //     }
+    //
+    //     fn mu_eta(eta: f64) -> f64 {
+    //         -1.0 / (2.0 * eta.powf(1.5))
+    //     }
+    //
+    //     fn dev_resids(y: f64, mu: f64) -> f64 {
+    //         (y - mu).powi(2) / (y * mu.powi(2))
+    //     }
+    //
+    //     fn mu_start(y: f64) -> f64 {
+    //         y
+    //     }
+    // }
 
-        fn mu_eta(eta: f64) -> f64 {
-            2.0 * eta
-        }
+    // /// Inverse Gaussian family with inverse link function
+    // pub struct InverseGaussianInverse;
+    // impl Family for InverseGaussianInverse {
+    //     fn linkfun(mu: f64) -> f64 {
+    //         1.0 / mu
+    //     }
+    //
+    //     fn linkinv(eta: f64) -> f64 {
+    //         1.0 / eta
+    //     }
+    //
+    //     fn variance(mu: f64) -> f64 {
+    //         mu.powi(3)
+    //     }
+    //
+    //     fn mu_eta(eta: f64) -> f64 {
+    //         -1.0 / eta.powi(2)
+    //     }
+    //
+    //     fn dev_resids(y: f64, mu: f64) -> f64 {
+    //         (y - mu).powi(2) / (y * mu.powi(2))
+    //     }
+    //
+    //     fn mu_start(y: f64) -> f64 {
+    //         y
+    //     }
+    // }
 
-        fn dev_resids(y: f64, mu: f64) -> f64 {
-            2.0 * if y == 0.0 {
-                mu
-            } else {
-                y * (y / mu).ln() - (y - mu)
-            }
-        }
+    // /// Inverse Gaussian family with identity link function
+    // pub struct InverseGaussianIdentity;
+    // impl Family for InverseGaussianIdentity {
+    //     fn linkfun(mu: f64) -> f64 {
+    //         mu
+    //     }
+    //
+    //     fn linkinv(eta: f64) -> f64 {
+    //         eta
+    //     }
+    //
+    //     fn variance(mu: f64) -> f64 {
+    //         mu.powi(3)
+    //     }
+    //
+    //     fn mu_eta(_eta: f64) -> f64 {
+    //         1.0
+    //     }
+    //
+    //     fn dev_resids(y: f64, mu: f64) -> f64 {
+    //         (y - mu).powi(2) / (y * mu.powi(2))
+    //     }
+    //
+    //     fn mu_start(y: f64) -> f64 {
+    //         y
+    //     }
+    // }
 
-        fn mu_start(y: f64) -> f64 {
-            y + 0.1
-        }
-    }
-
-    /// Inverse Gaussian family with 1/mu^2 link function
-    pub struct InverseGaussian;
-    impl Family for InverseGaussian {
-        fn linkfun(mu: f64) -> f64 {
-            1.0 / mu.powi(2)
-        }
-
-        fn linkinv(eta: f64) -> f64 {
-            1.0 / eta.sqrt()
-        }
-
-        fn variance(mu: f64) -> f64 {
-            mu.powi(3)
-        }
-
-        fn mu_eta(eta: f64) -> f64 {
-            -1.0 / (2.0 * eta.powf(1.5))
-        }
-
-        fn dev_resids(y: f64, mu: f64) -> f64 {
-            (y - mu).powi(2) / (y * mu.powi(2))
-        }
-
-        fn mu_start(y: f64) -> f64 {
-            y
-        }
-    }
-
-    /// Inverse Gaussian family with inverse link function
-    pub struct InverseGaussianInverse;
-    impl Family for InverseGaussianInverse {
-        fn linkfun(mu: f64) -> f64 {
-            1.0 / mu
-        }
-
-        fn linkinv(eta: f64) -> f64 {
-            1.0 / eta
-        }
-
-        fn variance(mu: f64) -> f64 {
-            mu.powi(3)
-        }
-
-        fn mu_eta(eta: f64) -> f64 {
-            -1.0 / eta.powi(2)
-        }
-
-        fn dev_resids(y: f64, mu: f64) -> f64 {
-            (y - mu).powi(2) / (y * mu.powi(2))
-        }
-
-        fn mu_start(y: f64) -> f64 {
-            y
-        }
-    }
-
-    /// Inverse Gaussian family with identity link function
-    pub struct InverseGaussianIdentity;
-    impl Family for InverseGaussianIdentity {
-        fn linkfun(mu: f64) -> f64 {
-            mu
-        }
-
-        fn linkinv(eta: f64) -> f64 {
-            eta
-        }
-
-        fn variance(mu: f64) -> f64 {
-            mu.powi(3)
-        }
-
-        fn mu_eta(_eta: f64) -> f64 {
-            1.0
-        }
-
-        fn dev_resids(y: f64, mu: f64) -> f64 {
-            (y - mu).powi(2) / (y * mu.powi(2))
-        }
-
-        fn mu_start(y: f64) -> f64 {
-            y
-        }
-    }
-
-    /// Inverse Gaussian family with log link function
-    pub struct InverseGaussianLog;
-    impl Family for InverseGaussianLog {
-        fn linkfun(mu: f64) -> f64 {
-            mu.ln()
-        }
-
-        fn linkinv(eta: f64) -> f64 {
-            eta.exp().max(f64::EPSILON)
-        }
-
-        fn variance(mu: f64) -> f64 {
-            mu.powi(3)
-        }
-
-        fn mu_eta(eta: f64) -> f64 {
-            eta.exp().max(f64::EPSILON)
-        }
-
-        fn dev_resids(y: f64, mu: f64) -> f64 {
-            (y - mu).powi(2) / (y * mu.powi(2))
-        }
-
-        fn mu_start(y: f64) -> f64 {
-            y
-        }
-    }
+    // /// Inverse Gaussian family with log link function
+    // pub struct InverseGaussianLog;
+    // impl Family for InverseGaussianLog {
+    //     fn linkfun(mu: f64) -> f64 {
+    //         mu.ln()
+    //     }
+    //
+    //     fn linkinv(eta: f64) -> f64 {
+    //         eta.exp().max(f64::EPSILON)
+    //     }
+    //
+    //     fn variance(mu: f64) -> f64 {
+    //         mu.powi(3)
+    //     }
+    //
+    //     fn mu_eta(eta: f64) -> f64 {
+    //         eta.exp().max(f64::EPSILON)
+    //     }
+    //
+    //     fn dev_resids(y: f64, mu: f64) -> f64 {
+    //         (y - mu).powi(2) / (y * mu.powi(2))
+    //     }
+    //
+    //     fn mu_start(y: f64) -> f64 {
+    //         y
+    //     }
+    // }
 }
 
 #[cfg(test)]
@@ -1135,7 +1257,7 @@ mod tests {
         float_eq!(m.slopes()[1].coef(), SLOPES[1]);
         float_eq!(m.slopes()[2].coef(), SLOPES[2]);
         float_eq!(m.slopes()[3].coef(), SLOPES[3]);
-        panic!("{}", crate::r2(YS.as_slice(), m.predicted()));
+        // panic!("{}", crate::r2(YS.as_slice(), m.predicted()));
     }
 
     // #[test]
@@ -1183,6 +1305,21 @@ mod tests {
             m.predicted()[0]
         );
     }
+
+    // #[test]
+    // fn test_glm_irls_firth() {
+    //     let nrows = 50;
+    //     let xs = MatRef::from_column_major_slice(XS.as_slice(), nrows, 4);
+    //     let m = Glm::irls::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 25, false);
+    //     println!("R2: {}", m.r2());
+    //     println!("Slopes: {:?}", m.slopes());
+    //     println!("Intercept: {:?}", m.intercept());
+    //     let m = Glm::irls::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 250, true);
+    //     println!("R2: {}", m.r2());
+    //     println!("Slopes: {:?}", m.slopes());
+    //     println!("Intercept: {:?}", m.intercept());
+    //     panic!();
+    // }
 
     #[rustfmt::skip]
     pub mod data {

@@ -1,7 +1,7 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, num::NonZero};
 
 use diol::prelude::*;
-use faer::MatRef;
+use faer::{set_global_parallelism, MatRef};
 use lmutils::{family, File, Glm, IntoMatrix, OwnedMatrix};
 use rand::SeedableRng;
 use rand_distr::Distribution;
@@ -49,6 +49,9 @@ fn main() -> std::io::Result<()> {
     bench.register_many(
         list![
             irls, // _newton_raphson,
+            irls_seq,
+            irls_firth,
+            irls_firth_seq,
             r
         ],
         args,
@@ -59,8 +62,37 @@ fn main() -> std::io::Result<()> {
 
 fn irls(bencher: Bencher, Arg { nrow, ncol, xs, ys }: Arg) {
     let xs = MatRef::from_column_major_slice(xs.as_slice(), nrow, ncol);
+    set_global_parallelism(faer::Par::Rayon(
+        NonZero::new(rayon::current_num_threads()).unwrap(),
+    ));
     bencher.bench(|| {
         Glm::irls::<family::GaussianIdentity>(xs, &ys, 1e-8, 25, false);
+    });
+}
+
+fn irls_seq(bencher: Bencher, Arg { nrow, ncol, xs, ys }: Arg) {
+    let xs = MatRef::from_column_major_slice(xs.as_slice(), nrow, ncol);
+    set_global_parallelism(faer::Par::Seq);
+    bencher.bench(|| {
+        Glm::irls::<family::GaussianIdentity>(xs, &ys, 1e-8, 25, false);
+    });
+}
+
+fn irls_firth(bencher: Bencher, Arg { nrow, ncol, xs, ys }: Arg) {
+    let xs = MatRef::from_column_major_slice(xs.as_slice(), nrow, ncol);
+    set_global_parallelism(faer::Par::Rayon(
+        NonZero::new(rayon::current_num_threads()).unwrap(),
+    ));
+    bencher.bench(|| {
+        Glm::irls::<family::GaussianIdentity>(xs, &ys, 1e-8, 25, true);
+    });
+}
+
+fn irls_firth_seq(bencher: Bencher, Arg { nrow, ncol, xs, ys }: Arg) {
+    let xs = MatRef::from_column_major_slice(xs.as_slice(), nrow, ncol);
+    set_global_parallelism(faer::Par::Seq);
+    bencher.bench(|| {
+        Glm::irls::<family::GaussianIdentity>(xs, &ys, 1e-8, 25, true);
     });
 }
 
