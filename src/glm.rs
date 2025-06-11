@@ -220,8 +220,10 @@ impl Glm {
 
                         // Calculate working variable
                         for i in 0..ys.len() {
-                            let adj = (0.5 * F::k3i_k2i(mu[i]) * h_diag[i]);
+                            let adj = (F::k3i_k2i(mu[i]) * h_diag[i]) / 2.0;
                             z[i] = F::linkfun(mu[i]) + (ys[i] + adj - mu[i]) * F::mu_eta(mu[i]);
+                            // let adj = h_diag[i] * (0.5 - mu[i]) / (mu[i] * (1.0 - mu[i]));
+                            // z[i] = (F::linkfun(mu[i]) + (ys[i] - mu[i]) * F::mu_eta(mu[i])) + adj;
                         }
                     },
                     Err(_) => {
@@ -316,6 +318,10 @@ impl Glm {
 
         if should_disable_predicted() {
             mu = Vec::new();
+        }
+
+        for mu in &mut mu {
+            *mu = F::linkinv(*mu);
         }
 
         Self {
