@@ -471,6 +471,7 @@ impl Glm {
                     0.0,
                 )))
                 .collect(),
+            r2_tjur: crate::compute_r2_tjur(ys, &mu),
             predicted: mu,
             r2,
             adj_r2,
@@ -623,6 +624,7 @@ impl Glm {
                     0.0,
                 )))
                 .collect(),
+            r2_tjur: crate::compute_r2_tjur(ys, &predicted),
             predicted,
             r2,
             adj_r2,
