@@ -937,6 +937,24 @@ fn logistic_regression_glm(xs: MatRef<'_, f64>, ys: &[f64]) -> LogisticModel {
     }
 }
 
+// actual is the actual values (0, 1), predicted is the predicted probabilities
+pub fn compute_r2_tjur(actual: &[f64], predicted: &[f64]) -> f64 {
+    let mut ones_sum = 0.0;
+    let mut zeros_sum = 0.0;
+    let mut ones_count = 0.0;
+    let mut zeros_count = 0.0;
+    for (a, p) in actual.iter().zip(predicted.iter()) {
+        if *a == 1.0 {
+            ones_sum += p;
+            ones_count += 1.0;
+        } else {
+            zeros_sum += p;
+            zeros_count += 1.0;
+        }
+    }
+    ((ones_sum / ones_count) - (zeros_sum / zeros_count)).abs()
+}
+
 #[cfg(test)]
 mod tests {
     use faer::RowRef;
