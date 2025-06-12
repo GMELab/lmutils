@@ -653,6 +653,10 @@ impl Glm {
         self.adj_r2
     }
 
+    pub fn r2_tjur(&self) -> f64 {
+        self.r2_tjur
+    }
+
     pub fn predict<F: Family>(&self, x: &[f64]) -> f64 {
         let mut v = self.intercept().coef();
         let slopes = self.slopes();
