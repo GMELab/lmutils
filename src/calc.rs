@@ -952,7 +952,7 @@ pub fn compute_r2_tjur(actual: &[f64], predicted: &[f64]) -> f64 {
             zeros_count += 1.0;
         }
     }
-    ((ones_sum / ones_count) - (zeros_sum / zeros_count)).abs()
+    ((ones_sum / ones_count) - (zeros_sum / zeros_count))
 }
 
 #[cfg(test)]
