@@ -211,7 +211,7 @@ impl Glm {
                         // Calculate hat matrix diagonal elements (leverage values)
                         // We have x_xtwx_inv as X * (X'WX)^(-1)
                         // Now we need to calculate the diagonal of H = W * X * (X'WX)^(-1) * X'
-                        for i in 0..5 {
+                        for i in 0..ys.len() {
                             let mut h_i = 0.0;
                             for j in 0..n {
                                 h_i += x_xtwx_inv[(i, j)] * xt[(j, i)];
