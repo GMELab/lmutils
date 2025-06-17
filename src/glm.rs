@@ -307,7 +307,7 @@ impl Glm {
                 break;
             }
             iter += 1;
-            trace!(delta, slopes, intercept, "Iteration {}", iter);
+            trace!(delta, slopes = ?slopes, intercept, "Iteration {}", iter);
         }
         if converged {
             debug!("Converged after {} iterations", iter);
