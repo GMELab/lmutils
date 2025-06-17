@@ -11,7 +11,7 @@ use faer::{
 use rayon::iter::{
     IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
 };
-use tracing::{debug, warn};
+use tracing::{debug, trace, warn};
 
 use crate::{calculate_adj_r2, coef::Coef, should_disable_predicted, R2Simd};
 
@@ -307,6 +307,7 @@ impl Glm {
                 break;
             }
             iter += 1;
+            trace!(delta, slopes, intercept, "Iteration {}", iter);
         }
         if converged {
             debug!("Converged after {} iterations", iter);
