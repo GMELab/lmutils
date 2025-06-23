@@ -1287,7 +1287,6 @@ mod tests {
         float_eq!(m.slopes()[1].coef(), SLOPES[1]);
         float_eq!(m.slopes()[2].coef(), SLOPES[2]);
         float_eq!(m.slopes()[3].coef(), SLOPES[3]);
-        panic!("{:?}", m.coefs);
     }
 
     // #[test]
