@@ -687,6 +687,10 @@ impl Glm {
         }
         F::linkinv(v)
     }
+
+    pub fn coefs(&self) -> &[Coef] {
+        &self.coefs
+    }
 }
 
 #[inline(always)]
