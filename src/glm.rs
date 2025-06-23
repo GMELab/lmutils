@@ -13,7 +13,7 @@ use rayon::iter::{
 };
 use tracing::{debug, trace, warn};
 
-use crate::{calculate_adj_r2, coef::Coef, should_disable_predicted, R2Simd};
+use crate::{calculate_adj_r2, coef::Coef, pnorm, should_disable_predicted, R2Simd};
 
 #[derive(Debug, Clone)]
 pub struct Glm {
@@ -84,11 +84,7 @@ impl Glm {
         } else {
             Vec::new()
         };
-        let mut xtwx_inv = if firth {
-            Mat::zeros(n, n)
-        } else {
-            Mat::zeros(0, 0)
-        };
+        let mut xtwx_inv = Mat::zeros(n, n);
         let mut x_xtwx_inv = if firth {
             Mat::zeros(x.nrows(), n)
         } else {
@@ -313,6 +309,32 @@ impl Glm {
             debug!("Converged after {} iterations", iter);
         }
 
+        // firth penalization already has the fisher information matrix so we don't need to
+        // compute it again
+        if !firth {
+            // Create identity matrix
+            xtwx_inv.fill(0.0);
+            for j in 0..n {
+                xtwx_inv[(j, j)] = 1.0;
+            }
+
+            // Solve for inverse using Cholesky decomposition
+
+            faer::linalg::cholesky::llt::inverse::inverse(
+                xtwx_inv.as_mut(),
+                chol_l.as_ref(),
+                par,
+                inv_stack,
+            );
+
+            // make self adjoint (symmetric across the diagonal)
+            for j in 0..xtwx_inv.nrows() {
+                for i in 0..j {
+                    xtwx_inv[(i, j)] = xtwx_inv[(j, i)];
+                }
+            }
+        }
+
         let r2 = crate::r2(ys, &mu);
         let adj_r2 = calculate_adj_r2(r2, ys.len(), xs.ncols());
 
@@ -325,18 +347,17 @@ impl Glm {
                 .into_iter()
                 .enumerate()
                 .map(|(i, coef)| {
-                    let std_err = 0.0;
-                    let t = 0.0;
-                    let p = 0.0;
+                    let std_err = xtwx_inv[(i, i)].sqrt();
+                    let t = coef / std_err;
+                    let p = 2.0 * (1.0 - pnorm(t.abs()));
                     Coef::new(format!("x[{}]", i), coef, std_err, t, p)
                 })
-                .chain(std::iter::once(Coef::new(
-                    "(Intercept)",
-                    intercept,
-                    0.0,
-                    0.0,
-                    0.0,
-                )))
+                .chain(std::iter::once({
+                    let std_err = xtwx_inv[(ncols, ncols)].sqrt();
+                    let t = intercept / std_err;
+                    let p = 2.0 * (1.0 - pnorm(t.abs()));
+                    Coef::new("(Intercept)", intercept, std_err, t, p)
+                }))
                 .collect(),
             r2_tjur: crate::compute_r2_tjur(ys, &mu),
             predicted: mu,
@@ -1266,7 +1287,7 @@ mod tests {
         float_eq!(m.slopes()[1].coef(), SLOPES[1]);
         float_eq!(m.slopes()[2].coef(), SLOPES[2]);
         float_eq!(m.slopes()[3].coef(), SLOPES[3]);
-        // panic!("{}", crate::r2(YS.as_slice(), m.predicted()));
+        panic!("{:?}", m.coefs);
     }
 
     // #[test]
