@@ -1,6 +1,6 @@
 [package]
 name = "lmutils"
-version = "0.2.67"
+version = "0.2.68"
 edition = "2021"
 description = "A set of utilities for working with linear regression models"
 license = "MIT"
