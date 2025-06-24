@@ -35,6 +35,7 @@ impl Glm {
         epsilon: f64,
         max_iterations: usize,
         firth: bool,
+        colnames: Option<&[String]>,
     ) -> Self {
         let ncols = xs.ncols();
         let mut mu = ys.iter().map(|y| F::mu_start(*y)).collect::<Vec<_>>();
@@ -350,7 +351,12 @@ impl Glm {
                     let std_err = xtwx_inv[(i, i)].sqrt();
                     let t = coef / std_err;
                     let p = 2.0 * (1.0 - pnorm(t.abs()));
-                    Coef::new(format!("x[{}]", i), coef, std_err, t, p)
+                    let label = if let Some(colname) = colnames.and_then(|cn| cn.get(i)) {
+                        colname.clone()
+                    } else {
+                        format!("x[{}]", i)
+                    };
+                    Coef::new(label, coef, std_err, t, p)
                 })
                 .chain(std::iter::once({
                     let std_err = xtwx_inv[(ncols, ncols)].sqrt();
@@ -1285,7 +1291,7 @@ mod tests {
     fn test_glm_irls() {
         let nrows = 50;
         let xs = MatRef::from_column_major_slice(XS.as_slice(), nrows, 4);
-        let m = Glm::irls::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 25, false);
+        let m = Glm::irls::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 25, false, None);
         float_eq!(m.intercept().coef(), INTERCEPT);
         float_eq!(m.slopes()[0].coef(), SLOPES[0]);
         float_eq!(m.slopes()[1].coef(), SLOPES[1]);
@@ -1321,7 +1327,7 @@ mod tests {
     fn test_glm_irls_predict() {
         let nrows = 50;
         let xs = MatRef::from_column_major_slice(XS.as_slice(), nrows, 4);
-        let m = Glm::irls::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 25, false);
+        let m = Glm::irls::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 25, false, None);
         float_eq!(
             m.predict::<family::BinomialLogit>(&[XS[0], XS[50], XS[100], XS[150]]),
             m.predicted()[0]
