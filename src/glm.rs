@@ -351,8 +351,8 @@ impl Glm {
                     let std_err = xtwx_inv[(i, i)].sqrt();
                     let t = coef / std_err;
                     let p = 2.0 * (1.0 - pnorm(t.abs()));
-                    let label = if let Some(colname) = colnames.and_then(|cn| cn.get(i)) {
-                        colname.clone()
+                    let label = if let Some(colname) = colnames.as_ref().and_then(|cn| cn.get(i)) {
+                        colname.to_string()
                     } else {
                         format!("x[{}]", i)
                     };
