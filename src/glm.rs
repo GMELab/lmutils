@@ -35,7 +35,7 @@ impl Glm {
         epsilon: f64,
         max_iterations: usize,
         firth: bool,
-        colnames: Option<&[String]>,
+        colnames: Option<Vec<&str>>,
     ) -> Self {
         let ncols = xs.ncols();
         let mut mu = ys.iter().map(|y| F::mu_start(*y)).collect::<Vec<_>>();
