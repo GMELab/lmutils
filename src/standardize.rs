@@ -30,7 +30,8 @@ pub fn standardize_recip(data: &mut [f64], df: usize) {
 
 #[inline(always)]
 pub fn standardize_naive(data: &mut [f64], df: usize) {
-    let (mean, std) = variance_naive(data, df);
+    let (mean, var) = variance_naive(data, df);
+    let std = var.sqrt();
     for x in data.iter_mut() {
         *x = (*x - mean) / std;
     }
@@ -38,7 +39,8 @@ pub fn standardize_naive(data: &mut [f64], df: usize) {
 
 #[inline(always)]
 pub fn standardize_naive_recip(data: &mut [f64], df: usize) {
-    let (mean, std) = variance_naive(data, df);
+    let (mean, var) = variance_naive(data, df);
+    let std = var.sqrt();
     let std_recip = 1.0 / std;
     for x in data.iter_mut() {
         *x = (*x - mean) * std_recip;
@@ -47,7 +49,8 @@ pub fn standardize_naive_recip(data: &mut [f64], df: usize) {
 
 #[inline(always)]
 pub unsafe fn standardize_sse4(data: &mut [f64], df: usize) {
-    let (mean, std) = variance_sse4(data, df);
+    let (mean, var) = variance_sse4(data, df);
+    let std = var.sqrt();
     core::arch::asm!(
         // xmm0 = mean
         "movddup xmm0, xmm0",
@@ -74,7 +77,8 @@ pub unsafe fn standardize_sse4(data: &mut [f64], df: usize) {
 
 #[inline(always)]
 pub unsafe fn standardize_sse4_recip(data: &mut [f64], df: usize) {
-    let (mean, std) = variance_sse4(data, df);
+    let (mean, var) = variance_sse4(data, df);
+    let std = var.sqrt();
     let std_recip = 1.0 / std;
     core::arch::asm!(
         // xmm0 = mean
@@ -106,7 +110,8 @@ pub unsafe fn standardize_sse4_recip(data: &mut [f64], df: usize) {
 
 #[inline(always)]
 pub unsafe fn standardize_avx2(data: &mut [f64], df: usize) {
-    let (mean, std) = variance_avx2(data, df);
+    let (mean, var) = variance_avx2(data, df);
+    let std = var.sqrt();
     core::arch::asm!(
         // ymm0 = mean
         "vbroadcastsd ymm0, xmm0",
@@ -139,7 +144,8 @@ pub unsafe fn standardize_avx2(data: &mut [f64], df: usize) {
 
 #[inline(always)]
 pub unsafe fn standardize_avx2_recip(data: &mut [f64], df: usize) {
-    let (mean, std) = variance_avx2(data, df);
+    let (mean, var) = variance_avx2(data, df);
+    let std = var.sqrt();
     let std_recip = 1.0 / std;
     core::arch::asm!(
         // ymm0 = mean
@@ -173,7 +179,8 @@ pub unsafe fn standardize_avx2_recip(data: &mut [f64], df: usize) {
 
 #[inline(always)]
 pub unsafe fn standardize_avx512(data: &mut [f64], df: usize) {
-    let (mean, std) = variance_avx512(data, df);
+    let (mean, var) = variance_avx512(data, df);
+    let std = var.sqrt();
     core::arch::asm!(
         // zmm0 = mean
         "vbroadcastsd zmm0, xmm0",
@@ -206,7 +213,8 @@ pub unsafe fn standardize_avx512(data: &mut [f64], df: usize) {
 
 #[inline(always)]
 pub unsafe fn standardize_avx512_recip(data: &mut [f64], df: usize) {
-    let (mean, std) = variance_avx512(data, df);
+    let (mean, var) = variance_avx512(data, df);
+    let std = var.sqrt();
     let std_recip = 1.0 / std;
     core::arch::asm!(
         // zmm0 = mean
@@ -260,14 +268,14 @@ mod tests {
     }
 
     const EXPECTED: &[f64] = &[
-        -0.5833333333333334,
-        -0.4166666666666667,
-        -0.25,
-        -0.08333333333333333,
-        0.08333333333333333,
-        0.25,
-        0.4166666666666667,
-        0.5833333333333334,
+        -1.4288690166235207,
+        -1.0206207261596576,
+        -0.6123724356957946,
+        -0.20412414523193154,
+        0.20412414523193154,
+        0.6123724356957946,
+        1.0206207261596576,
+        1.4288690166235207,
     ];
 
     fn data_nan() -> Vec<f64> {
@@ -275,14 +283,14 @@ mod tests {
     }
 
     const EXPECTED_NAN: &[f64] = &[
-        -0.5136986301369861,
-        -0.36986301369863006,
-        -0.2260273972602739,
+        -1.3544880821826935,
+        -0.9752314191715392,
+        -0.595974756160385,
         f64::NAN,
-        0.06164383561643838,
-        0.20547945205479454,
-        0.3493150684931507,
-        0.4931506849315068,
+        0.1625385698619233,
+        0.5417952328730775,
+        0.9210518958842316,
+        1.3003085588953858,
     ];
 
     #[test]
