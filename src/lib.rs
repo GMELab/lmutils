@@ -1,5 +1,10 @@
 #![cfg_attr(coverage_nightly, feature(coverage_attribute))]
-#![allow(dead_code, unused, clippy::excessive_precision)]
+#![allow(
+    dead_code,
+    unused,
+    clippy::excessive_precision,
+    clippy::uninlined_format_args
+)]
 mod calc;
 mod coef;
 mod error;
