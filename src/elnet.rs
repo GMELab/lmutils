@@ -33,11 +33,11 @@ impl Default for ElnetControl {
 
 #[derive(Debug, Clone)]
 pub struct ElnetResult {
-    beta: Col<f64>,
-    iters: usize,
-    lambda: f64,
-    r2: f64,
-    mse: f64,
+    pub beta: Col<f64>,
+    pub iters: usize,
+    pub lambda: f64,
+    pub r2: f64,
+    pub mse: f64,
 }
 
 /// Coordinate descent for Elastic Net regression.
