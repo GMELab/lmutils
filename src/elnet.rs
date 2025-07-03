@@ -206,8 +206,8 @@ pub fn elnet(
 /// Then, align each model to the master lambda sequence and use that to determine the best model.
 /// Then return the best model across all folds.
 pub fn cv_elnet(
-    x: Mat<f64>,
-    y: Col<f64>,
+    x: MatRef<f64>,
+    y: ColRef<f64>,
     alpha: f64,
     nfolds: usize,
     folds: Option<Vec<usize>>,
@@ -215,7 +215,7 @@ pub fn cv_elnet(
     control: ElnetControl,
 ) -> ElnetResult {
     let folds = folds.unwrap_or_else(|| split_folds(x.nrows(), nfolds));
-    let mut xs = x.clone();
+    let mut xs = x.to_owned();
     let means = x
         .col_iter()
         .map(|col| crate::mean(col.try_as_col_major().unwrap().as_slice()))
