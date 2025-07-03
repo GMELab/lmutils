@@ -6,7 +6,7 @@ use tracing::warn;
 /// The returned vector indicates which fold each sample belongs to.
 pub fn split_folds(n: usize, k: usize) -> Vec<usize> {
     let mut indices: Vec<usize> = (0..n).map(|i| i % k).collect();
-    indices.shuffle(&mut rand::rng());
+    indices.shuffle(&mut rand::thread_rng());
     indices
 }
 
