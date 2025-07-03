@@ -146,7 +146,7 @@ pub fn elnet(
                 );
                 // we don't want this model
                 if i > 1 && r2 < old_r2 {
-                    println!(
+                    warn!(
                         "R-squared decreased from {} to {} at iteration {}",
                         old_r2, r2, i
                     );
@@ -239,16 +239,9 @@ pub fn cv_elnet(
         }
     }
     // this gets used as s in the call to lambda_interp
-    let master_lambdas = lambdas
-        .clone()
-        .unwrap_or_else(|| lambda_sequence(xs.as_ref(), y.as_ref(), alpha, control.nlambda));
-    println!(
-        "Master lambda sequence: {:?}",
-        master_lambdas
-            .iter()
-            .map(|l| format!("{:.6}", l))
-            .collect::<Vec<_>>()
-    );
+    // let master_lambdas = lambdas
+    //     .clone()
+    //     .unwrap_or_else(|| lambda_sequence(xs.as_ref(), y.as_ref(), alpha, control.nlambda));
     let mut results = Vec::with_capacity(nfolds * lambdas.as_ref().map_or(1, |l| l.len()));
     for fold in 0..nfolds {
         let fold = folds
