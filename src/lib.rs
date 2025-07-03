@@ -29,8 +29,8 @@ use rayon::prelude::*;
 use tracing::{debug, debug_span, error, info, trace, warn};
 
 pub use crate::{
-    calc::*, coef::*, error::*, file::*, glm::*, lm::*, matrix::*, mean::*, norm::*, packing::*,
-    r2::*, standardize::*, variance::*,
+    calc::*, coef::*, elnet::*, error::*, file::*, glm::*, lm::*, matrix::*, mean::*, norm::*,
+    packing::*, r2::*, standardize::*, variance::*,
 };
 
 #[cfg_attr(coverage_nightly, coverage(off))]
