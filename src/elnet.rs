@@ -210,11 +210,16 @@ pub fn cv_elnet(
     y: ColRef<f64>,
     alpha: f64,
     nfolds: usize,
-    folds: Option<Vec<usize>>,
+    folds: Option<&[usize]>,
     lambdas: Option<Vec<f64>>,
     control: ElnetControl,
 ) -> ElnetResult {
-    let folds = folds.unwrap_or_else(|| split_folds(x.nrows(), nfolds));
+    let split_folds = if folds.is_none() {
+        split_folds(x.nrows(), nfolds)
+    } else {
+        Vec::new()
+    };
+    let folds = folds.unwrap_or(&split_folds);
     let mut xs = x.to_owned();
     let means = x
         .col_iter()
