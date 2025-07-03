@@ -7,6 +7,7 @@
 )]
 mod calc;
 mod coef;
+mod elnet;
 mod error;
 mod file;
 mod gam;
