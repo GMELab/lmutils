@@ -5,9 +5,7 @@ use lmutils::{mean_avx2, mean_avx512, mean_naive, mean_sse4};
 fn main() -> std::io::Result<()> {
     let mut bench = Bench::new(BenchConfig::from_args()?);
     bench.register_many(
-        list![naive, sse, avx2, avx512
-            // , faer_
-            ],
+        list![naive, sse, avx2, avx512, faer_],
         [8, 80, 800, 8000, 80000, 800000, 8000000],
     );
     bench.run()?;
