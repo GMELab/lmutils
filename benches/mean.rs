@@ -5,7 +5,9 @@ use lmutils::{mean_avx2, mean_avx512, mean_naive, mean_sse4};
 fn main() -> std::io::Result<()> {
     let mut bench = Bench::new(BenchConfig::from_args()?);
     bench.register_many(
-        list![naive, sse, avx2, avx512, faer_],
+        list![naive, sse, avx2, avx512
+            // , faer_
+            ],
         [8, 80, 800, 8000, 80000, 800000, 8000000],
     );
     bench.run()?;
@@ -24,7 +26,7 @@ fn data(len: usize) -> Vec<f64> {
 fn naive(bencher: Bencher, len: usize) {
     let data = data(len);
     bencher.bench(|| {
-        mean_naive(&data);
+        std::hint::black_box(mean_naive(&data));
     });
 }
 

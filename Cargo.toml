@@ -94,3 +94,13 @@ harness = false
 [[bench]]
 name = "lm"
 harness = false
+
+[profile.bench]
+inherits = "release"
+opt-level = 3
+debug = false
+strip = "none"
+lto = true
+codegen-units = 1
+incremental = false
+panic = "abort"
