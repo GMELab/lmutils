@@ -53,13 +53,12 @@ impl Lm {
                 .expect("could not get slice")
                 .as_slice()
                 .to_vec();
-            let r2 = R2Simd::new(
+            let r2 = crate::r2(
                 y.try_as_col_major()
                     .expect("could not get slice")
                     .as_slice(),
                 &predicted,
-            )
-            .calculate();
+            );
             let theta_hat = y
                 .try_as_col_major()
                 .expect("could not get slice")
