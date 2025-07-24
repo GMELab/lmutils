@@ -76,6 +76,16 @@ pub enum Error {
     Eigen(faer::linalg::evd::EvdError),
     #[error("invalid scale length {0}")]
     InvalidScaleLength(usize),
+    #[error("plink file missing chromosome on line {0}")]
+    PlinkMissingChromosome(usize),
+    #[error("plink file missing identifier on line {0}")]
+    PlinkMissingIdentifier(usize),
+    #[error("plink file missing position on line {0}")]
+    PlinkMissingPosition(usize),
+    #[error("plink file missing coordinate on line {0}")]
+    PlinkMissingCoordinate(usize),
+    #[error("plink file invalid coordinate on line {0}")]
+    PlinkInvalidCoordinate(usize),
 }
 
 #[cfg(feature = "r")]
