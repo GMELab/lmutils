@@ -339,6 +339,7 @@ impl Glm {
         let r2 = crate::r2(ys, &mu);
         let adj_r2 = calculate_adj_r2(r2, ys.len(), xs.ncols());
 
+        let r2_tjur = crate::compute_r2_tjur(ys, &mu);
         if should_disable_predicted() {
             mu = Vec::new();
         }
@@ -365,7 +366,7 @@ impl Glm {
                     Coef::new("(Intercept)", intercept, std_err, t, p)
                 }))
                 .collect(),
-            r2_tjur: crate::compute_r2_tjur(ys, &mu),
+            r2_tjur,
             predicted: mu,
             r2,
             adj_r2,
