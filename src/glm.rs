@@ -25,6 +25,7 @@ pub struct Glm {
     r2_tjur: f64,
     n: u64,
     m: u64,
+    aic: f64,
 }
 
 impl Glm {
@@ -340,6 +341,23 @@ impl Glm {
         let adj_r2 = calculate_adj_r2(r2, ys.len(), xs.ncols());
 
         let r2_tjur = crate::compute_r2_tjur(ys, &mu);
+        let rank = ncols + 1;
+        // -2 * sum(ifelse(m > 0, (wt/m), 0) * dbinom(round(m * y),
+        //     round(m), mu, log = TRUE))
+        for (y, mu) in ys.iter().zip(&mu) {
+            println!(
+                "y: {}, mu: {}, dbinom: {}",
+                y,
+                mu,
+                crate::dbinom(y.round(), 1.0, *mu, true)
+            );
+        }
+        let aic = -2.0
+            * ys.iter()
+                .zip(mu.iter())
+                .map(|(y, mu)| crate::dbinom(y.round(), 1.0, *mu, true))
+                .sum::<f64>()
+            + 2.0 * rank as f64;
         if should_disable_predicted() {
             mu = Vec::new();
         }
@@ -372,6 +390,7 @@ impl Glm {
             adj_r2,
             n: ys.len() as u64,
             m: ncols as u64,
+            aic,
         }
     }
 
@@ -506,6 +525,7 @@ impl Glm {
             adj_r2,
             n: ys.len() as u64,
             m: ncols as u64,
+            aic: 0.0,
         }
     }
 
@@ -659,6 +679,7 @@ impl Glm {
             adj_r2,
             n: ys.len() as u64,
             m: x.ncols() as u64,
+            aic: 0.0,
         }
     }
 
@@ -697,6 +718,16 @@ impl Glm {
 
     pub fn coefs(&self) -> &[Coef] {
         &self.coefs
+    }
+
+    pub fn aic(&self) -> f64 {
+        self.aic
+    }
+
+    // k should default to 2
+    pub fn extract_aic(&self, _scale: f64, k: f64) -> (f64, f64) {
+        let edf = (self.n - self.m) as f64;
+        (edf, self.aic + (k - 2.0) * edf)
     }
 }
 
@@ -1298,6 +1329,7 @@ mod tests {
         float_eq!(m.slopes()[1].coef(), SLOPES[1]);
         float_eq!(m.slopes()[2].coef(), SLOPES[2]);
         float_eq!(m.slopes()[3].coef(), SLOPES[3]);
+        float_eq!(m.aic, 56.14718865822164417523);
     }
 
     // #[test]

@@ -969,6 +969,7 @@ dependencies = [
  "flate2",
  "ieu",
  "libc",
+ "libm",
  "memfile",
  "num_cpus",
  "pulp 0.18.22",
