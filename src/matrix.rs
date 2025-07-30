@@ -1599,7 +1599,9 @@ impl Matrix {
             .as_mat_mut()?
             .par_col_chunks_mut(1)
             .enumerate()
-            .filter(|(_, c)| c.sum() < sum)
+            .filter(|(_, c)| {
+                crate::sum(c.as_ref().col(0).try_as_col_major().unwrap().as_slice()) < sum
+            })
             .map(|(i, _)| i)
             .collect::<HashSet<_>>();
         debug!("Removed {} columns with sum < {}", removing.len(), sum);
@@ -1616,7 +1618,9 @@ impl Matrix {
             .as_mat_mut()?
             .par_col_chunks_mut(1)
             .enumerate()
-            .filter(|(_, c)| c.sum() > sum)
+            .filter(|(_, c)| {
+                crate::sum(c.as_ref().col(0).try_as_col_major().unwrap().as_slice()) > sum
+            })
             .map(|(i, _)| i)
             .collect();
         self.remove_columns(&removing)

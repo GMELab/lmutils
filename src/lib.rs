@@ -24,6 +24,7 @@ mod packing;
 mod r2;
 mod spline;
 mod standardize;
+mod sum;
 mod variance;
 
 use std::{mem::MaybeUninit, panic::AssertUnwindSafe, sync::Mutex};
@@ -33,7 +34,7 @@ use tracing::{debug, debug_span, error, info, trace, warn};
 
 pub use crate::{
     aic::*, binom::*, calc::*, coef::*, elnet::*, error::*, file::*, glm::*, lm::*, matrix::*,
-    mean::*, norm::*, packing::*, r2::*, standardize::*, variance::*,
+    mean::*, norm::*, packing::*, r2::*, standardize::*, sum::*, variance::*,
 };
 
 #[cfg_attr(coverage_nightly, coverage(off))]
