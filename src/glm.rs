@@ -26,6 +26,7 @@ pub struct Glm {
     n: u64,
     m: u64,
     aic: f64,
+    weights: Vec<f64>,
 }
 
 impl Glm {
@@ -352,6 +353,10 @@ impl Glm {
             mu = Vec::new();
         }
 
+        for w in w.iter_mut() {
+            *w = w.powi(2);
+        }
+
         Self {
             coefs: slopes
                 .into_iter()
@@ -381,6 +386,7 @@ impl Glm {
             n: ys.len() as u64,
             m: ncols as u64,
             aic,
+            weights: w,
         }
     }
 
@@ -516,6 +522,7 @@ impl Glm {
             n: ys.len() as u64,
             m: ncols as u64,
             aic: 0.0,
+            weights: Vec::new(),
         }
     }
 
@@ -670,6 +677,7 @@ impl Glm {
             n: ys.len() as u64,
             m: x.ncols() as u64,
             aic: 0.0,
+            weights: Vec::new(),
         }
     }
 
