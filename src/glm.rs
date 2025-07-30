@@ -727,6 +727,10 @@ impl Glm {
         let edf = (self.n - self.m) as f64;
         (edf, self.aic + (k - 2.0) * edf)
     }
+
+    pub fn weights(&self) -> &[f64] {
+        &self.weights
+    }
 }
 
 #[inline(always)]
