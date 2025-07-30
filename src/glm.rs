@@ -1322,6 +1322,16 @@ mod tests {
         float_eq!(m.aic(), 56.14718865822164417523);
     }
 
+    #[test]
+    fn test_glm_irls_null() {
+        let nrows = 50;
+        let xs = MatRef::from_column_major_slice([].as_slice(), nrows, 0);
+        let m = Glm::irls::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 25, false, None);
+        float_eq!(m.intercept().coef(), -0.1603426500751793937205);
+        assert_eq!(m.slopes().len(), 0);
+        float_eq!(m.aic(), 70.9943758458399685196127);
+    }
+
     // #[test]
     // fn test_glm_irls_r() {
     //     let nrows = 50;
