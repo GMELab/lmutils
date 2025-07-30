@@ -463,9 +463,7 @@ fn lgammafn(x: f64) -> f64 {
     /* else: x < -10; y = -x > 10 */
     let sinpiy = (sinpi(y).abs());
 
-    let ans = M_LN_SQRT_PID2 + (x - 0.5) * y.ln() - x - sinpiy.ln() - lgammacor(y);
-
-    ans
+    M_LN_SQRT_PID2 + (x - 0.5) * y.ln() - x - sinpiy.ln() - lgammacor(y)
 }
 
 const M_LOG10_2: f64 = 0.301029995663981195213738894724;
@@ -559,11 +557,11 @@ fn chebyshev_init(dos: &[f64], nos: usize, eta: f64) -> usize {
     i
 }
 fn chebyshev_eval(x: f64, a: &[f64], n: usize) -> f64 {
-    if (n < 1 || n > 1000) {
+    if !(1..=1000).contains(&n) {
         return f64::NAN;
     };
 
-    if (x < -1.1 || x > 1.1) {
+    if !(-1.1..=1.1).contains(&x) {
         return f64::NAN;
     };
 
@@ -576,7 +574,7 @@ fn chebyshev_eval(x: f64, a: &[f64], n: usize) -> f64 {
         b1 = b0;
         b0 = twox * b1 - b2 + a[n - i];
     }
-    return (b0 - b2) * 0.5;
+    (b0 - b2) * 0.5
 }
 
 // https://github.com/wch/r-source/blob/7e572477ba67f17036e88fe5e2e30f54369da30b/src/nmath/gamma.c
@@ -671,12 +669,12 @@ fn gammafn(x: f64) -> f64 {
             for i in 0..(n as usize) {
                 value /= (x + i as f64);
             }
-            return value;
+            value
         } else {
             for i in 0..(n as usize) {
                 value *= (y + i as f64);
             }
-            return value;
+            value
         }
     } else {
         if (x > xmax) {
@@ -713,7 +711,7 @@ fn gammafn(x: f64) -> f64 {
             return f64::INFINITY;
         }
 
-        return -PI / (y * sinpiy * value);
+        -PI / (y * sinpiy * value)
     }
 }
 // https://github.com/wch/r-source/blob/7e572477ba67f17036e88fe5e2e30f54369da30b/src/nmath/bd0.c
