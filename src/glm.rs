@@ -342,16 +342,6 @@ impl Glm {
 
         let r2_tjur = crate::compute_r2_tjur(ys, &mu);
         let rank = ncols + 1;
-        // -2 * sum(ifelse(m > 0, (wt/m), 0) * dbinom(round(m * y),
-        //     round(m), mu, log = TRUE))
-        for (y, mu) in ys.iter().zip(&mu) {
-            println!(
-                "y: {}, mu: {}, dbinom: {}",
-                y,
-                mu,
-                crate::dbinom(y.round(), 1.0, *mu, true)
-            );
-        }
         let aic = -2.0
             * ys.iter()
                 .zip(mu.iter())
@@ -1329,7 +1319,7 @@ mod tests {
         float_eq!(m.slopes()[1].coef(), SLOPES[1]);
         float_eq!(m.slopes()[2].coef(), SLOPES[2]);
         float_eq!(m.slopes()[3].coef(), SLOPES[3]);
-        float_eq!(m.aic, 56.14718865822164417523);
+        float_eq!(m.aic(), 56.14718865822164417523);
     }
 
     // #[test]
