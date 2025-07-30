@@ -353,10 +353,6 @@ impl Glm {
             mu = Vec::new();
         }
 
-        for w in w.iter_mut() {
-            *w = w.powi(2);
-        }
-
         Self {
             coefs: slopes
                 .into_iter()
