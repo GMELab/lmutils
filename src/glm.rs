@@ -30,7 +30,7 @@ pub struct Glm {
 }
 
 impl Glm {
-    #[tracing::instrument(skip(xs, ys))]
+    #[tracing::instrument(skip(xs, ys, colnames))]
     pub fn irls<F: Family>(
         xs: MatRef<'_, f64>,
         ys: &[f64],
