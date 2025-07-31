@@ -27,6 +27,7 @@ pub struct Glm {
     m: u64,
     aic: f64,
     weights: Vec<f64>,
+    add_intercept: bool,
 }
 
 impl Glm {
@@ -36,6 +37,7 @@ impl Glm {
         ys: &[f64],
         epsilon: f64,
         max_iterations: usize,
+        add_intercept: bool,
         firth: bool,
         colnames: Option<&[String]>,
     ) -> Self {
@@ -44,12 +46,14 @@ impl Glm {
         let mut delta = 1.0;
         let mut l = 0.0;
         let mut x = xs.to_owned();
-        x.resize_with(
-            xs.nrows(),
-            xs.ncols() + 1,
-            #[inline(always)]
-            |_, _| 1.0,
-        );
+        if add_intercept {
+            x.resize_with(
+                xs.nrows(),
+                xs.ncols() + 1,
+                #[inline(always)]
+                |_, _| 1.0,
+            );
+        }
         let mut slopes = vec![0.0; xs.ncols()];
         let mut intercept = 0.0;
         let mut z = vec![0.0; ys.len()];
@@ -265,8 +269,12 @@ impl Glm {
                 .try_as_col_major()
                 .expect("could not get slice")
                 .as_slice();
-            slopes.as_mut_slice().copy_from_slice(&b[..xs.ncols()]);
-            intercept = b[xs.ncols()];
+            if add_intercept {
+                slopes.as_mut_slice().copy_from_slice(&b[..xs.ncols()]);
+                intercept = b[xs.ncols()];
+            } else {
+                slopes.as_mut_slice().copy_from_slice(b);
+            }
             let eta = &x * beta;
             let eta = eta
                 .try_as_col_major()
@@ -342,7 +350,7 @@ impl Glm {
         let adj_r2 = calculate_adj_r2(r2, ys.len(), xs.ncols());
 
         let r2_tjur = crate::compute_r2_tjur(ys, &mu);
-        let rank = ncols + 1;
+        let rank = if add_intercept { ncols + 1 } else { ncols };
         let aic = -2.0
             * ys.iter()
                 .zip(mu.iter())
@@ -353,28 +361,30 @@ impl Glm {
             mu = Vec::new();
         }
 
+        let mut coefs = slopes
+            .into_iter()
+            .enumerate()
+            .map(|(i, coef)| {
+                let std_err = xtwx_inv[(i, i)].sqrt();
+                let t = coef / std_err;
+                let p = 2.0 * (1.0 - pnorm(t.abs()));
+                let label = if let Some(colname) = colnames.as_ref().and_then(|cn| cn.get(i)) {
+                    colname.to_string()
+                } else {
+                    format!("x[{}]", i)
+                };
+                Coef::new(label, coef, std_err, t, p)
+            })
+            .collect::<Vec<_>>();
+        if add_intercept {
+            let std_err = xtwx_inv[(ncols, ncols)].sqrt();
+            let t = intercept / std_err;
+            let p = 2.0 * (1.0 - pnorm(t.abs()));
+            coefs.push(Coef::new("(Intercept)", intercept, std_err, t, p));
+        }
+
         Self {
-            coefs: slopes
-                .into_iter()
-                .enumerate()
-                .map(|(i, coef)| {
-                    let std_err = xtwx_inv[(i, i)].sqrt();
-                    let t = coef / std_err;
-                    let p = 2.0 * (1.0 - pnorm(t.abs()));
-                    let label = if let Some(colname) = colnames.as_ref().and_then(|cn| cn.get(i)) {
-                        colname.to_string()
-                    } else {
-                        format!("x[{}]", i)
-                    };
-                    Coef::new(label, coef, std_err, t, p)
-                })
-                .chain(std::iter::once({
-                    let std_err = xtwx_inv[(ncols, ncols)].sqrt();
-                    let t = intercept / std_err;
-                    let p = 2.0 * (1.0 - pnorm(t.abs()));
-                    Coef::new("(Intercept)", intercept, std_err, t, p)
-                }))
-                .collect(),
+            coefs,
             r2_tjur,
             predicted: mu,
             r2,
@@ -383,6 +393,7 @@ impl Glm {
             m: ncols as u64,
             aic,
             weights: w,
+            add_intercept,
         }
     }
 
@@ -519,6 +530,7 @@ impl Glm {
             m: ncols as u64,
             aic: 0.0,
             weights: Vec::new(),
+            add_intercept: true,
         }
     }
 
@@ -674,11 +686,16 @@ impl Glm {
             m: x.ncols() as u64,
             aic: 0.0,
             weights: Vec::new(),
+            add_intercept: true,
         }
     }
 
     pub fn slopes(&self) -> &[Coef] {
-        &self.coefs[..self.coefs.len() - 1]
+        if self.add_intercept {
+            &self.coefs[..self.coefs.len() - 1]
+        } else {
+            &self.coefs
+        }
     }
 
     pub fn intercept(&self) -> &Coef {
@@ -1321,7 +1338,7 @@ mod tests {
     fn test_glm_irls() {
         let nrows = 50;
         let xs = MatRef::from_column_major_slice(XS.as_slice(), nrows, 4);
-        let m = Glm::irls::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 25, false, None);
+        let m = Glm::irls::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 25, true, false, None);
         float_eq!(m.intercept().coef(), INTERCEPT);
         float_eq!(m.slopes()[0].coef(), SLOPES[0]);
         float_eq!(m.slopes()[1].coef(), SLOPES[1]);
@@ -1334,10 +1351,23 @@ mod tests {
     fn test_glm_irls_null() {
         let nrows = 50;
         let xs = MatRef::from_column_major_slice([].as_slice(), nrows, 0);
-        let m = Glm::irls::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 25, false, None);
+        let m = Glm::irls::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 25, true, false, None);
         float_eq!(m.intercept().coef(), -0.1603426500751793937205);
         assert_eq!(m.slopes().len(), 0);
         float_eq!(m.aic(), 70.9943758458399685196127);
+    }
+
+    #[test]
+    fn test_glm_irls_no_intercept() {
+        let nrows = 50;
+        let xs = MatRef::from_column_major_slice(XS.as_slice(), nrows, 4);
+        let m =
+            Glm::irls::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 25, false, false, None);
+        assert_eq!(m.slopes().len(), 4);
+        float_eq!(m.slopes()[0].coef(), NO_INTERCEPT_SLOPES[0]);
+        float_eq!(m.slopes()[1].coef(), NO_INTERCEPT_SLOPES[1]);
+        float_eq!(m.slopes()[2].coef(), NO_INTERCEPT_SLOPES[2]);
+        float_eq!(m.slopes()[3].coef(), NO_INTERCEPT_SLOPES[3]);
     }
 
     // #[test]
@@ -1368,7 +1398,7 @@ mod tests {
     fn test_glm_irls_predict() {
         let nrows = 50;
         let xs = MatRef::from_column_major_slice(XS.as_slice(), nrows, 4);
-        let m = Glm::irls::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 25, false, None);
+        let m = Glm::irls::<family::BinomialLogit>(xs, YS.as_slice(), 1e-10, 25, true, false, None);
         float_eq!(
             m.predict::<family::BinomialLogit>(&[XS[0], XS[50], XS[100], XS[150]]),
             m.predicted()[0]
@@ -1433,6 +1463,12 @@ mod tests {
             -0.5737590452688993,
             0.6169197849363219,
             1.868472448752581,
+        ];
+        pub const NO_INTERCEPT_SLOPES: [f64; 4] = [
+            -0.001212187314425448555,
+            -0.530392162536109323945,
+            0.602901458579869542476,
+            1.842422792116841456789,
         ];
     }
     pub use data::*;

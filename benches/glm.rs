@@ -67,7 +67,7 @@ fn irls(bencher: Bencher, Arg { nrow, ncol, xs, ys }: Arg) {
         NonZero::new(rayon::current_num_threads()).unwrap(),
     ));
     bencher.bench(|| {
-        Glm::irls::<family::BinomialLogit>(xs, &ys, 1e-8, 25, false, None);
+        Glm::irls::<family::BinomialLogit>(xs, &ys, 1e-8, 25, true, false, None);
     });
 }
 
@@ -75,7 +75,7 @@ fn irls_seq(bencher: Bencher, Arg { nrow, ncol, xs, ys }: Arg) {
     let xs = MatRef::from_column_major_slice(xs.as_slice(), nrow, ncol);
     set_global_parallelism(faer::Par::Seq);
     bencher.bench(|| {
-        Glm::irls::<family::BinomialLogit>(xs, &ys, 1e-8, 25, false, None);
+        Glm::irls::<family::BinomialLogit>(xs, &ys, 1e-8, 25, true, false, None);
     });
 }
 
@@ -85,7 +85,7 @@ fn irls_firth(bencher: Bencher, Arg { nrow, ncol, xs, ys }: Arg) {
         NonZero::new(rayon::current_num_threads()).unwrap(),
     ));
     bencher.bench(|| {
-        Glm::irls::<family::BinomialLogit>(xs, &ys, 1e-8, 25, true, None);
+        Glm::irls::<family::BinomialLogit>(xs, &ys, 1e-8, 25, true, true, None);
     });
 }
 
@@ -93,7 +93,7 @@ fn irls_firth_seq(bencher: Bencher, Arg { nrow, ncol, xs, ys }: Arg) {
     let xs = MatRef::from_column_major_slice(xs.as_slice(), nrow, ncol);
     set_global_parallelism(faer::Par::Seq);
     bencher.bench(|| {
-        Glm::irls::<family::BinomialLogit>(xs, &ys, 1e-8, 25, true, None);
+        Glm::irls::<family::BinomialLogit>(xs, &ys, 1e-8, 25, true, true, None);
     });
 }
 
