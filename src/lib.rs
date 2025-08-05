@@ -191,13 +191,15 @@ pub fn calculate_r2s(
             (i + 1).to_string()
         };
         info!("Calculating R^2 for data set {}", data_set);
-        if !mat.is_loaded() {
+        let mut mat = if !mat.is_loaded() {
             info!("Loading data set {}", data_set);
-            mat.into_owned()?;
+            let mat = mat.to_owned()?;
             info!("Loaded data set {}", data_set);
+            mat
         } else {
             info!("Data set {} already loaded", data_set);
-        }
+            mat.to_owned()?
+        };
         if mat.has_column_loaded("eid") || mat.has_column_loaded("IID") {
             mat.remove_column_by_name_if_exists("eid")?;
             mat.remove_column_by_name_if_exists("IID")?;

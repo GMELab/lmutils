@@ -1,9 +1,11 @@
+#![allow(mutable_transmutes)]
 use std::{
     collections::{HashMap, HashSet},
     f64,
     mem::MaybeUninit,
     ops::{Deref, DerefMut},
     str::FromStr,
+    sync::Arc,
 };
 
 #[cfg(feature = "r")]
@@ -79,7 +81,7 @@ pub enum Matrix {
     Dyn(Box<dyn DerefMatrix>),
     Transform(
         #[allow(clippy::type_complexity)]
-        Vec<Box<dyn for<'a> FnOnce(&'a mut Matrix) -> Result<&'a mut Matrix, Error>>>,
+        Vec<Arc<dyn for<'a> Fn(&'a mut Matrix) -> Result<&'a mut Matrix, Error>>>,
         Box<Matrix>,
     ),
 }
@@ -397,6 +399,34 @@ impl Matrix {
         }
     }
 
+    #[tracing::instrument(skip(self))]
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn to_owned(&mut self) -> Result<Matrix, crate::Error> {
+        match self {
+            #[cfg(feature = "r")]
+            Matrix::R(_) => {
+                let colnames = self
+                    .colnames()?
+                    .map(|x| x.into_iter().map(|x| x.to_string()).collect());
+                let Matrix::R(m) = self else { unreachable!() };
+                Ok(Matrix::Owned(OwnedMatrix::new(
+                    m.nrows(),
+                    m.ncols(),
+                    m.data().to_vec(),
+                    colnames,
+                )))
+            },
+            Matrix::Owned(mat) => Ok(Matrix::Owned(mat.clone())),
+            Matrix::File(m) => Ok(m.read()?),
+            Matrix::Dyn(m) => m.to_owned(),
+            Matrix::Transform(fns, mat) => {
+                let mut mat = Matrix::Transform(fns.clone(), Box::new(mat.to_owned()?));
+                mat.into_owned()?;
+                Ok(Matrix::Owned(mat.to_owned_loaded()))
+            },
+        }
+    }
+
     #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn colnames(&mut self) -> Result<Option<Vec<&str>>, crate::Error> {
         Ok(match self {
@@ -673,10 +703,10 @@ impl Matrix {
 
     fn add_transformation(
         &mut self,
-        f: impl for<'a> FnOnce(&'a mut Matrix) -> Result<&'a mut Matrix, Error> + 'static,
+        f: impl for<'a> Fn(&'a mut Matrix) -> Result<&'a mut Matrix, Error> + 'static,
     ) -> &mut Self {
         match self {
-            Matrix::Transform(fns, _) => fns.push(Box::new(f)),
+            Matrix::Transform(fns, _) => fns.push(Arc::new(f)),
             _ => {
                 let m =
                     std::mem::replace(self, Matrix::Owned(OwnedMatrix::new(0, 0, vec![], None)));
@@ -688,7 +718,11 @@ impl Matrix {
     }
 
     pub fn t_combine_columns(&mut self, mut others: Vec<Self>) -> &mut Self {
-        self.add_transformation(move |m| m.combine_columns(others.as_mut_slice()))
+        self.add_transformation(move |m| {
+            let others =
+                unsafe { std::mem::transmute::<&[Self], &mut [Matrix]>(others.as_slice()) };
+            m.combine_columns(others)
+        })
     }
 
     #[tracing::instrument(skip(self, others))]
@@ -768,7 +802,10 @@ impl Matrix {
     }
 
     pub fn t_combine_rows(&mut self, mut others: Vec<Self>) -> &mut Self {
-        self.add_transformation(move |m| m.combine_rows(others.as_mut_slice()))
+        self.add_transformation(move |m| {
+            let others = unsafe { std::mem::transmute::<&[Self], &mut [Self]>(others.as_slice()) };
+            m.combine_rows(others)
+        })
     }
 
     #[tracing::instrument(skip(self, others))]
@@ -1296,7 +1333,10 @@ impl Matrix {
         other_by: usize,
         join: Join,
     ) -> &mut Self {
-        self.add_transformation(move |m| m.join(&mut other, self_by, other_by, join))
+        self.add_transformation(move |m| {
+            let other = unsafe { std::mem::transmute::<&Self, &mut Self>(&other) };
+            m.join(other, self_by, other_by, join)
+        })
     }
 
     #[tracing::instrument(skip(self, other))]
@@ -1429,7 +1469,10 @@ impl Matrix {
 
     pub fn t_join_by_column_name(&mut self, mut other: Matrix, by: &str, join: Join) -> &mut Self {
         let by = by.to_string();
-        self.add_transformation(move |m| m.join_by_column_name(&mut other, &by, join))
+        self.add_transformation(move |m| {
+            let other = unsafe { std::mem::transmute::<&Self, &mut Self>(&other) };
+            m.join_by_column_name(other, &by, join)
+        })
     }
 
     #[tracing::instrument(skip(self, other))]
