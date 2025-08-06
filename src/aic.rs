@@ -147,12 +147,12 @@ fn step_aic_inner<F: Family>(
                     .collect();
                 // log if we're adding or removing columns
                 if new_working_set.len() > working_set.len() {
-                    tracing::debug!(
+                    tracing::info!(
                         "Adding columns to working set: {:?}",
                         new_working_set.difference(&working_set)
                     );
                 } else if new_working_set.len() < working_set.len() {
-                    tracing::debug!(
+                    tracing::info!(
                         "Removing columns from working set: {:?}",
                         working_set.difference(&new_working_set)
                     );
