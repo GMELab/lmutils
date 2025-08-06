@@ -380,7 +380,7 @@ impl Glm {
             let std_err = xtwx_inv[(ncols, ncols)].sqrt();
             let t = intercept / std_err;
             let p = 2.0 * (1.0 - pnorm(t.abs()));
-            coefs.push(Coef::new("(Intercept)", intercept, std_err, t, p));
+            coefs.push(Coef::new_intercept(intercept, std_err, t, p));
         }
 
         Self {
@@ -514,12 +514,8 @@ impl Glm {
                     let p = 0.0;
                     Coef::new(format!("x[{}]", i), coef, std_err, t, p)
                 })
-                .chain(std::iter::once(Coef::new(
-                    "(Intercept)",
-                    intercept,
-                    0.0,
-                    0.0,
-                    0.0,
+                .chain(std::iter::once(Coef::new_intercept(
+                    intercept, 0.0, 0.0, 0.0,
                 )))
                 .collect(),
             r2_tjur: crate::compute_r2_tjur(ys, &mu),
@@ -670,8 +666,7 @@ impl Glm {
                     let p = 0.0;
                     Coef::new(format!("x[{}]", i), coef, std_err, t, p)
                 })
-                .chain(std::iter::once(Coef::new(
-                    "(Intercept)",
+                .chain(std::iter::once(Coef::new_intercept(
                     beta[ncols],
                     0.0,
                     0.0,

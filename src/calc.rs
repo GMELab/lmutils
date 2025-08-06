@@ -15,9 +15,15 @@ use tracing::{debug, error, trace, warn};
 
 use crate::{mean, variance};
 
+pub static mut DISABLE_PREDICTED: bool = false;
+
 pub fn should_disable_predicted() -> bool {
     if cfg!(test) {
         return false;
+    }
+    // this allows us to override this for internal calls
+    if unsafe { DISABLE_PREDICTED } {
+        return true;
     }
     let enabled = std::env::var("LMUTILS_ENABLE_PREDICTED").is_ok();
     let disabled = std::env::var("LMUTILS_DISABLE_PREDICTED").is_ok();

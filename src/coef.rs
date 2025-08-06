@@ -5,6 +5,7 @@ pub struct Coef {
     std_err: f64,
     t: f64,
     p: f64,
+    intercept: bool,
 }
 
 impl Coef {
@@ -15,6 +16,18 @@ impl Coef {
             std_err,
             t,
             p,
+            intercept: false,
+        }
+    }
+
+    pub fn new_intercept(coef: f64, std_err: f64, t: f64, p: f64) -> Self {
+        Coef {
+            label: "(Intercept)".to_string(),
+            coef,
+            std_err,
+            t,
+            p,
+            intercept: true,
         }
     }
 
@@ -36,5 +49,9 @@ impl Coef {
 
     pub fn p(&self) -> f64 {
         self.p
+    }
+
+    pub fn intercept(&self) -> bool {
+        self.intercept
     }
 }

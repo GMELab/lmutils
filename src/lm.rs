@@ -90,7 +90,7 @@ impl Lm {
                         let std_err = (theta_hat * xtx_inv[(ncols, ncols)] / df).sqrt();
                         let t = intercept / std_err;
                         let p = 2.0 * (1.0 - t_distr.cdf(t.abs()));
-                        Coef::new("(Intercept)", intercept, std_err, t, p)
+                        Coef::new_intercept(intercept, std_err, t, p)
                     }))
                     .collect(),
                 predicted,
