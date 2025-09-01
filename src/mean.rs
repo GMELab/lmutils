@@ -267,44 +267,38 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "sse4.1"), ignore)]
     fn test_mean_sse4() {
-        if is_x86_feature_detected!("sse4.1") {
-            assert_eq!(unsafe { mean_sse4(&data()) }, MEAN);
-        }
+        assert_eq!(unsafe { mean_sse4(&data()) }, MEAN);
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "sse4.1"), ignore)]
     fn test_mean_sse4_nan() {
-        if is_x86_feature_detected!("sse4.1") {
-            assert_eq!(unsafe { mean_sse4(&data_nan()) }, MEAN_NAN);
-        }
+        assert_eq!(unsafe { mean_sse4(&data_nan()) }, MEAN_NAN);
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx2"), ignore)]
     fn test_mean_avx2() {
-        if is_x86_feature_detected!("avx2") {
-            assert_eq!(unsafe { mean_avx2(&data()) }, MEAN);
-        }
+        assert_eq!(unsafe { mean_avx2(&data()) }, MEAN);
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx2"), ignore)]
     fn test_mean_avx2_nan() {
-        if is_x86_feature_detected!("avx2") {
-            assert_eq!(unsafe { mean_avx2(&data_nan()) }, MEAN_NAN);
-        }
+        assert_eq!(unsafe { mean_avx2(&data_nan()) }, MEAN_NAN);
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx512f"), ignore)]
     fn test_mean_avx512() {
-        if is_x86_feature_detected!("avx512f") {
-            assert_eq!(unsafe { mean_avx512(&data()) }, MEAN);
-        }
+        assert_eq!(unsafe { mean_avx512(&data()) }, MEAN);
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx512f"), ignore)]
     fn test_mean_avx512_nan() {
-        if is_x86_feature_detected!("avx512f") {
-            assert_eq!(unsafe { mean_avx512(&data_nan()) }, MEAN_NAN);
-        }
+        assert_eq!(unsafe { mean_avx512(&data_nan()) }, MEAN_NAN);
     }
 }

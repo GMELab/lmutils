@@ -14,7 +14,7 @@ mod error;
 mod file;
 mod gam;
 mod glm;
-mod ld;
+pub mod ld;
 mod lm;
 mod mat;
 mod matrix;

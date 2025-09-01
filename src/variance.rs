@@ -240,44 +240,38 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "sse4.1"), ignore)]
     fn test_variance_sse4() {
-        if is_x86_feature_detected!("sse4.1") {
-            float_eq!(unsafe { variance_sse4(&data(), 0).1 }, VARIANCE);
-        }
+        float_eq!(unsafe { variance_sse4(&data(), 0).1 }, VARIANCE);
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "sse4.1"), ignore)]
     fn test_variance_sse4_nan() {
-        if is_x86_feature_detected!("sse4.1") {
-            float_eq!(unsafe { variance_sse4(&data_nan(), 0).1 }, VARIANCE_NAN);
-        }
+        float_eq!(unsafe { variance_sse4(&data_nan(), 0).1 }, VARIANCE_NAN);
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx2"), ignore)]
     fn test_variance_avx2() {
-        if is_x86_feature_detected!("avx") {
-            float_eq!(unsafe { variance_avx2(&data(), 0).1 }, VARIANCE);
-        }
+        float_eq!(unsafe { variance_avx2(&data(), 0).1 }, VARIANCE);
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx2"), ignore)]
     fn test_variance_avx2_nan() {
-        if is_x86_feature_detected!("avx") {
-            float_eq!(unsafe { variance_avx2(&data_nan(), 0).1 }, VARIANCE_NAN);
-        }
+        float_eq!(unsafe { variance_avx2(&data_nan(), 0).1 }, VARIANCE_NAN);
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx512f"), ignore)]
     fn test_variance_avx512() {
-        if is_x86_feature_detected!("avx512f") {
-            float_eq!(unsafe { variance_avx512(&data(), 0).1 }, VARIANCE);
-        }
+        float_eq!(unsafe { variance_avx512(&data(), 0).1 }, VARIANCE);
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx512f"), ignore)]
     fn test_variance_avx512_nan() {
-        if is_x86_feature_detected!("avx512f") {
-            float_eq!(unsafe { variance_avx512(&data_nan(), 0).1 }, VARIANCE_NAN);
-        }
+        float_eq!(unsafe { variance_avx512(&data_nan(), 0).1 }, VARIANCE_NAN);
     }
 }

@@ -338,157 +338,145 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "sse4.1"), ignore)]
     fn test_standardize_sse4() {
-        if is_x86_feature_detected!("sse4.1") {
-            let mut data = data();
-            unsafe { standardize_sse4(&mut data, 1) };
-            for i in 0..data.len() {
-                float_eq!(data[i], EXPECTED[i]);
-            }
+        let mut data = data();
+        unsafe { standardize_sse4(&mut data, 1) };
+        for i in 0..data.len() {
+            float_eq!(data[i], EXPECTED[i]);
         }
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "sse4.1"), ignore)]
     fn test_standardize_sse4_nan() {
-        if is_x86_feature_detected!("sse4.1") {
-            let mut data = data_nan();
-            unsafe { standardize_sse4(&mut data, 1) };
-            for i in 0..data.len() {
-                if data[i].is_nan() {
-                    assert!(EXPECTED_NAN[i].is_nan());
-                } else {
-                    float_eq!(data[i], EXPECTED_NAN[i]);
-                }
+        let mut data = data_nan();
+        unsafe { standardize_sse4(&mut data, 1) };
+        for i in 0..data.len() {
+            if data[i].is_nan() {
+                assert!(EXPECTED_NAN[i].is_nan());
+            } else {
+                float_eq!(data[i], EXPECTED_NAN[i]);
             }
         }
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "sse4.1"), ignore)]
     fn test_standardize_sse4_recip() {
-        if is_x86_feature_detected!("sse4.1") {
-            let mut data = data();
-            unsafe { standardize_sse4_recip(&mut data, 1) };
-            for i in 0..data.len() {
-                float_eq!(data[i], EXPECTED[i]);
-            }
+        let mut data = data();
+        unsafe { standardize_sse4_recip(&mut data, 1) };
+        for i in 0..data.len() {
+            float_eq!(data[i], EXPECTED[i]);
         }
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "sse4.1"), ignore)]
     fn test_standardize_sse4_recip_nan() {
-        if is_x86_feature_detected!("sse4.1") {
-            let mut data = data_nan();
-            unsafe { standardize_sse4_recip(&mut data, 1) };
-            for i in 0..data.len() {
-                if data[i].is_nan() {
-                    assert!(EXPECTED_NAN[i].is_nan());
-                } else {
-                    float_eq!(data[i], EXPECTED_NAN[i]);
-                }
+        let mut data = data_nan();
+        unsafe { standardize_sse4_recip(&mut data, 1) };
+        for i in 0..data.len() {
+            if data[i].is_nan() {
+                assert!(EXPECTED_NAN[i].is_nan());
+            } else {
+                float_eq!(data[i], EXPECTED_NAN[i]);
             }
         }
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx2"), ignore)]
     fn test_standardize_avx2() {
-        if is_x86_feature_detected!("avx2") {
-            let mut data = data();
-            unsafe { standardize_avx2(&mut data, 1) };
-            for i in 0..data.len() {
-                float_eq!(data[i], EXPECTED[i]);
-            }
+        let mut data = data();
+        unsafe { standardize_avx2(&mut data, 1) };
+        for i in 0..data.len() {
+            float_eq!(data[i], EXPECTED[i]);
         }
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx2"), ignore)]
     fn test_standardize_avx2_nan() {
-        if is_x86_feature_detected!("avx2") {
-            let mut data = data_nan();
-            unsafe { standardize_avx2(&mut data, 1) };
-            for i in 0..data.len() {
-                if data[i].is_nan() {
-                    assert!(EXPECTED_NAN[i].is_nan());
-                } else {
-                    float_eq!(data[i], EXPECTED_NAN[i]);
-                }
+        let mut data = data_nan();
+        unsafe { standardize_avx2(&mut data, 1) };
+        for i in 0..data.len() {
+            if data[i].is_nan() {
+                assert!(EXPECTED_NAN[i].is_nan());
+            } else {
+                float_eq!(data[i], EXPECTED_NAN[i]);
             }
         }
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx2"), ignore)]
     fn test_standardize_avx2_recip() {
-        if is_x86_feature_detected!("avx2") {
-            let mut data = data();
-            unsafe { standardize_avx2_recip(&mut data, 1) };
-            for i in 0..data.len() {
-                float_eq!(data[i], EXPECTED[i]);
-            }
+        let mut data = data();
+        unsafe { standardize_avx2_recip(&mut data, 1) };
+        for i in 0..data.len() {
+            float_eq!(data[i], EXPECTED[i]);
         }
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx2"), ignore)]
     fn test_standardize_avx2_recip_nan() {
-        if is_x86_feature_detected!("avx2") {
-            let mut data = data_nan();
-            unsafe { standardize_avx2_recip(&mut data, 1) };
-            for i in 0..data.len() {
-                if data[i].is_nan() {
-                    assert!(EXPECTED_NAN[i].is_nan());
-                } else {
-                    float_eq!(data[i], EXPECTED_NAN[i]);
-                }
+        let mut data = data_nan();
+        unsafe { standardize_avx2_recip(&mut data, 1) };
+        for i in 0..data.len() {
+            if data[i].is_nan() {
+                assert!(EXPECTED_NAN[i].is_nan());
+            } else {
+                float_eq!(data[i], EXPECTED_NAN[i]);
             }
         }
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx512f"), ignore)]
     fn test_standardize_avx512() {
-        if is_x86_feature_detected!("avx512f") {
-            let mut data = data();
-            unsafe { standardize_avx512(&mut data, 1) };
-            for i in 0..data.len() {
-                float_eq!(data[i], EXPECTED[i]);
-            }
+        let mut data = data();
+        unsafe { standardize_avx512(&mut data, 1) };
+        for i in 0..data.len() {
+            float_eq!(data[i], EXPECTED[i]);
         }
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx512f"), ignore)]
     fn test_standardize_avx512_nan() {
-        if is_x86_feature_detected!("avx512f") {
-            let mut data = data_nan();
-            unsafe { standardize_avx512(&mut data, 1) };
-            for i in 0..data.len() {
-                if data[i].is_nan() {
-                    assert!(EXPECTED_NAN[i].is_nan());
-                } else {
-                    float_eq!(data[i], EXPECTED_NAN[i]);
-                }
+        let mut data = data_nan();
+        unsafe { standardize_avx512(&mut data, 1) };
+        for i in 0..data.len() {
+            if data[i].is_nan() {
+                assert!(EXPECTED_NAN[i].is_nan());
+            } else {
+                float_eq!(data[i], EXPECTED_NAN[i]);
             }
         }
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx512f"), ignore)]
     fn test_standardize_avx512_recip() {
-        if is_x86_feature_detected!("avx512f") {
-            let mut data = data();
-            unsafe { standardize_avx512_recip(&mut data, 1) };
-            for i in 0..data.len() {
-                float_eq!(data[i], EXPECTED[i]);
-            }
+        let mut data = data();
+        unsafe { standardize_avx512_recip(&mut data, 1) };
+        for i in 0..data.len() {
+            float_eq!(data[i], EXPECTED[i]);
         }
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx512f"), ignore)]
     fn test_standardize_avx512_recip_nan() {
-        if is_x86_feature_detected!("avx512f") {
-            let mut data = data_nan();
-            unsafe { standardize_avx512_recip(&mut data, 1) };
-            for i in 0..data.len() {
-                if data[i].is_nan() {
-                    assert!(EXPECTED_NAN[i].is_nan());
-                } else {
-                    float_eq!(data[i], EXPECTED_NAN[i]);
-                }
+        let mut data = data_nan();
+        unsafe { standardize_avx512_recip(&mut data, 1) };
+        for i in 0..data.len() {
+            if data[i].is_nan() {
+                assert!(EXPECTED_NAN[i].is_nan());
+            } else {
+                float_eq!(data[i], EXPECTED_NAN[i]);
             }
         }
     }

@@ -250,36 +250,33 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "sse4.1"), ignore)]
     fn test_r2_sse4() {
-        if is_x86_feature_detected!("sse4.1") {
-            unsafe {
-                float_eq!(r2_sse4(DATA_1, DATA_1), R2_1);
-                float_eq!(r2_sse4(DATA_2, DATA_1), R2_2);
-            }
-            unsafe {
-                float_eq!(r2_sse4(DATA_1, DATA_1), R2_1);
-                float_eq!(r2_sse4(DATA_2, DATA_1), R2_2);
-            }
+        unsafe {
+            float_eq!(r2_sse4(DATA_1, DATA_1), R2_1);
+            float_eq!(r2_sse4(DATA_2, DATA_1), R2_2);
+        }
+        unsafe {
+            float_eq!(r2_sse4(DATA_1, DATA_1), R2_1);
+            float_eq!(r2_sse4(DATA_2, DATA_1), R2_2);
         }
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx2"), ignore)]
     fn test_r2_avx2() {
-        if is_x86_feature_detected!("avx2") {
-            unsafe {
-                float_eq!(r2_avx2(DATA_1, DATA_1), R2_1);
-                float_eq!(r2_avx2(DATA_2, DATA_1), R2_2);
-            }
+        unsafe {
+            float_eq!(r2_avx2(DATA_1, DATA_1), R2_1);
+            float_eq!(r2_avx2(DATA_2, DATA_1), R2_2);
         }
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx512f"), ignore)]
     fn test_r2_avx512() {
-        if is_x86_feature_detected!("avx512f") {
-            unsafe {
-                float_eq!(r2_avx512(DATA_1, DATA_1), R2_1);
-                float_eq!(r2_avx512(DATA_2, DATA_1), R2_2);
-            }
+        unsafe {
+            float_eq!(r2_avx512(DATA_1, DATA_1), R2_1);
+            float_eq!(r2_avx512(DATA_2, DATA_1), R2_2);
         }
     }
 }

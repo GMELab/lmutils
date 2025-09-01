@@ -96,6 +96,18 @@ harness = false
 name = "lm"
 harness = false
 
+[[bench]]
+name = "ld_maf"
+harness = false
+
+[[bench]]
+name = "ld_encode_and_missing"
+harness = false
+
+[[bench]]
+name = "ld_values"
+harness = false
+
 [profile.bench]
 inherits = "release"
 opt-level = 3

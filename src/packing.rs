@@ -409,39 +409,35 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx2"), ignore)]
     fn test_unpack_avx2_sync() {
-        if is_x86_feature_detected!("avx2") {
-            let mut out = out();
-            unpack_avx2_sync(&mut out, &bytes(), 0.0, 1.0);
-            assert_eq!(out, expected());
-        }
+        let mut out = out();
+        unpack_avx2_sync(&mut out, &bytes(), 0.0, 1.0);
+        assert_eq!(out, expected());
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx2"), ignore)]
     fn test_unpack_avx2_par() {
-        if is_x86_feature_detected!("avx2") {
-            let mut out = out();
-            unpack_avx2_par(128, &mut out, &bytes(), 0.0, 1.0);
-            assert_eq!(out, expected());
-        }
+        let mut out = out();
+        unpack_avx2_par(128, &mut out, &bytes(), 0.0, 1.0);
+        assert_eq!(out, expected());
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx512f"), ignore)]
     fn test_unpack_avx512_sync() {
-        if is_x86_feature_detected!("avx512f") {
-            let mut out = out();
-            unpack_avx512_sync(&mut out, &bytes(), 0.0, 1.0);
-            assert_eq!(out, expected());
-        }
+        let mut out = out();
+        unpack_avx512_sync(&mut out, &bytes(), 0.0, 1.0);
+        assert_eq!(out, expected());
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx512f"), ignore)]
     fn test_unpack_avx512_par() {
-        if is_x86_feature_detected!("avx512f") {
-            let mut out = out();
-            unpack_avx512_par(128, &mut out, &bytes(), 0.0, 1.0);
-            assert_eq!(out, expected());
-        }
+        let mut out = out();
+        unpack_avx512_par(128, &mut out, &bytes(), 0.0, 1.0);
+        assert_eq!(out, expected());
     }
 
     #[test]
@@ -459,38 +455,34 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx2"), ignore)]
     fn test_pack_avx2_sync() {
-        if is_x86_feature_detected!("avx2") {
-            let mut out = vec![0; bytes().len()];
-            pack_avx2_sync(&mut out, &expected(), 0.0, 1.0);
-            assert_eq!(out, bytes());
-        }
+        let mut out = vec![0; bytes().len()];
+        pack_avx2_sync(&mut out, &expected(), 0.0, 1.0);
+        assert_eq!(out, bytes());
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx2"), ignore)]
     fn test_pack_avx2_par() {
-        if is_x86_feature_detected!("avx2") {
-            let mut out = vec![0; bytes().len()];
-            pack_avx2_par(128, &mut out, &expected(), 0.0, 1.0);
-            assert_eq!(out, bytes());
-        }
+        let mut out = vec![0; bytes().len()];
+        pack_avx2_par(128, &mut out, &expected(), 0.0, 1.0);
+        assert_eq!(out, bytes());
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx512f"), ignore)]
     fn test_pack_avx512_sync() {
-        if is_x86_feature_detected!("avx512f") {
-            let mut out = vec![0; bytes().len()];
-            pack_avx512_sync(&mut out, &expected(), 0.0, 1.0);
-            assert_eq!(out, bytes());
-        }
+        let mut out = vec![0; bytes().len()];
+        pack_avx512_sync(&mut out, &expected(), 0.0, 1.0);
+        assert_eq!(out, bytes());
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx512f"), ignore)]
     fn test_pack_avx512_par() {
-        if is_x86_feature_detected!("avx512f") {
-            let mut out = vec![0; bytes().len()];
-            pack_avx512_par(128, &mut out, &expected(), 0.0, 1.0);
-            assert_eq!(out, bytes());
-        }
+        let mut out = vec![0; bytes().len()];
+        pack_avx512_par(128, &mut out, &expected(), 0.0, 1.0);
+        assert_eq!(out, bytes());
     }
 }

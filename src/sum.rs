@@ -211,44 +211,38 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "sse4.1"), ignore)]
     fn test_sum_sse4() {
-        if is_x86_feature_detected!("sse4.1") {
-            assert_eq!(unsafe { sum_sse4(&data()) }, SUM);
-        }
+        assert_eq!(unsafe { sum_sse4(&data()) }, SUM);
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "sse4.1"), ignore)]
     fn test_sum_sse4_nan() {
-        if is_x86_feature_detected!("sse4.1") {
-            assert_eq!(unsafe { sum_sse4(&data_nan()) }, SUM_NAN);
-        }
+        assert_eq!(unsafe { sum_sse4(&data_nan()) }, SUM_NAN);
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx2"), ignore)]
     fn test_sum_avx2() {
-        if is_x86_feature_detected!("avx2") {
-            assert_eq!(unsafe { sum_avx2(&data()) }, SUM);
-        }
+        assert_eq!(unsafe { sum_avx2(&data()) }, SUM);
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx2"), ignore)]
     fn test_sum_avx2_nan() {
-        if is_x86_feature_detected!("avx2") {
-            assert_eq!(unsafe { sum_avx2(&data_nan()) }, SUM_NAN);
-        }
+        assert_eq!(unsafe { sum_avx2(&data_nan()) }, SUM_NAN);
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx512f"), ignore)]
     fn test_sum_avx512() {
-        if is_x86_feature_detected!("avx512f") {
-            assert_eq!(unsafe { sum_avx512(&data()) }, SUM);
-        }
+        assert_eq!(unsafe { sum_avx512(&data()) }, SUM);
     }
 
     #[test]
+    #[cfg_attr(not(target_feature = "avx512f"), ignore)]
     fn test_sum_avx512_nan() {
-        if is_x86_feature_detected!("avx512f") {
-            assert_eq!(unsafe { sum_avx512(&data_nan()) }, SUM_NAN);
-        }
+        assert_eq!(unsafe { sum_avx512(&data_nan()) }, SUM_NAN);
     }
 }
