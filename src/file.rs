@@ -123,6 +123,9 @@ impl File {
             );
             return mat;
         }
+        if self.file_type == FileType::Bed {
+            return Ok(crate::ld::PlinkDataset::read(self.path.clone())?.into_matrix());
+        }
         let file = std::fs::File::open(&self.path)?;
         #[cfg(feature = "r")]
         if (self.file_type == FileType::Rdata || self.file_type == FileType::Rds) {
@@ -156,6 +159,7 @@ impl File {
             },
             FileType::Cbor => Matrix::Owned(serde_cbor::from_reader(reader)?),
             FileType::Mat => read_mat(reader)?,
+            FileType::Bed => unreachable!(),
         })
     }
 
@@ -335,6 +339,11 @@ impl File {
             }
             return Ok(());
         }
+        if self.file_type == FileType::Bed {
+            return Err(crate::Error::UnsupportedFileType(
+                "Bed writing not supported".to_string(),
+            ));
+        }
         let file = std::fs::File::create(&self.path)?;
         #[cfg(feature = "r")]
         if (self.file_type == FileType::Rdata || self.file_type == FileType::Rds) {
@@ -389,6 +398,7 @@ impl File {
             },
             FileType::Cbor => serde_cbor::to_writer(writer, mat.as_owned_ref()?)?,
             FileType::Mat => write_mat(writer, mat)?,
+            FileType::Bed => unreachable!(),
         }
         Ok(())
     }
@@ -490,6 +500,8 @@ pub enum FileType {
     Cbor,
     /// Lmutils mat file format.
     Mat,
+    /// Plink bed file format.
+    Bed,
 }
 
 impl FromStr for FileType {
@@ -509,6 +521,7 @@ impl FromStr for FileType {
             "rkyv" => Self::Rkyv,
             "cbor" => Self::Cbor,
             "mat" => Self::Mat,
+            "bed" => Self::Bed,
             _ => return Err(crate::Error::UnsupportedFileType(s.to_string())),
         })
     }

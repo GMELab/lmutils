@@ -3,7 +3,7 @@
     clippy::needless_range_loop,
     clippy::uninlined_format_args
 )]
-use crate::Error;
+use crate::{Error, Matrix, OwnedMatrix};
 use std::{
     collections::HashSet,
     io::{Read, Write as WriteIo},
@@ -317,6 +317,43 @@ impl PlinkDataset {
             prune_in,
             prune_out,
         }
+    }
+
+    pub fn into_matrix(self) -> Matrix {
+        let mut data = Vec::with_capacity(self.real_num_samples * self.variants.len());
+        for block in &self.data {
+            for byte in block.iter().take(self.real_num_samples.div_ceil(4)) {
+                for i in 0..4 {
+                    let encoded = (byte >> (2 * i)) & 0b11;
+                    match encoded {
+                        0b00 => data.push(0.0), // missing
+                        0b01 => data.push(f64::NAN),
+                        0b10 => data.push(1.0),
+                        0b11 => data.push(2.0),
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            if !self.real_num_samples.is_multiple_of(4) {
+                // If the number of samples is not a multiple of 4, we need to remove the padded
+                // values
+                let to_remove = 4 - (self.real_num_samples % 4);
+                for _ in 0..to_remove {
+                    data.pop();
+                }
+            }
+        }
+        Matrix::Owned(OwnedMatrix::new(
+            self.real_num_samples,
+            self.variants.len(),
+            data,
+            Some(
+                self.variants
+                    .into_iter()
+                    .map(|(_, v)| v.identifier)
+                    .collect(),
+            ),
+        ))
     }
 }
 
@@ -665,5 +702,57 @@ mod tests {
         assert_eq!(result.pruned, prune_out.len());
         assert_eq!(result.prune_out, prune_out);
         assert_eq!(result.prune_in, prune_in);
+    }
+
+    #[test]
+    fn test_into_matrix() {
+        let dataset = get_small_test_dataset();
+        let matrix = dataset.into_matrix();
+        if let Matrix::Owned(owned) = matrix {
+            assert_eq!(owned.nrows, 6);
+            assert_eq!(owned.ncols, 3);
+            assert_eq!(
+                owned.colnames,
+                Some(vec![
+                    "snp1".to_string(),
+                    "snp2".to_string(),
+                    "snp3".to_string()
+                ])
+            );
+            let expected_data = [
+                0.0,
+                2.0,
+                f64::NAN,
+                2.0,
+                2.0,
+                2.0,
+                2.0,
+                f64::NAN,
+                1.0,
+                2.0,
+                2.0,
+                2.0,
+                2.0,
+                1.0,
+                1.0,
+                f64::NAN,
+                f64::NAN,
+                0.0,
+            ];
+            for (i, (a, b)) in owned.data.iter().zip(expected_data.iter()).enumerate() {
+                if a.is_nan() && b.is_nan() {
+                    continue;
+                }
+                assert!(
+                    (a - b).abs() < 1e-10,
+                    "Data mismatch at index {}: {} != {}",
+                    i,
+                    a,
+                    b
+                );
+            }
+        } else {
+            panic!("Expected owned matrix");
+        }
     }
 }
