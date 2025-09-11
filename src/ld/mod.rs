@@ -657,7 +657,7 @@ mod tests {
     #[test]
     fn test_ld_prune() {
         let dataset = get_test_dataset();
-        let result = dataset.ld_prune(2000, 0.001, 1);
+        let result = dataset.ld_prune(2000, 1, 0.001);
         let prune_out = std::fs::read_to_string("tests/test.prune.out").unwrap();
         let prune_in = std::fs::read_to_string("tests/test.prune.in").unwrap();
         let prune_out = prune_out.lines().collect::<Vec<_>>();
