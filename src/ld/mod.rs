@@ -99,8 +99,8 @@ impl PlinkDataset {
     pub fn ld_prune(
         mut self,
         window_size: usize,
-        threshold: f64,
         step_size: usize,
+        threshold: f64,
     ) -> LdPruneResult {
         // since we process in blocks of 64 bytes, we need to update our data to be in blocks of
         // 64 bytes, we don't want to do this earlier because not all functions need this
