@@ -1,15 +1,15 @@
 use aligned_vec::AVec;
 use diol::prelude::*;
 use lmutils::ld::{
-    values::{values_avx512, values_naive},
+    values::{values_avx512, values_avx512_2, values_naive},
     LD_BLOCK_SIZE,
 };
 
 fn main() -> std::io::Result<()> {
     let mut bench = Bench::new(BenchConfig::from_args()?);
     bench.register_many(
-        list![naive, avx512],
-        [64, 640, 6400, 64000, 640000, 6400000, 64000000, 640000000],
+        list![naive, avx512, avx512_2],
+        [64, 640, 6400, 64000, 640000, 6400000, 64000000],
     );
     bench.run()?;
     Ok(())
@@ -82,6 +82,31 @@ fn avx512(bencher: Bencher, len: usize) {
     bencher.bench(|| {
         if is_x86_feature_detected!("avx512f") {
             std::hint::black_box(values_avx512(
+                &left_data,
+                &right_data,
+                &left_missing,
+                &right_missing,
+                num_samples,
+                num_left_non_missing,
+                num_right_non_missing,
+            ));
+        }
+    });
+}
+
+fn avx512_2(bencher: Bencher, len: usize) {
+    let (
+        left_data,
+        right_data,
+        left_missing,
+        right_missing,
+        num_samples,
+        num_left_non_missing,
+        num_right_non_missing,
+    ) = data(len);
+    bencher.bench(|| {
+        if is_x86_feature_detected!("avx512f") {
+            std::hint::black_box(values_avx512_2(
                 &left_data,
                 &right_data,
                 &left_missing,

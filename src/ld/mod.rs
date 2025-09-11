@@ -194,56 +194,110 @@ impl PlinkDataset {
         let mut starts = (1..=self.variants.len()).collect::<Vec<_>>();
         // TODO: looks like there's a bottleneck in here somewhere, but not in the values call, 30%
         // or so of the time is taken NOT in the actual values call
-        while start_variant < self.variants.len() {
-            let end_coordinate = self.variants[start_variant].1.coordinate + window_size;
-            let mut end_variant = start_variant + 1;
-            while end_variant < self.variants.len()
-                && self.variants[end_variant].1.coordinate <= end_coordinate
-            {
-                end_variant += 1;
-            }
-            loop {
-                let mut any_pruned = false;
-                'next_i: for var_i in start_variant..end_variant {
-                    let range = starts[var_i]..end_variant;
-                    let i = self.variants[var_i].0;
-                    if pruning[i] {
-                        continue;
-                    }
-                    for var_j in range {
-                        let j = self.variants[var_j].0;
-                        if pruning[j] {
+        if is_x86_feature_detected!("avx512f") {
+            while start_variant < self.variants.len() {
+                let end_coordinate = self.variants[start_variant].1.coordinate + window_size;
+                let mut end_variant = start_variant + 1;
+                while end_variant < self.variants.len()
+                    && self.variants[end_variant].1.coordinate <= end_coordinate
+                {
+                    end_variant += 1;
+                }
+                loop {
+                    let mut any_pruned = false;
+                    'next_i: for var_i in start_variant..end_variant {
+                        let range = starts[var_i]..end_variant;
+                        let i = self.variants[var_i].0;
+                        if pruning[i] {
                             continue;
                         }
-                        let r2_value = bit_r2(values::values_avx512(
-                            &self.data[i],
-                            &self.data[j],
-                            &missing[i],
-                            &missing[j],
-                            self.num_samples as u64,
-                            non_missing[i],
-                            non_missing[j],
-                        ));
-                        if !r2_value.is_nan() && r2_value > threshold {
-                            if mafs[i] < (1.0 - SMALL_EPSILON) * mafs[j] {
-                                pruning[i] = true;
-                            } else {
-                                pruning[j] = true;
+                        for var_j in range {
+                            let j = self.variants[var_j].0;
+                            if pruning[j] {
+                                continue;
                             }
-                            starts[var_i] = var_j + 1;
-                            any_pruned = true;
-                            // for whatever reason plink only prunes one pair per i before looping
-                            // back to the start again
-                            continue 'next_i;
+                            let r2_value = bit_r2(values::values_avx512(
+                                &self.data[i],
+                                &self.data[j],
+                                &missing[i],
+                                &missing[j],
+                                self.num_samples as u64,
+                                non_missing[i],
+                                non_missing[j],
+                            ));
+                            if !r2_value.is_nan() && r2_value > threshold {
+                                if mafs[i] < (1.0 - SMALL_EPSILON) * mafs[j] {
+                                    pruning[i] = true;
+                                } else {
+                                    pruning[j] = true;
+                                }
+                                starts[var_i] = var_j + 1;
+                                any_pruned = true;
+                                // for whatever reason plink only prunes one pair per i before looping
+                                // back to the start again
+                                continue 'next_i;
+                            }
                         }
+                        starts[var_i] = end_variant;
                     }
-                    starts[var_i] = end_variant;
+                    if !any_pruned {
+                        break;
+                    }
                 }
-                if !any_pruned {
-                    break;
-                }
+                start_variant += step_size;
             }
-            start_variant += step_size;
+        } else {
+            while start_variant < self.variants.len() {
+                let end_coordinate = self.variants[start_variant].1.coordinate + window_size;
+                let mut end_variant = start_variant + 1;
+                while end_variant < self.variants.len()
+                    && self.variants[end_variant].1.coordinate <= end_coordinate
+                {
+                    end_variant += 1;
+                }
+                loop {
+                    let mut any_pruned = false;
+                    'next_i: for var_i in start_variant..end_variant {
+                        let range = starts[var_i]..end_variant;
+                        let i = self.variants[var_i].0;
+                        if pruning[i] {
+                            continue;
+                        }
+                        for var_j in range {
+                            let j = self.variants[var_j].0;
+                            if pruning[j] {
+                                continue;
+                            }
+                            let r2_value = bit_r2(values::values_naive(
+                                &self.data[i],
+                                &self.data[j],
+                                &missing[i],
+                                &missing[j],
+                                self.num_samples as u64,
+                                non_missing[i],
+                                non_missing[j],
+                            ));
+                            if !r2_value.is_nan() && r2_value > threshold {
+                                if mafs[i] < (1.0 - SMALL_EPSILON) * mafs[j] {
+                                    pruning[i] = true;
+                                } else {
+                                    pruning[j] = true;
+                                }
+                                starts[var_i] = var_j + 1;
+                                any_pruned = true;
+                                // for whatever reason plink only prunes one pair per i before looping
+                                // back to the start again
+                                continue 'next_i;
+                            }
+                        }
+                        starts[var_i] = end_variant;
+                    }
+                    if !any_pruned {
+                        break;
+                    }
+                }
+                start_variant += step_size;
+            }
         }
         self.variants.sort_by_key(|v| v.0);
         let start = std::time::Instant::now();
