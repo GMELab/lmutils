@@ -40,14 +40,27 @@ impl Lm {
         let df = (xs.nrows() - xs.ncols() - 1) as f64;
         let t_distr = StudentsT::new(0.0, 1.0, df).unwrap();
         let xtx = x.transpose() * &x;
-        let chol = xtx
-            .llt(faer::Side::Lower)
-            .expect("could not compute Cholesky decomposition");
-        let xtx_inv = chol.inverse();
+        let chol = xtx.llt(faer::Side::Lower);
+        let xtx_inv = match &chol {
+            Ok(b) => b.inverse(),
+            Err(_) => {
+                warn!("Using pseudo inverse");
+                xtx.as_mat_ref()
+                    .thin_svd()
+                    .expect("could not compute thin SVD for pseudoinverse")
+                    .pseudoinverse()
+            },
+        };
         for i in 0..ys.ncols() {
             let y = ys.col(i);
             let c_all = x.transpose() * y;
-            let betas = chol.solve(c_all);
+            let betas = match chol.as_ref() {
+                Ok(b) => b.solve(&c_all),
+                Err(_) => {
+                    warn!("Using pseudo inverse");
+                    &xtx_inv * c_all
+                },
+            };
             let mut predicted = (&x * &betas)
                 .try_as_col_major()
                 .expect("could not get slice")
