@@ -251,6 +251,7 @@ pub fn calculate_r2s(
                 i.to_string()
             }
         );
+        mat.unload();
         Ok(r2s)
     })
     .map(|x| {
@@ -338,6 +339,7 @@ pub fn column_p_values(
                 i.to_string()
             }
         );
+        mat.unload();
         Ok(p_values)
     })
 }

@@ -78,6 +78,12 @@ pub enum Matrix {
     R(RMatrix<f64>),
     Owned(OwnedMatrix),
     File(File),
+    OwnedFile(
+        OwnedMatrix,
+        #[allow(clippy::type_complexity)]
+        Vec<Arc<dyn for<'a> Fn(&'a mut Matrix) -> Result<&'a mut Matrix, Error>>>,
+        File,
+    ),
     Dyn(Box<dyn DerefMatrix>),
     Transform(
         #[allow(clippy::type_complexity)]
@@ -92,7 +98,10 @@ impl PartialEq for Matrix {
         match (self, other) {
             #[cfg(feature = "r")]
             (Matrix::R(a), Matrix::R(b)) => a == b,
-            (Matrix::Owned(a), Matrix::Owned(b)) => a == b,
+            (
+                Matrix::Owned(a) | Matrix::OwnedFile(a, _, _),
+                Matrix::Owned(b) | Matrix::OwnedFile(b, _, _),
+            ) => a == b,
             (Matrix::File(a), Matrix::File(b)) => a == b,
             (Matrix::Dyn(a), Matrix::Dyn(b)) => ***a == ***b,
             (Matrix::Transform(_, a), Matrix::Transform(_, b)) => a == b,
@@ -111,6 +120,9 @@ impl std::fmt::Debug for Matrix {
             Matrix::File(m) => write!(f, "Matrix::File({:?})", m),
             Matrix::Dyn(m) => write!(f, "Matrix::Dyn({:?})", m),
             Matrix::Transform(t, m) => write!(f, "Matrix::Transform({:?}, {:?})", t.len(), m),
+            Matrix::OwnedFile(m, t, fi) => {
+                write!(f, "Matrix::LoadedFile({:?}, {:?}, {:?})", m, t.len(), fi)
+            },
         }
     }
 }
@@ -135,7 +147,7 @@ impl Matrix {
         match self {
             #[cfg(feature = "r")]
             Matrix::R(m) => MatRef::from_column_major_slice(m.data(), m.nrows(), m.ncols()),
-            Matrix::Owned(m) => {
+            Matrix::Owned(m) | Matrix::OwnedFile(m, _, _) => {
                 MatRef::from_column_major_slice(m.data.as_slice(), m.nrows, m.ncols)
             },
             Matrix::File(_) => panic!("cannot call this function on a file"),
@@ -158,7 +170,7 @@ impl Matrix {
                     m.nrows() as isize,
                 )
             },
-            Matrix::Owned(m) => {
+            Matrix::Owned(m) | Matrix::OwnedFile(m, _, _) => {
                 MatMut::from_column_major_slice_mut(m.data.as_mut(), m.nrows, m.ncols)
             },
             m @ (Matrix::File(_) | Matrix::Transform(..)) => m.into_owned()?.as_mat_mut()?,
@@ -170,7 +182,7 @@ impl Matrix {
     pub fn as_owned_ref(&mut self) -> Result<&OwnedMatrix, crate::Error> {
         self.into_owned()?;
         match self {
-            Matrix::Owned(m) => Ok(&*m),
+            Matrix::Owned(m) | Matrix::OwnedFile(m, _, _) => Ok(&*m),
             Matrix::Dyn(m) => m.as_owned_ref(),
             _ => unreachable!(),
         }
@@ -180,7 +192,7 @@ impl Matrix {
     pub fn as_owned_mut(&mut self) -> Result<&mut OwnedMatrix, crate::Error> {
         self.into_owned()?;
         match self {
-            Matrix::Owned(m) => Ok(m),
+            Matrix::Owned(m) | Matrix::OwnedFile(m, _, _) => Ok(m),
             Matrix::Dyn(m) => m.as_owned_mut(),
             _ => unreachable!(),
         }
@@ -194,6 +206,7 @@ impl Matrix {
             Matrix::Owned(_) => true,
             Matrix::File(_) | Matrix::Transform(..) => false,
             Matrix::Dyn(m) => m.is_loaded(),
+            Matrix::OwnedFile(_, _, _) => true,
         }
     }
 
@@ -203,7 +216,7 @@ impl Matrix {
         Ok(match self {
             #[cfg(feature = "r")]
             Matrix::R(m) => m.clone().into_robj().clone().as_matrix().unwrap(),
-            Matrix::Owned(m) => {
+            Matrix::Owned(m) | Matrix::OwnedFile(m, _, _) => {
                 use extendr_api::prelude::*;
 
                 let mut mat = RMatrix::new_matrix(
@@ -361,7 +374,7 @@ impl Matrix {
     #[cfg_attr(coverage_nightly, coverage(off))]
     #[doc(hidden)]
     pub fn to_owned_loaded(self) -> OwnedMatrix {
-        if let Matrix::Owned(m) = self {
+        if let Matrix::Owned(m) | Matrix::OwnedFile(m, _, _) = self {
             m
         } else {
             panic!("matrix is not owned");
@@ -386,16 +399,39 @@ impl Matrix {
                 ));
                 Ok(self)
             },
-            Matrix::Owned(_) => Ok(self),
+            Matrix::Owned(_) | Matrix::OwnedFile(_, _, _) => Ok(self),
             Matrix::File(m) => {
-                *self = m.read()?;
-                Ok(self)
+                let mat = m.read()?;
+                if let Matrix::Owned(mat) = mat {
+                    *self = Matrix::OwnedFile(mat, vec![], m.clone());
+                    Ok(self)
+                } else {
+                    unreachable!();
+                }
             },
             Matrix::Dyn(m) => {
                 m.into_owned()?;
                 Ok(self)
             },
             Matrix::Transform(..) => self.transform(),
+        }
+    }
+
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn unload(&mut self) {
+        match self {
+            Matrix::OwnedFile(mat, fns, file) => {
+                if fns.is_empty() {
+                    *self = Matrix::File(file.clone());
+                } else {
+                    let fns = std::mem::take(fns);
+                    *self = Matrix::Transform(fns, Box::new(Matrix::File(file.clone())));
+                }
+            },
+            Matrix::Dyn(m) => {
+                m.unload();
+            },
+            _ => {},
         }
     }
 
@@ -416,7 +452,7 @@ impl Matrix {
                     colnames,
                 )))
             },
-            Matrix::Owned(mat) => Ok(Matrix::Owned(mat.clone())),
+            Matrix::Owned(mat) | Matrix::OwnedFile(mat, _, _) => Ok(Matrix::Owned(mat.clone())),
             Matrix::File(m) => Ok(m.read()?),
             Matrix::Dyn(m) => m.to_owned(),
             Matrix::Transform(fns, mat) => {
@@ -438,7 +474,7 @@ impl Matrix {
                     .as_str_iter()
                     .map(|x| x.collect::<Vec<_>>())
             }),
-            Matrix::Owned(m) => m
+            Matrix::Owned(m) | Matrix::OwnedFile(m, _, _) => m
                 .colnames
                 .as_deref()
                 .map(|x| x.iter().map(|x| x.as_str()).collect()),
@@ -458,7 +494,7 @@ impl Matrix {
                     .as_str_iter()
                     .map(|x| x.collect::<Vec<_>>())
             }),
-            Matrix::Owned(m) => m
+            Matrix::Owned(m) | Matrix::OwnedFile(m, _, _) => m
                 .colnames
                 .as_deref()
                 .map(|x| x.iter().map(|x| x.as_str()).collect()),
@@ -484,7 +520,7 @@ impl Matrix {
                     .unwrap();
                 Ok(self)
             },
-            Matrix::Owned(m) => {
+            Matrix::Owned(m) | Matrix::OwnedFile(m, _, _) => {
                 m.colnames = Some(colnames);
                 Ok(self)
             },
@@ -692,8 +728,11 @@ impl Matrix {
             let slf = std::mem::replace(self, Matrix::Owned(OwnedMatrix::new(0, 0, vec![], None)));
             if let Matrix::Transform(fns, mat) = slf {
                 let mut mat = *mat;
-                for f in fns {
+                for f in &fns {
                     f(&mut mat)?;
+                }
+                if let Matrix::OwnedFile(_, t, _) = &mut mat {
+                    *t = fns;
                 }
                 *self = mat;
             }
@@ -1993,7 +2032,7 @@ impl Matrix {
     #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn as_mut_slice(&mut self) -> Result<&mut [f64], crate::Error> {
         match self {
-            Matrix::Owned(m) => Ok(&mut m.data),
+            Matrix::Owned(m) | Matrix::OwnedFile(m, _, _) => Ok(&mut m.data),
             #[cfg(feature = "r")]
             Matrix::R(m) => Ok(unsafe {
                 std::slice::from_raw_parts_mut(m.data().as_ptr().cast_mut(), m.data().len())
